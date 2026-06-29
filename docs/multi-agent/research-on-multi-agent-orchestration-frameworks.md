@@ -1,5 +1,7 @@
 # 生产级多 Agent 系统编排与运行屏障工程深度调研报告
 
+> 更新日期：2026-06-30。本文聚焦多 Agent 编排架构、工程型 Agent Runtime 与生产级运行屏障，不将单纯聊天助手或单点 Prompt 工具纳入核心比较。
+
 ## 多 Agent 编排框架的演进与核心范式
 
 在生成式人工智能向自主系统（Autonomous Systems）演进的进程中，单一大型语言模型的概率性输出已无法满足企业级任务的确定性要求。
@@ -26,6 +28,86 @@
 | 开发与运维成本 | 框架开源；但 LangSmith 调试席位与节点运行需计费 | 核心开源；CrewAI Enterprise 平台提供增值计费 | 核心开源（MIT），可无缝对接 Azure AI 基础设施 |
 | 学习曲线与上手门槛 | 中等偏高，要求具备显式状态机与图拓扑设计思维 | 极低，采用高度抽象的拟人化角色 DSL | 中等，需掌握异步事件总线与 Actor 并发模型 |
 | 最佳应用场景 | 复杂分支、状态强确定性、需要高容错的闭环控制流 | 快速原型开发、角色明确的团队协作，如内容创作 | 大规模分布式 Agent 网络、跨语言协作与复杂工具网络 |
+
+### 2026 补充：Coding Agent、Kanban 与任务控制面
+
+如果只比较 LangGraph、CrewAI、MAF，会遗漏 2025-2026 年真正增长最快的一类系统：面向软件工程的 Coding Agent Runtime。Codex、Claude Code、GitHub Copilot cloud agent、Cline Kanban、Vibe Kanban 等产品并不总是以“框架”自称，但它们已经在工程实践中承担了多 Agent 编排的一部分职责：
+
+- 启动隔离工作区、分支或 Worktree。
+- 控制文件编辑、Shell 命令、浏览器、MCP 工具和权限审批。
+- 维护任务状态、日志、Diff、PR、评审意见和后续迭代。
+- 将多个 Agent 会话并行运行，并让人类在任务板、PR 或任务会话中调度与验收。
+
+因此，新的框架版图应从“只看代码库内的编排框架”，扩展为“Agent Runtime + Workflow SDK + 任务控制面 + 可观测性”的组合视角。
+
+| 类型 | 代表 | 核心定位 | 是否是多 Agent 编排框架 | 工程价值 | 主要局限 |
+| --- | --- | --- | --- | --- | --- |
+| Coding Agent Runtime | Codex、Claude Code、GitHub Copilot cloud agent、Cline | 面向代码库的自主执行器，内置文件编辑、命令执行、权限、记忆、工作区隔离、PR/评审等 Harness 能力 | 不是传统库级框架，但已经是实际生产中的 Agent Runtime | 最接近真实软件工程闭环，可直接完成 issue、branch、PR、review、test 等任务 | 对非代码业务流程的抽象较弱；编排粒度常绑定产品界面、CLI 或平台权限模型 |
+| Agent SDK / Harness SDK | OpenAI Agents SDK、Claude Agent SDK、Copilot SDK、Pydantic AI、Mastra | 用代码定义 Agent、工具、handoff、guardrail、状态、观测与权限 | 是，偏代码优先和 SDK 优先 | 灵活，易嵌入现有后端；适合自建控制面和企业内部系统 | 需要自行设计调度、持久化、任务队列和 UI |
+| 显式工作流 / 图编排 | LangGraph、MAF Workflows、LlamaIndex Workflows、Pydantic Graph | 用图、事件或类型化步骤控制执行路径 | 是，偏确定性流程控制 | 易测试、易恢复、易解释，适合明确步骤和长周期任务 | 动态拓扑、临时协作和人类临场调度可能变笨重 |
+| 角色团队框架 | CrewAI、AutoGen AgentChat、KaibanJS | 用角色、任务、团队、会话模拟协作 | 是，偏原型和团队抽象 | 上手快，适合内容、研究、业务自动化原型 | 细粒度状态、并发冲突和可靠恢复通常需要额外工程 |
+| Kanban / Mission Control | Vibe Kanban、Cline Kanban、Agent Kanban、GitHub Agent HQ | 将任务卡、分支、工作区、Agent 会话、评审状态和人工介入组织成任务控制面 | Kanban 本身不是框架；Agent 化 Kanban 是一种控制面或编排产品 | 最适合多 Coding Agent 并行、人工审阅和任务吞吐管理 | 对底层 Agent 能力依赖强；如果缺乏审计、权限和环境隔离，容易变成漂亮但脆弱的任务板 |
+
+### Codex 与 Claude Code 应如何归类
+
+**Codex** 不应被简单归到 LangGraph / CrewAI 这种“通用编排框架”一类。OpenAI 官方文档将 Codex 拆成 App、IDE Extension、CLI、Web、GitHub/Slack/Linear 集成，以及 Sandboxing、Subagents、Workflows、Memories、Hooks、MCP、Skills、GitHub Action、SDK 等能力模块。这说明 Codex 更像是一个面向工程任务的 Agent Runtime 与 Harness 平台：它把模型、工具、文件系统、Shell、浏览器、权限、工作区隔离和任务生命周期打包成一个可操作的开发环境。
+
+**Claude Code** 也类似。Anthropic 官方文档将其描述为可读取代码库、编辑文件、运行命令并集成开发工具的 agentic coding tool；它支持 CLI、IDE、Desktop、Web、Slack/CI 等入口，也提供 `CLAUDE.md`、自动记忆、Skills、Hooks、MCP、Subagents、Background agents、Routines、`/loop` 和 Agent SDK。Claude Code 的多 Agent 能力不是“框架优先”，而是“会话、子代理、工具权限、上下文隔离、任务调度优先”。
+
+这两类系统的启发在于：生产级多 Agent 编排不一定从抽象图开始，也可以从“任务、工作区、权限、工具、检查点、审查和反馈循环”开始。对软件工程场景而言，Codex / Claude Code 代表的可能是比传统框架更真实的生产形态。
+
+### Kanban 是多 Agent 编排框架吗
+
+结论：**Kanban 本身不是多 Agent 编排框架，但 Agent 化 Kanban 正在成为多 Agent 编排控制面的一种成熟形态。**
+
+传统 Kanban 只定义任务状态流转，例如 Backlog、Ready、In Progress、Review、Done。它不关心 Agent 如何获得上下文、如何调用工具、如何隔离环境、如何处理权限、如何失败恢复。因此它不是底层编排框架。
+
+但当 Kanban 与 Agent Runtime 结合后，它会变成一种很实用的“任务级编排层”：
+
+- 每张卡片对应一个可审计的 Agent 任务。
+- 每个任务绑定一个分支、Worktree、容器、Dev Server 或 PR。
+- 卡片状态对应 Agent 生命周期，如 Planning、Running、Blocked、Review、Merged。
+- 人类通过拖拽、评论、审批和反馈控制 Agent 的下一步。
+- 多个 Agent 可以并行领取不同卡片，也可以由 Lead Agent 拆分任务并派发。
+
+从这个角度看，Vibe Kanban、Cline Kanban、Agent Kanban、KaibanJS、GitHub Agent HQ 等更接近“Agent Mission Control”。它们不替代 Codex / Claude Code / Copilot / Cline 这样的执行器，而是把执行器组织起来，让人类能够规划、观察、比较、审查和收敛多个 Agent 会话。
+
+### 更完整的框架与架构补充清单
+
+除 LangGraph、CrewAI、MAF 之外，当前值得纳入视野的成熟或快速演进方案包括：
+
+| 方案 | 架构类型 | 适合场景 | 选型判断 |
+| --- | --- | --- | --- |
+| OpenAI Agents SDK | SDK 编排、handoff、guardrails、observability | 自建业务 Agent、需要 OpenAI 原生工具链与安全控制 | 适合作为轻量、代码优先的 Agent 编排底座；不强迫开发者接受图 DSL |
+| Claude Agent SDK / Claude Code | Coding Agent Runtime + SDK | 代码库自动化、CI、PR、团队工程任务 | 更像工程执行平台；如果任务主要围绕代码，非常值得优先评估 |
+| GitHub Copilot cloud agent / Agent HQ | GitHub 原生任务控制面 | issue 到 PR、团队协作、GitHub Actions 环境 | 如果组织已经深度使用 GitHub，这是最自然的任务级 Agent 编排入口 |
+| AutoGen Core / AgentChat | 事件驱动、多 Agent 对话与分布式运行时 | 研究、多 Agent 协作、跨语言或分布式 Agent | 比 CrewAI 更工程化，比 LangGraph 更偏 Actor/runtime；与 MAF 关系密切 |
+| LlamaIndex Workflows | 事件驱动、类型化 step workflow | RAG、检索增强、数据型 Agent、需要 async/事件驱动的流程 | 对厌烦 DAG 边爆炸的团队很友好，普通 Python 控制流更自然 |
+| Pydantic AI + Pydantic Graph | 类型安全 Agent 与有限状态机 | 强 schema、强类型、后端服务集成 | 比 LangChain 生态更薄、更 Pythonic；适合重视类型、测试和依赖注入的团队 |
+| Mastra | TypeScript Agent / Workflow / Memory / Eval 平台 | TS/Node 技术栈、产品化 Agent 后端 | 适合前后端一体化团队，Agent、Workflow、Memory、Observability 比较完整 |
+| KaibanJS | Kanban 风格多 Agent 团队框架 | JavaScript 团队、需要可视化任务/Agent 协作 | 更接近“可视化 CrewAI + Kanban 控制面”，适合原型和教学 |
+| Vibe Kanban / Cline Kanban / Agent Kanban | Coding Agent 任务板 | 多个代码 Agent 并行、人工规划与审查 | 是任务控制面，不是底层推理框架；底层执行质量取决于接入的 Agent |
+
+### 对 LangGraph / LangChain 灵活性的再评估
+
+如果“灵活性”指的是可以把 Agent 深度嵌入现有业务系统、保留普通代码控制流、按需替换模型/工具/队列/权限/观测系统，那么 LangGraph / LangChain 未必是最优默认选择。
+
+LangGraph 的优势在于显式状态机、持久化检查点、可视化、回放和 reducer 规约。它适合流程边界清晰、状态转换明确、需要强恢复能力的闭环任务。但是在以下场景中，它可能变成额外负担：
+
+- 执行路径高度动态，无法提前枚举节点和边。
+- 任务更像“人类 + 多个 Coding Agent + PR 审查”的协作，而非单一图工作流。
+- 团队希望使用普通语言结构表达分支、循环和异常处理，而不是把逻辑编码到图边上。
+- 已经有成熟的任务队列、数据库、权限系统、审计系统和 UI，只需要轻量 Agent SDK。
+- 需要跨 Codex、Claude Code、Copilot、Cline 等多个执行器做任务级调度。
+
+因此，生产选型可以采用以下优先级：
+
+1. **代码工程任务优先选 Runtime / 控制面**：Codex、Claude Code、Copilot cloud agent、Cline，以及 Vibe Kanban / GitHub Agent HQ 这类任务控制面。
+2. **业务 Agent 后端优先选 SDK**：OpenAI Agents SDK、Pydantic AI、Mastra、Claude Agent SDK；把队列、DB、权限、审计、工作流引擎保留在自有系统中。
+3. **确定性长流程再选 Graph / Workflow**：MAF Workflows、LlamaIndex Workflows、LangGraph、Pydantic Graph；要求明确 checkpoint、HITL、状态规约和重放。
+4. **快速角色原型再选 Crew 框架**：CrewAI、AutoGen AgentChat、KaibanJS；适合验证协作模式，但生产化需要补 Harness、观测和状态治理。
+
+换句话说，LangGraph 不是“不好”，而是“不应该作为所有多 Agent 系统的默认答案”。当任务天然是图、需要强状态和回放时，它很好；当任务天然是任务板、PR、分支、工具权限和人类审查时，Codex / Claude Code / Copilot / Kanban 控制面可能更贴近问题本身。
 
 ### 框架设计哲学的深度分化与技术背景
 
@@ -757,18 +839,35 @@ python app.py
 
 终端输出运行结果后，打开本地 `http://localhost:3000` 进入项目空间，可直观审阅层级嵌套的 Spans 调用树。每一个 Agent 节点的输入 Prompt、内部思考、大模型完成细节，以及通过自定义 Reducer 规约后最终合并的数据流都被精确记录在案。这为复杂的长周期多 Agent 调试、任务同步与接续提供了可靠的底层保障。
 
+## 参考资料与进一步阅读
+
+- [OpenAI Codex 文档](https://developers.openai.com/codex/)
+- [OpenAI Agents SDK 文档](https://platform.openai.com/docs/guides/agents)
+- [Anthropic Claude Code 文档](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Microsoft Agent Framework 文档](https://learn.microsoft.com/en-us/agent-framework/)
+- [AutoGen 文档](https://microsoft.github.io/autogen/stable/)
+- [LlamaIndex Workflows 文档](https://docs.llamaindex.ai/en/stable/module_guides/workflow/)
+- [Pydantic AI 文档](https://ai.pydantic.dev/)
+- [CrewAI 文档](https://docs.crewai.com/)
+- [Mastra 文档](https://mastra.ai/docs)
+- [GitHub Copilot cloud agent 文档](https://docs.github.com/copilot/concepts/agents/cloud-agent/about-cloud-agent)
+
 ## 总结与架构实施建议
 
-通过对多 Agent 编排框架、运行屏障工程（Harness Engineering）以及循环控制工程（Loop Engineering）的系统级调研，报告得出以下三项核心实施建议：
+通过对多 Agent 编排框架、运行屏障工程（Harness Engineering）以及循环控制工程（Loop Engineering）的系统级调研，报告得出以下四项核心实施建议：
 
-1. **根据控制与时效的诉求进行理性选型**
+1. **不要把 LangGraph / LangChain 作为默认答案**
 
-   研发团队在进行选型时应摒弃对高抽象框架的盲目追逐。对于复杂的企业级核心控制管道，必须首选 LangGraph 或 Microsoft Agent Framework，依靠其显式的超步状态机（BSP）和坚固的 WorkflowCheckpoint 存储底座来捍卫系统高容错运行；而对于业务逻辑简单、侧重角色分工的原型验证，CrewAI 则具有极高的开箱即用价值。
+   LangGraph 在显式状态机、检查点、图可视化、状态规约和长流程恢复上非常强，但它并不天然适合所有多 Agent 系统。若业务更像代码任务、Issue、PR、人工审查、权限审批和多执行器调度，应优先考虑 Codex、Claude Code、Copilot cloud agent、Cline、Vibe Kanban 或自建任务控制面。若业务更像后端服务集成，应优先考虑 OpenAI Agents SDK、Pydantic AI、Mastra、Claude Agent SDK 等更轻、更代码优先的方案。
 
-2. **构建以 ETCLOVG 为蓝图的 Harness 控制面**
+2. **按问题形态选择编排层**
+
+   代码工程任务优先选择 Agent Runtime；业务自动化优先选择 SDK；确定性长流程再选择 Graph / Workflow；团队角色原型再选择 Crew 框架。这样的分层能避免把所有问题都硬塞进一个图 DSL，也能让已有的数据库、队列、权限、审计、CI/CD 和任务系统继续发挥作用。
+
+3. **构建以 ETCLOVG 为蓝图的 Harness 控制面**
 
    65% 的企业级 Agent 落地失败皆是 Harness 失效导致的。架构设计者应放弃无休止的 Prompt 微调，转而建设具备严密物理隔离的代码沙箱（Execution Sandbox）、对接统一 MCP 标准的工具通信总线、以及能够实现前缀稳定性（Prefix Stability）的 Context 管理层，从系统工程层面榨取 10 倍的单元经济效益和运行稳定性。
 
-3. **推行具备硬防线的 Loop 自主终止系统设计**
+4. **推行具备硬防线的 Loop 自主终止系统设计**
 
    随着无人值守长周期 Agent 的普及，Loop 系统的安全控制已成为核心命题。设计者应遵循“契约式终止”原则，在外循环中强制部署死循环熔断（No-Progress Detection）、Token 账单硬熔断以及基于 Git 历史的长周期 Ralph 循环接续机制，在阻断执行失控的同时，确保任务能够跨会话无限期、稳健地朝既定终点收敛。
