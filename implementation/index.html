@@ -16,7 +16,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="sandbox-isolation/">
+        <link rel="next" href="stable-agent-execution-unit/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -489,9 +489,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#phase-0-qwen-code-worker" class="md-nav__link">
+  <a href="#phase-0-qwen-serve-saeu" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase 0：验证 Qwen Code worker
+      Phase 0：验证 qwen serve SAEU
     </span>
   </a>
   
@@ -569,6 +569,52 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="stable-agent-execution-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    稳定单 Agent 执行单元
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="qwen-serve-single-agent-cloud-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    基于 qwen-code serve 的云端单 Agent 单元方案
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -679,6 +725,52 @@
   
   <span class="md-ellipsis">
     单 Agent 基座选型
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="single-to-multi-agent-implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    从单 Agent 执行单元到多 Agent 编排
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="review-and-audit-record/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    方案审计与 Review 记录
     
   </span>
   
@@ -1054,9 +1146,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#phase-0-qwen-code-worker" class="md-nav__link">
+  <a href="#phase-0-qwen-serve-saeu" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase 0：验证 Qwen Code worker
+      Phase 0：验证 qwen serve SAEU
     </span>
   </a>
   
@@ -1162,15 +1254,20 @@
 <li>多 Agent 是控制平面：负责拆分任务、分派执行器、协调状态、处理失败、做人机协同和审计。</li>
 <li>云端长期运行是运行时问题：必须有 run/thread/session 建模、事件日志、心跳、租约、队列、重试、取消、恢复、artifact 管理和部署治理。</li>
 </ul>
-<p>建议的落地路线是：<strong>先把 Qwen Code 作为单 Agent worker 使用，在外层自建 Cloud Agent Runtime；等控制面稳定后，再按需 fork Qwen Code 的核心模块。不要从头实现完整 coding agent。</strong></p>
+<p>建议的落地路线是：<strong>先把 Qwen Code <code>qwen serve</code> 包装成稳定单 Agent 执行单元，在外层自建 Cloud Agent Runtime；多 Agent 编排只调度这个执行单元；等控制面稳定后，再按需 fork Qwen Code 的核心模块。不要从头实现完整 coding agent。</strong></p>
+<p>稳定单 Agent 执行单元是后续调度、编排和协议互操作的基础原子。它对外提供统一的启动、输入、事件、权限、取消、恢复、artifact 和 diagnostics 接口；对内可以由 qwen serve、Claude Code、OpenCode、Gemini CLI 或其他 worker 实现。</p>
 <h2 id="_2">文档归类<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <p>本方案拆成以下专题，便于后续持续补充：</p>
 <ul>
+<li><a href="stable-agent-execution-unit/">稳定单 Agent 执行单元</a>：定义外部编排和调度的基础原子。</li>
+<li><a href="qwen-serve-single-agent-cloud-unit/">基于 qwen-code serve 的云端单 Agent 单元方案</a>：完整设计单 Agent 云端部署、审计、重放、恢复和排障。</li>
 <li><a href="sandbox-isolation/">沙箱与隔离方案</a>：回答 Docker、多 VPS、资源限制、网络和密钥隔离。</li>
 <li><a href="protocol-acp-a2a/">ACP、A2A 与 MCP 协议选型</a>：回答 ACP 是否可以替代 A2A，以及三类协议的边界。</li>
 <li><a href="temporal-evaluation/">Temporal 调研与适配方案</a>：解释 Temporal 的核心概念、适用边界和低资源部署策略。</li>
 <li><a href="event-sourcing-and-replay/">事件溯源、JSONL 与回放</a>：回答 JSONL 是否可复现 qwen-code 场景，以及完整回放还缺什么。</li>
 <li><a href="single-agent-strategy/">单 Agent 基座选型</a>：比较直接部署、fork、抽取核心和从头实现。</li>
+<li><a href="single-to-multi-agent-implementation-plan/">从单 Agent 执行单元到多 Agent 编排</a>：给出可实施的多 Agent 演进路线。</li>
+<li><a href="review-and-audit-record/">方案审计与 Review 记录</a>：记录多轮审计结论、风险和 Go/No-Go。</li>
 </ul>
 <h2 id="_3">目标形态<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <p>这套系统的目标不是做一个“远程 CLI”，而是做一个可长期运行的 Agent 后端：</p>
@@ -1191,7 +1288,7 @@
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    Queue[&quot;Job Queue&lt;br/&gt;Lease / Heartbeat / Retry&quot;]
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    Worker[&quot;Agent Worker Supervisor&quot;]
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Sandbox[&quot;Per-run Sandbox&lt;br/&gt;Docker / Worktree / cgroups&quot;]
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    Agent[&quot;Qwen Code Worker&lt;br/&gt;serve / headless / ACP&quot;]
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    Agent[&quot;SAEU Adapter&lt;br/&gt;qwen serve / ACP bridge&quot;]
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    ModelProxy[&quot;Model Proxy&lt;br/&gt;Budget / Key isolation / Audit&quot;]
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    Tools[&quot;Tool Gateway&lt;br/&gt;MCP / Git / Shell / Browser&quot;]
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    EventStore[&quot;Event Store&lt;br/&gt;PostgreSQL + JSONL export&quot;]
@@ -1391,9 +1488,9 @@
 </code></pre></div>
 <p>这样即使容器逃逸，爆炸半径也主要限制在 worker 节点。对于 1-2 台小 VPS，这是比 Kubernetes 更现实的安全收益。</p>
 <h2 id="mvp">MVP 实施路线<a class="headerlink" href="#mvp" title="Permanent link">&para;</a></h2>
-<h3 id="phase-0-qwen-code-worker">Phase 0：验证 Qwen Code worker<a class="headerlink" href="#phase-0-qwen-code-worker" title="Permanent link">&para;</a></h3>
+<h3 id="phase-0-qwen-serve-saeu">Phase 0：验证 qwen serve SAEU<a class="headerlink" href="#phase-0-qwen-serve-saeu" title="Permanent link">&para;</a></h3>
 <ul>
-<li>用 Qwen Code headless 或 <code>qwen serve</code> 跑真实代码任务。</li>
+<li>用 <code>qwen serve</code> 包装成一个稳定单 Agent 执行单元，跑真实代码任务。</li>
 <li>记录 token、耗时、失败类型、权限请求和 JSONL。</li>
 <li>明确哪些工具必须禁用，哪些工具需要人工审批。</li>
 </ul>
@@ -1473,7 +1570,7 @@
 </tr>
 <tr>
 <td>ACP 能否替代 A2A</td>
-<td>内部 client-to-agent 控制可以用 ACP；开放式 agent-to-agent 互操作仍建议 A2A Gateway。</td>
+<td>内部 worker 控制走 SAEU contract，qwen 侧用 qwen serve/ACP bridge；开放式 agent-to-agent 互操作仍建议 A2A Gateway。</td>
 </tr>
 <tr>
 <td>是否立即上 Temporal</td>
@@ -1485,7 +1582,7 @@
 </tr>
 <tr>
 <td>单 Agent 用什么</td>
-<td>先直接部署 Qwen Code worker，外围做云端 runtime；稳定后再小范围 fork。</td>
+<td>先直接部署 <code>qwen serve</code> SAEU，外围做云端 runtime；稳定后再小范围 fork。</td>
 </tr>
 </tbody>
 </table>

@@ -1,0 +1,1748 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent framework, multi-agent orchestration, and runtime harness research notes.">
+      
+      
+      
+        <link rel="canonical" href="https://chiga0.github.io/agent-research/implementation/qwen-serve-single-agent-cloud-unit/">
+      
+      
+        <link rel="prev" href="../stable-agent-execution-unit/">
+      
+      
+        <link rel="next" href="../sandbox-isolation/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
+    
+    
+      
+        <title>基于 qwen-code serve 的云端单 Agent 单元方案 - Agent Research</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#qwen-code-serve-agent" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="Agent Research" class="md-header__button md-logo" aria-label="Agent Research" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Agent Research
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              基于 qwen-code serve 的云端单 Agent 单元方案
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="切换到深色模式"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到深色模式" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="切换到浅色模式"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到浅色模式" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/chiga0/agent-research" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    chiga0/agent-research
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Agent Research" class="md-nav__button md-logo" aria-label="Agent Research" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Agent Research
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/chiga0/agent-research" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    chiga0/agent-research
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    首页
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    落地方案
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            落地方案
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    可云端长期运行的多 Agent 系统落地方案
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stable-agent-execution-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    稳定单 Agent 执行单元
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    基于 qwen-code serve 的云端单 Agent 单元方案
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    基于 qwen-code serve 的云端单 Agent 单元方案
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      设计目标
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qwen-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      qwen serve 能力基线
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      单元拓扑
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      启动策略
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="启动策略">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      进程模式
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      容器模式
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supervisor" class="md-nav__link">
+    <span class="md-ellipsis">
+      Supervisor 职责
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      对外 API
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      事件采集
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      审计设计
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      重放设计
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      可恢复设计
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="可恢复设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      客户端断线
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supervisor-sse" class="md-nav__link">
+    <span class="md-ellipsis">
+      Supervisor SSE 断线
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qwen-daemon" class="md-nav__link">
+    <span class="md-ellipsis">
+      qwen daemon 崩溃
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      worker 节点重启
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      问题排查
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      高可用策略
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      安全策略
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      最小验收
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      暂不做
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    沙箱与隔离方案
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocol-acp-a2a/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ACP、A2A 与 MCP 协议选型
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../temporal-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Temporal 调研与适配方案
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../event-sourcing-and-replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    事件溯源、JSONL 与回放
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../single-agent-strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    单 Agent 基座选型
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../single-to-multi-agent-implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    从单 Agent 执行单元到多 Agent 编排
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../review-and-audit-record/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    方案审计与 Review 记录
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Cloud Agents
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Cloud Agents
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cloud-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    企业级 Cloud Agents 框架与运行时技术调研报告
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    多 Agent
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            多 Agent
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../multi-agent/research-on-multi-agent-orchestration-frameworks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    生产级多 Agent 系统编排与运行屏障工程
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    其他 Agent
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            其他 Agent
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../other-agents/qwen-code-core-sdk-agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Qwen Code Core 与 SDK Agent 架构分析
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      设计目标
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qwen-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      qwen serve 能力基线
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      单元拓扑
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      启动策略
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="启动策略">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      进程模式
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      容器模式
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supervisor" class="md-nav__link">
+    <span class="md-ellipsis">
+      Supervisor 职责
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      对外 API
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      事件采集
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      审计设计
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      重放设计
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      可恢复设计
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="可恢复设计">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      客户端断线
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supervisor-sse" class="md-nav__link">
+    <span class="md-ellipsis">
+      Supervisor SSE 断线
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qwen-daemon" class="md-nav__link">
+    <span class="md-ellipsis">
+      qwen daemon 崩溃
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      worker 节点重启
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      问题排查
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      高可用策略
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      安全策略
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      最小验收
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      暂不做
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="qwen-code-serve-agent">基于 qwen-code serve 的云端单 Agent 单元方案<a class="headerlink" href="#qwen-code-serve-agent" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>结论：<code>qwen serve</code> 可以作为稳定单 Agent 执行单元的第一版 runtime，但必须在外层加 Supervisor、Event Store、Artifact Store、Model Proxy、Sandbox Policy 和恢复控制。不要把 alpha 阶段的 qwen serve 直接暴露公网或直接当作生产控制面。</p>
+</blockquote>
+<h2 id="_1">设计目标<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p>本方案把一个 qwen serve daemon 包装成一个云端可托管单 Agent 单元：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Stable Agent Execution Unit
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  = Worker Supervisor
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  + qwen serve daemon
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  + workspace sandbox
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  + event adapter
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  + artifact collector
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  + health/recovery controller
+</code></pre></div>
+<p>它对外暴露统一 SAEU contract，对内使用 qwen serve 的 HTTP + SSE + ACP bridge。</p>
+<h2 id="qwen-serve">qwen serve 能力基线<a class="headerlink" href="#qwen-serve" title="Permanent link">&para;</a></h2>
+<p>从本地 Qwen Code 文档看，<code>qwen serve</code> 当前具备这些关键能力：</p>
+<ul>
+<li>一个 daemon 绑定一个 workspace。</li>
+<li>daemon 内部启动一个 <code>qwen --acp</code> child process 执行真实 Agent runtime。</li>
+<li>外部通过 HTTP + SSE 访问 daemon。</li>
+<li>支持 <code>POST /session</code> 创建或附着 session。</li>
+<li>支持 <code>POST /session/:id/prompt</code> 提交 prompt，异步返回 202。</li>
+<li>支持 <code>GET /session/:id/events</code> 订阅 SSE。</li>
+<li>SSE 支持 <code>Last-Event-ID</code>，可在 event ring 范围内重连追赶。</li>
+<li>支持 <code>permission_request</code>、<code>permission_resolved</code>、<code>permission_partial_vote</code>、<code>permission_forbidden</code>。</li>
+<li>支持 <code>/health</code>、<code>/capabilities</code>、<code>/daemon/status</code>、<code>/session/:id/status</code>。</li>
+<li>支持 <code>/session/:id/load</code>、<code>/session/:id/resume</code>。</li>
+<li>支持 session recap、stats、context usage、tasks、LSP status 等诊断接口。</li>
+<li>支持 remote runtime control，例如 approval mode、tool enable/disable、MCP server restart。</li>
+</ul>
+<p>限制也必须写进设计：</p>
+<ul>
+<li>qwen serve 文档标注为 experimental / local-first。</li>
+<li>容器化部署、反向代理和多 daemon 协调在 alpha 阶段不是主保证面。</li>
+<li>event ring 是有界缓冲，不是长期审计日志。</li>
+<li>一个 daemon 等于一个 workspace，多 workspace 要多个 daemon 或外层编排。</li>
+<li>生产级多客户端、长时间网络抖动和大规模连接需要外层补强。</li>
+</ul>
+<h2 id="_2">单元拓扑<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flowchart TB
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    RM[&quot;Run Manager&quot;]
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    SUP[&quot;Worker Supervisor&quot;]
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    QW[&quot;qwen serve daemon&quot;]
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    ACP[&quot;qwen --acp child&quot;]
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    WS[&quot;Workspace&lt;br/&gt;Git worktree / clone&quot;]
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    EV[&quot;Event Adapter&quot;]
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    ES[&quot;Event Store&quot;]
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    AR[&quot;Artifact Collector&quot;]
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    AS[&quot;Artifact Store&quot;]
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    MP[&quot;Model Proxy&quot;]
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    MCP[&quot;MCP Gateway&quot;]
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    RM --&gt; SUP
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    SUP --&gt; QW
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    QW --&gt; ACP
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    QW --&gt; WS
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>    QW -- &quot;SSE&quot; --&gt; EV
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>    EV --&gt; ES
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    SUP --&gt; AR
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>    AR --&gt; AS
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>    ACP --&gt; MP
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>    ACP --&gt; MCP
+</code></pre></div>
+<h2 id="_3">启动策略<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<h3 id="_4">进程模式<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<p>适合本地 POC：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">QWEN_SERVER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>/srv/agent/workspaces/run-123
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>qwen<span class="w"> </span>serve<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--port<span class="w"> </span><span class="m">4170</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--require-auth<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>--token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$QWEN_SERVER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>--event-ring-size<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>--prompt-deadline-ms<span class="w"> </span><span class="m">3600000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span>--writer-idle-timeout-ms<span class="w"> </span><span class="m">300000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span>--rate-limit
+</code></pre></div>
+<h3 id="_5">容器模式<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>适合云端单元：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--name<span class="w"> </span>qwen-unit-run-123<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--memory<span class="o">=</span>1024m<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--cpus<span class="o">=</span><span class="m">1</span>.0<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--pids-limit<span class="o">=</span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>--cap-drop<span class="o">=</span>ALL<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--security-opt<span class="o">=</span>no-new-privileges<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span>-u<span class="w"> </span><span class="m">1000</span>:1000<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">QWEN_SERVER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://model-proxy:8080/v1&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;proxy-scoped-token&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">  </span>-v<span class="w"> </span>/srv/agent/workspaces/run-123:/workspace:rw<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span>-v<span class="w"> </span>/srv/agent/artifacts/run-123:/artifacts:rw<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">  </span>-w<span class="w"> </span>/workspace<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span>qwen-code-runner:latest<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">  </span>qwen<span class="w"> </span>serve<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span>--port<span class="w"> </span><span class="m">4170</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">    </span>--require-auth<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">    </span>--token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$QWEN_SERVER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span>--event-ring-size<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">    </span>--prompt-deadline-ms<span class="w"> </span><span class="m">3600000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">    </span>--writer-idle-timeout-ms<span class="w"> </span><span class="m">300000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="w">    </span>--rate-limit
+</code></pre></div>
+<p>注意：</p>
+<ul>
+<li>容器网络只允许访问 Run Manager、Model Proxy、MCP Gateway 和必要 registry。</li>
+<li>不暴露到公网，只在 worker 内网或 loopback 访问。</li>
+<li>token 由 Worker Supervisor 生成，run 结束销毁。</li>
+<li>真实模型 key 不进容器，只给 Model Proxy。</li>
+</ul>
+<h2 id="supervisor">Supervisor 职责<a class="headerlink" href="#supervisor" title="Permanent link">&para;</a></h2>
+<p>Worker Supervisor 是生产化关键。它不能只是 <code>docker run</code> 包装器。</p>
+<table>
+<thead>
+<tr>
+<th>职责</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>workspace 准备</td>
+<td>clone/worktree、设置权限、写入 run manifest</td>
+</tr>
+<tr>
+<td>daemon 启动</td>
+<td>分配端口、token、资源、网络、环境变量</td>
+</tr>
+<tr>
+<td>健康检查</td>
+<td>轮询 <code>/health</code>、<code>/capabilities</code>、<code>/daemon/status</code></td>
+</tr>
+<tr>
+<td>session 管理</td>
+<td><code>POST /session</code>、记录 session_id、session scope</td>
+</tr>
+<tr>
+<td>prompt 投递</td>
+<td><code>POST /session/:id/prompt</code>，记录 prompt_id/input_id</td>
+</tr>
+<tr>
+<td>SSE 订阅</td>
+<td>维护 <code>Last-Event-ID</code>，断线重连</td>
+</tr>
+<tr>
+<td>事件转换</td>
+<td>qwen event -&gt; SAEU event -&gt; Event Store</td>
+</tr>
+<tr>
+<td>权限中继</td>
+<td>permission request 写 DB，等待外部审批后调用 <code>/permission/:id</code></td>
+</tr>
+<tr>
+<td>artifact 收集</td>
+<td>transcript、events、diff、logs、diagnostics</td>
+</tr>
+<tr>
+<td>恢复控制</td>
+<td>daemon 崩溃后 load/resume 或重建</td>
+</tr>
+<tr>
+<td>终止清理</td>
+<td>cancel、kill、collect、cleanup</td>
+</tr>
+</tbody>
+</table>
+<h2 id="api">对外 API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
+<p>Run Manager 不直接暴露 qwen serve 原始 API，而暴露稳定接口：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="err">POST /runs</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="err">GET  /runs/{run_id}</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="err">GET  /runs/{run_id}/events</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="err">POST /runs/{run_id}/input</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="err">POST /runs/{run_id}/cancel</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="err">GET  /runs/{run_id}/artifacts</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="err">GET  /runs/{run_id}/diagnostics</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="err">POST /permissions/{permission_id}/resolve</span>
+</code></pre></div>
+<p>这样以后可以替换 worker，不影响客户端。</p>
+<h2 id="_6">事件采集<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<p>qwen serve SSE 是实时事件源，但不是唯一事实源。Supervisor 必须：</p>
+<ol>
+<li>首次连接 <code>GET /session/:id/events?maxQueued=2048</code>。</li>
+<li>保存每个 qwen SSE envelope 的原始 JSON 到 artifact。</li>
+<li>转换成 SAEU canonical event 写入 Postgres。</li>
+<li>记录 qwen <code>envelope.id</code> 和内部 <code>event_id</code> 的映射。</li>
+<li>断线后用 <code>Last-Event-ID</code> 重连。</li>
+<li>如果检测到 gap，标记 <code>event.gap_detected</code> 并从 qwen <code>/session/:id/load</code> 或内部 transcript 补救。</li>
+</ol>
+<p>event ring 只能用于短线重连。长期审计必须依赖外部 Event Store。</p>
+<h2 id="_7">审计设计<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p>每个 run 结束后至少产出：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>artifacts/run-123/
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  manifest.json
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  qwen-sse.raw.jsonl
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  events.canonical.jsonl
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>  transcript.jsonl
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>  permissions.jsonl
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  diagnostics.start.json
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  diagnostics.end.json
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  stdout.log
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>  stderr.log
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  diff.patch
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  final.md
+</code></pre></div>
+<p><code>manifest.json</code> 至少包含：</p>
+<ul>
+<li>run_id、unit_id、session_id、prompt_id。</li>
+<li>repo URL、commit SHA、worktree path。</li>
+<li>container image digest。</li>
+<li>qwen-code version。</li>
+<li>qwen serve flags。</li>
+<li>model provider/model，不包含真实 key。</li>
+<li>MCP servers 和 tool policy。</li>
+<li>sandbox policy。</li>
+<li>start/end 时间和终止原因。</li>
+</ul>
+<p>审计事件必须覆盖：</p>
+<ul>
+<li>谁创建 run。</li>
+<li>谁发送 prompt。</li>
+<li>谁审批权限。</li>
+<li>Agent 调用了什么工具。</li>
+<li>工具输入输出引用。</li>
+<li>产出了哪些 artifact。</li>
+<li>是否发生恢复、gap、重试、取消。</li>
+</ul>
+<h2 id="_8">重放设计<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<p>重放分三种：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>目标</th>
+<th>输入</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UI Replay</td>
+<td>重现用户看到的流式过程</td>
+<td><code>events.canonical.jsonl</code></td>
+</tr>
+<tr>
+<td>Transcript Replay</td>
+<td>重建 Agent 上下文</td>
+<td><code>transcript.jsonl</code>、qwen session load</td>
+</tr>
+<tr>
+<td>Deterministic Debug Replay</td>
+<td>尽量复现问题</td>
+<td>workspace snapshot + model/tool fixtures</td>
+</tr>
+</tbody>
+</table>
+<p>第一版必须实现 UI Replay 和 Transcript Replay。Deterministic Debug Replay 后续做，因为它需要 mock 模型输出和工具输出。</p>
+<h2 id="_9">可恢复设计<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<h3 id="_10">客户端断线<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Run Manager 保存最后消费的 <code>event_id</code>。</li>
+<li>客户端重新 <code>GET /runs/:id/events?after=...</code>。</li>
+<li>不依赖 qwen serve event ring；从 Event Store 回放。</li>
+</ul>
+<h3 id="supervisor-sse">Supervisor SSE 断线<a class="headerlink" href="#supervisor-sse" title="Permanent link">&para;</a></h3>
+<ul>
+<li>使用 qwen <code>Last-Event-ID</code> 重连。</li>
+<li>比较第一个 replay event id 是否等于 <code>last_qwen_id + 1</code>。</li>
+<li>无 gap：继续。</li>
+<li>有 gap：写 <code>event.gap_detected</code>，调用 <code>/session/:id/load</code>，并把诊断 artifact 保存。</li>
+</ul>
+<h3 id="qwen-daemon">qwen daemon 崩溃<a class="headerlink" href="#qwen-daemon" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>session_died</code> 或 process exit 触发 <code>unit.recovering</code>。</li>
+<li>保存 <code>diagnostics.crash.json</code>、stdout/stderr。</li>
+<li>如果 workspace 和 transcript 完整，重启 daemon 并尝试 <code>/session/:id/load</code> 或 <code>/session/:id/resume</code>。</li>
+<li>恢复成功写 <code>unit.recovered</code>。</li>
+<li>恢复失败写 <code>run.failed</code>，原因 <code>agent_session_lost</code>。</li>
+</ul>
+<h3 id="worker">worker 节点重启<a class="headerlink" href="#worker" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Supervisor 启动时扫描 DB 中 <code>running/recovering/waiting_permission</code> 的 runs。</li>
+<li>检查对应容器是否还在。</li>
+<li>容器存在：重新订阅 SSE。</li>
+<li>容器不存在：按恢复策略重建或标记 failed。</li>
+</ul>
+<h2 id="_11">问题排查<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<p>排查入口：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>先看</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>没有输出</td>
+<td><code>/session/:id/status</code>、SSE heartbeat、prompt_id</td>
+</tr>
+<tr>
+<td>权限卡住</td>
+<td><code>permissions</code> 表、<code>permission_request</code>、timeout</td>
+</tr>
+<tr>
+<td>模型失败</td>
+<td>model proxy logs、usage metadata、provider error</td>
+</tr>
+<tr>
+<td>工具失败</td>
+<td>tool call event、stdout/stderr、exit code</td>
+</tr>
+<tr>
+<td>session 崩溃</td>
+<td><code>session_died</code>、daemon stderr、container exit code</td>
+</tr>
+<tr>
+<td>事件缺失</td>
+<td>qwen event id gap、Event Store seq gap</td>
+</tr>
+<tr>
+<td>成本异常</td>
+<td>model proxy token/cost、recap 调用次数</td>
+</tr>
+<tr>
+<td>上下文爆掉</td>
+<td><code>/session/:id/context-usage</code>、compaction events</td>
+</tr>
+</tbody>
+</table>
+<p>每个 run 的 diagnostics endpoint 应返回：</p>
+<ul>
+<li>unit 状态。</li>
+<li>qwen daemon 状态。</li>
+<li>session 状态。</li>
+<li>container 状态。</li>
+<li>最近 20 个 canonical events。</li>
+<li>最近 permission 状态。</li>
+<li>最近 tool call 状态。</li>
+<li>resource usage。</li>
+<li>event gap 检测结果。</li>
+</ul>
+<h2 id="_12">高可用策略<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h2>
+<p>在 1-2 台 VPS 上，HA 不是多副本起步，而是可恢复和小爆炸半径：</p>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API 进程重启</td>
+<td>Event Store 持久化，SSE 客户端从 DB 重连</td>
+</tr>
+<tr>
+<td>Supervisor 重启</td>
+<td>扫描 running runs，重新 attach 或恢复</td>
+</tr>
+<tr>
+<td>qwen daemon 崩溃</td>
+<td>重启并 load/resume，失败后留完整 artifact</td>
+</tr>
+<tr>
+<td>VPS 重启</td>
+<td>systemd 启动 API/Supervisor，恢复 running runs</td>
+</tr>
+<tr>
+<td>DB 损坏</td>
+<td>每日备份，artifact 可独立留存</td>
+</tr>
+<tr>
+<td>容器逃逸</td>
+<td>普通任务 Docker，风险任务独立 worker VPS</td>
+</tr>
+<tr>
+<td>模型 API 波动</td>
+<td>Model Proxy 做重试、限流、降级和预算</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_13">安全策略<a class="headerlink" href="#_13" title="Permanent link">&para;</a></h2>
+<ul>
+<li>qwen serve 不暴露公网。</li>
+<li>所有 mutation route 必须 bearer token。</li>
+<li>token 每个 unit 独立生成。</li>
+<li><code>X-Qwen-Client-Id</code> 使用 <code>run-manager:&lt;run_id&gt;</code>，用于审计 attribution。</li>
+<li>Agent 容器不挂载 SSH key、云 credential、Docker socket。</li>
+<li><code>.env</code>、密钥文件读取默认 deny 或 ask。</li>
+<li>tool enable/disable 由 Run Manager 根据 tool policy 管理。</li>
+<li>外部网络通过 egress proxy。</li>
+<li>Model Proxy 替代真实模型 key。</li>
+</ul>
+<h2 id="_14">最小验收<a class="headerlink" href="#_14" title="Permanent link">&para;</a></h2>
+<p>第一版完成后，应能证明：</p>
+<ol>
+<li>创建一个 run 会启动独立 qwen serve 单元。</li>
+<li>prompt 能异步提交，事件能从 Run Manager SSE 看到。</li>
+<li>permission request 能出现在 UI/API 并被审批。</li>
+<li>客户端断线后可从 Event Store 追上事件。</li>
+<li>qwen serve 重启后能恢复或给出明确失败原因。</li>
+<li>run 结束后 artifact 完整。</li>
+<li>任何失败都有 <code>failure_kind</code> 和 diagnostics。</li>
+<li>没有真实模型 key 或宿主机敏感路径进入 Agent 容器。</li>
+</ol>
+<h2 id="_15">暂不做<a class="headerlink" href="#_15" title="Permanent link">&para;</a></h2>
+<p>第一版不要做：</p>
+<ul>
+<li>多 qwen daemon 之间直接互联。</li>
+<li>直接把 qwen serve 暴露公网给用户。</li>
+<li>把 qwen event ring 当持久化日志。</li>
+<li>在没有外部 Event Store 的情况下支持长任务恢复。</li>
+<li>从头改写 qwen-code core。</li>
+</ul>
+<p>先把一个 qwen serve 单元做到稳定，再把它作为多 Agent 编排的调度原子。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.instant", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.56ea9cef.min.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

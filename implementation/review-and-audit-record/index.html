@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://chiga0.github.io/agent-research/implementation/event-sourcing-and-replay/">
+        <link rel="canonical" href="https://chiga0.github.io/agent-research/implementation/review-and-audit-record/">
       
       
-        <link rel="prev" href="../temporal-evaluation/">
+        <link rel="prev" href="../single-to-multi-agent-implementation-plan/">
       
       
-        <link rel="next" href="../single-agent-strategy/">
+        <link rel="next" href="../../cloud-agents/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>事件溯源、JSONL 与回放 - Agent Research</title>
+        <title>方案审计与 Review 记录 - Agent Research</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#jsonl" class="md-skip">
+        <a href="#review" class="md-skip">
           跳转至
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              事件溯源、JSONL 与回放
+              方案审计与 Review 记录
             
           </span>
         </div>
@@ -462,32 +462,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    事件溯源、JSONL 与回放
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../event-sourcing-and-replay/" class="md-nav__link">
         
   
   
@@ -498,125 +476,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      事件溯源是什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      JSONL 可以做什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#qwen-code-jsonl" class="md-nav__link">
-    <span class="md-ellipsis">
-      qwen-code JSONL 能否复现和回放
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      完整回放还需要什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      推荐事件模型
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#opencode" class="md-nav__link">
-    <span class="md-ellipsis">
-      与 OpenCode 的启发
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      在线事件与离线 JSONL 的关系
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      回放模式
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#mvp" class="md-nav__link">
-    <span class="md-ellipsis">
-      MVP 建议
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#metajson" class="md-nav__link">
-    <span class="md-ellipsis">
-      最小 meta.json
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_5" class="md-nav__link">
-    <span class="md-ellipsis">
-      结论
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -672,10 +531,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../review-and-audit-record/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    方案审计与 Review 记录
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -686,6 +567,290 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#review_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Review 结论
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      第一轮：架构边界 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第一轮：架构边界 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      第二轮：协议能力 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第二轮：协议能力 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      第三轮：安全与权限 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第三轮：安全与权限 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      第四轮：恢复、重放与排障 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第四轮：恢复、重放与排障 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-risks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Open Risks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-no-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      Go / No-Go 决策
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Go / No-Go 决策">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go" class="md-nav__link">
+    <span class="md-ellipsis">
+      Go
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      No-Go
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      最终可实施判断
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -944,99 +1109,264 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#review_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Review 结论
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      第一轮：架构边界 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第一轮：架构边界 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      事件溯源是什么
+      审查问题
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      JSONL 可以做什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#qwen-code-jsonl" class="md-nav__link">
-    <span class="md-ellipsis">
-      qwen-code JSONL 能否复现和回放
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
+        
+          <li class="md-nav__item">
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
-      完整回放还需要什么
+      发现
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
+        
+          <li class="md-nav__item">
   <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
-      推荐事件模型
+      修正
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#opencode" class="md-nav__link">
-    <span class="md-ellipsis">
-      与 OpenCode 的启发
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      在线事件与离线 JSONL 的关系
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
+        
+          <li class="md-nav__item">
   <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
-      回放模式
+      结论
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#mvp" class="md-nav__link">
+  <a href="#review_3" class="md-nav__link">
     <span class="md-ellipsis">
-      MVP 建议
+      第二轮：协议能力 Review
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#metajson" class="md-nav__link">
-    <span class="md-ellipsis">
-      最小 meta.json
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
+    <nav class="md-nav" aria-label="第二轮：协议能力 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
       结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      第三轮：安全与权限 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第三轮：安全与权限 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      第四轮：恢复、重放与排障 Review
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第四轮：恢复、重放与排障 Review">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      审查问题
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      发现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      修正
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      结论
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-risks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Open Risks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-no-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      Go / No-Go 决策
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Go / No-Go 决策">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go" class="md-nav__link">
+    <span class="md-ellipsis">
+      Go
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      No-Go
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      最终可实施判断
     </span>
   </a>
   
@@ -1061,315 +1391,215 @@
   
 
 
-<h1 id="jsonl">事件溯源、JSONL 与回放<a class="headerlink" href="#jsonl" title="Permanent link">&para;</a></h1>
+<h1 id="review">方案审计与 Review 记录<a class="headerlink" href="#review" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>结论：JSONL 是一种事件或 transcript 的存储格式；事件溯源是一种系统建模方法。Qwen Code 的 JSONL 可以支持恢复和部分复现，但如果想完整复现用户场景，还必须记录 workspace、配置、工具输出、权限决策、模型输出和运行环境。</p>
+<p>本记录用于审计“稳定单 Agent 执行单元 -&gt; qwen serve 云端单元 -&gt; 多 Agent 编排”的方案可行性。结论：方案可以作为 MVP 到 Beta 的实施路线，但必须坚持 SAEU contract、外部 Event Store、权限服务和 workspace 隔离四条底线。</p>
 </blockquote>
-<h2 id="_1">事件溯源是什么<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
-<p>事件溯源的核心不是“把日志写成 JSONL”，而是：</p>
+<h2 id="review_1">Review 结论<a class="headerlink" href="#review_1" title="Permanent link">&para;</a></h2>
+<p>最终方案通过四轮 review：</p>
 <ol>
-<li>系统状态由 append-only 事件推导出来。</li>
-<li>每个事件代表已经发生的事实。</li>
-<li>当前状态可以通过重放事件重建。</li>
-<li>审计、调试、恢复、回放都基于同一条事实链。</li>
+<li>架构边界 review：确认外部编排只依赖 SAEU，不直接绑定 qwen serve。</li>
+<li>协议能力 review：确认 ACP/A2A/MCP 各自边界，A2A 可用于外部互操作，但内部 worker 控制仍用 SAEU。</li>
+<li>安全与权限 review：确认 qwen serve 不公网暴露，密钥不进容器，权限请求一等建模。</li>
+<li>恢复与排障 review：确认 event ring 不是审计日志，必须有外部 Event Store 和 artifact 包。</li>
 </ol>
-<p>示例事件：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;run.created&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="s2">&quot;qwen-code&quot;</span><span class="p">,</span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="s2">&quot;2026-06-30T10:00:00Z&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;step.started&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;step_id&quot;</span><span class="p">:</span><span class="s2">&quot;step_1&quot;</span><span class="p">,</span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="s2">&quot;model_turn&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;tool.called&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool&quot;</span><span class="p">:</span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="nt">&quot;input_ref&quot;</span><span class="p">:</span><span class="s2">&quot;artifact://input/tool_1.json&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;permission.requested&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;permission_id&quot;</span><span class="p">:</span><span class="s2">&quot;perm_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;permission.approved&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;permission_id&quot;</span><span class="p">:</span><span class="s2">&quot;perm_1&quot;</span><span class="p">,</span><span class="nt">&quot;decider&quot;</span><span class="p">:</span><span class="s2">&quot;user_1&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;tool.succeeded&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">,</span><span class="nt">&quot;output_ref&quot;</span><span class="p">:</span><span class="s2">&quot;artifact://output/tool_1.json&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;run.completed&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;succeeded&quot;</span><span class="p">}</span>
+<h2 id="review_2">第一轮：架构边界 Review<a class="headerlink" href="#review_2" title="Permanent link">&para;</a></h2>
+<h3 id="_1">审查问题<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h3>
+<p>是否可以抽象出“稳定单 Agent 执行单元”，并把它作为外部编排、调度、A2A Gateway 的基础单元？</p>
+<h3 id="_2">发现<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p>可以，而且必须这样做。否则多 Agent 编排会直接依赖某个 CLI 或 daemon 的私有语义，导致后续无法替换 worker。</p>
+<p>风险点：</p>
+<ul>
+<li>qwen serve 是一 daemon 一 workspace，天然适合封装成一个 unit，但不能代表所有 worker。</li>
+<li>qwen SSE event ring 是短期重连缓冲，不是长期状态。</li>
+<li>如果外部编排直接调用 qwen serve API，后续接入 Claude Code/OpenCode/Gemini CLI 会非常痛。</li>
+</ul>
+<h3 id="_3">修正<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<p>新增 SAEU contract：</p>
+<ul>
+<li>统一生命周期。</li>
+<li>统一事件 schema。</li>
+<li>统一权限面。</li>
+<li>统一 artifact 和 diagnostics。</li>
+<li>统一恢复语义。</li>
+</ul>
+<h3 id="_4">结论<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<p>通过。多 Agent 编排的调度原子确定为 SAEU。</p>
+<h2 id="review_3">第二轮：协议能力 Review<a class="headerlink" href="#review_3" title="Permanent link">&para;</a></h2>
+<h3 id="_5">审查问题<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>A2A 是否足够管理 Agent、通信、获取实时状态、暴露权限请求？</p>
+<h3 id="_6">发现<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<p>A2A 可以覆盖开放式 Agent-to-Agent 的主干能力：</p>
+<ul>
+<li>Agent Card。</li>
+<li>task 创建。</li>
+<li>task status。</li>
+<li>streaming update。</li>
+<li>artifact。</li>
+<li>cancel。</li>
+<li>push notification。</li>
+</ul>
+<p>但 A2A 不应承担内部执行器控制的所有细节：</p>
+<ul>
+<li>workspace 诊断。</li>
+<li>qwen daemon status。</li>
+<li>event ring gap。</li>
+<li>session load/resume。</li>
+<li>tool stdout/stderr。</li>
+<li>coding-agent permission option schema。</li>
+</ul>
+<p>权限请求可以通过 A2A 的状态、message、metadata 或 extension 表达，但不能假设所有 A2A 客户端都理解内部 permission schema。</p>
+<h3 id="_7">修正<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<p>协议策略调整为：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>外部互操作: A2A Gateway
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>内部执行单元控制: SAEU contract
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>qwen worker 控制: qwen serve HTTP/SSE + ACP bridge
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>工具接入: MCP Gateway
 </code></pre></div>
-<h2 id="jsonl_1">JSONL 可以做什么<a class="headerlink" href="#jsonl_1" title="Permanent link">&para;</a></h2>
-<p>JSONL 适合保存 Agent transcript，因为：</p>
+<h3 id="_8">结论<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<p>通过。A2A 作为系统边界协议，不作为内部 worker contract。</p>
+<h2 id="review_4">第三轮：安全与权限 Review<a class="headerlink" href="#review_4" title="Permanent link">&para;</a></h2>
+<h3 id="_9">审查问题<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<p>基于 qwen serve 的单 Agent 单元是否能做到可控、安全和可审计？</p>
+<h3 id="_10">发现<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<p>qwen serve 具备很好的起点：</p>
 <ul>
-<li>append 简单。</li>
-<li>人和脚本都容易读取。</li>
-<li>每行一个事件或消息，适合流式写入。</li>
-<li>方便脱敏、切片和导入评测集。</li>
+<li>bearer token。</li>
+<li>non-loopback bind 安全门槛。</li>
+<li>permission mediation。</li>
+<li>多客户端事件 attribution。</li>
+<li>remote runtime control。</li>
+<li>capability discovery。</li>
 </ul>
-<p>Qwen Code 的 background subagent transcript 就采用 JSONL，并配套 meta sidecar。它记录 ChatRecord 形态的 assistant、tool_result、external_message、system bootstrap 等内容，并通过 <code>uuid</code> 和 <code>parentUuid</code> 维护链路。</p>
-<p>相关本地源码：</p>
+<p>但生产部署必须补强：</p>
 <ul>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/agents/agent-transcript.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/agents/background-agent-resume.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/tools/agent/agent.ts</code></li>
+<li>不直接暴露公网。</li>
+<li>不把真实模型 key 放入容器。</li>
+<li>不把 Docker socket、SSH key、云 credential 挂入容器。</li>
+<li>高风险工具必须进入 permission flow。</li>
+<li>所有 permission decision 必须写入外部 Event Store。</li>
 </ul>
-<h2 id="qwen-code-jsonl">qwen-code JSONL 能否复现和回放<a class="headerlink" href="#qwen-code-jsonl" title="Permanent link">&para;</a></h2>
-<p>答案分三层：</p>
-<table>
-<thead>
-<tr>
-<th>能力</th>
-<th>是否可以</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>恢复对话上下文</td>
-<td>可以</td>
-<td>qwen-code 已能从 JSONL 恢复稳定消息链，过滤不稳定尾部</td>
-</tr>
-<tr>
-<td>复现用户场景</td>
-<td>部分可以</td>
-<td>可以看到 prompt、工具调用、tool result、assistant 输出</td>
-</tr>
-<tr>
-<td>确定性回放</td>
-<td>不完整</td>
-<td>还缺 workspace 快照、模型响应固定、工具 I/O、环境和权限决策</td>
-</tr>
-</tbody>
-</table>
-<p>因此，Qwen Code JSONL 是很好的恢复基础，但不能单独承担完整事件溯源。</p>
-<h2 id="_2">完整回放还需要什么<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<p>要把某个 case 复现到足够接近原现场，至少记录：</p>
-<table>
-<thead>
-<tr>
-<th>类别</th>
-<th>必须记录</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>代码现场</td>
-<td>repo URL、commit SHA、branch、diff、worktree snapshot</td>
-</tr>
-<tr>
-<td>Agent 配置</td>
-<td>agent type、system prompt、tool allowlist/denylist、max turns、approval mode</td>
-</tr>
-<tr>
-<td>模型配置</td>
-<td>provider、model、temperature、tool schema、system prompt hash</td>
-</tr>
-<tr>
-<td>模型输出</td>
-<td>原始 streaming delta 或最终 message/tool call</td>
-</tr>
-<tr>
-<td>工具输入输出</td>
-<td>shell command、exit code、stdout/stderr 引用、文件读写摘要</td>
-</tr>
-<tr>
-<td>权限决策</td>
-<td>request、policy、approval/deny、审批人、时间</td>
-</tr>
-<tr>
-<td>沙箱环境</td>
-<td>image digest、env 白名单、资源限制、网络策略</td>
-</tr>
-<tr>
-<td>外部依赖</td>
-<td>npm/pip registry、API 返回、MCP server 版本</td>
-</tr>
-<tr>
-<td>artifact</td>
-<td>diff、测试报告、最终摘要、日志</td>
-</tr>
-</tbody>
-</table>
-<p>如果缺少模型输出，只能“重新跑一次”，结果可能不同。如果缺少 workspace 快照，工具调用即使一样也可能得到不同结果。</p>
-<h2 id="_3">推荐事件模型<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<p>内部 canonical event 不应直接等同于某个 Agent 的 JSONL。建议用统一事件表：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">create</span><span class="w"> </span><span class="k">table</span><span class="w"> </span><span class="n">run_events</span><span class="w"> </span><span class="p">(</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="n">id</span><span class="w"> </span><span class="n">bigserial</span><span class="w"> </span><span class="k">primary</span><span class="w"> </span><span class="k">key</span><span class="p">,</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="n">run_id</span><span class="w"> </span><span class="nb">text</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="n">seq</span><span class="w"> </span><span class="nb">bigint</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="k">type</span><span class="w"> </span><span class="nb">text</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="n">created_at</span><span class="w"> </span><span class="n">timestamptz</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="n">now</span><span class="p">(),</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="k">unique</span><span class="w"> </span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">seq</span><span class="p">)</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">);</span>
-</code></pre></div>
-<p>事件类型起步：</p>
-<table>
-<thead>
-<tr>
-<th>类型</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>run.created</code></td>
-<td>run 创建</td>
-</tr>
-<tr>
-<td><code>run.started</code></td>
-<td>worker 接管</td>
-</tr>
-<tr>
-<td><code>agent.message.delta</code></td>
-<td>模型流式文本</td>
-</tr>
-<tr>
-<td><code>agent.message.completed</code></td>
-<td>完整 assistant 消息</td>
-</tr>
-<tr>
-<td><code>tool.call.requested</code></td>
-<td>工具调用开始</td>
-</tr>
-<tr>
-<td><code>tool.call.output</code></td>
-<td>工具增量输出</td>
-</tr>
-<tr>
-<td><code>tool.call.completed</code></td>
-<td>工具调用完成</td>
-</tr>
-<tr>
-<td><code>permission.requested</code></td>
-<td>权限请求</td>
-</tr>
-<tr>
-<td><code>permission.resolved</code></td>
-<td>权限决策</td>
-</tr>
-<tr>
-<td><code>artifact.created</code></td>
-<td>产物创建</td>
-</tr>
-<tr>
-<td><code>checkpoint.created</code></td>
-<td>检查点</td>
-</tr>
-<tr>
-<td><code>run.heartbeat</code></td>
-<td>worker 心跳</td>
-</tr>
-<tr>
-<td><code>run.completed</code></td>
-<td>成功</td>
-</tr>
-<tr>
-<td><code>run.failed</code></td>
-<td>失败</td>
-</tr>
-<tr>
-<td><code>run.cancelled</code></td>
-<td>取消</td>
-</tr>
-</tbody>
-</table>
-<h2 id="opencode">与 OpenCode 的启发<a class="headerlink" href="#opencode" title="Permanent link">&para;</a></h2>
-<p>OpenCode 的 <code>session-event.ts</code> 很适合作为事件类型设计参考。它把 session 中的 AgentSwitched、ModelSwitched、Prompted、Shell.Started/Ended、Step.Started/Ended/Failed、Tool.Called/Progress/Success/Failed、Compaction 等都建成强类型事件。</p>
-<p>相关本地源码：</p>
+<h3 id="_11">修正<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h3>
+<p>在 qwen serve 云端单元方案中加入：</p>
 <ul>
-<li><code>/Users/gawain/Documents/codebase/github/opencode/packages/opencode/src/v2/session-event.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/github/opencode/packages/opencode/src/v2/session.ts</code></li>
+<li>per-unit token。</li>
+<li>model proxy。</li>
+<li>egress proxy。</li>
+<li>tool policy。</li>
+<li>artifact manifest。</li>
+<li>permission audit。</li>
+<li>container sandbox policy。</li>
 </ul>
-<p>这说明生产系统需要的不是“日志字符串”，而是可消费、可索引、可转换的事件 schema。</p>
-<h2 id="jsonl_2">在线事件与离线 JSONL 的关系<a class="headerlink" href="#jsonl_2" title="Permanent link">&para;</a></h2>
-<p>建议采用双层：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Postgres run_events = canonical event store
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>JSONL export = agent transcript / debug artifact / eval fixture
-</code></pre></div>
-<p>在线服务读 Postgres：</p>
+<h3 id="_12">结论<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h3>
+<p>通过。安全基线可行，但 qwen serve 只能作为内部 runtime，不应直接暴露公网。</p>
+<h2 id="review_5">第四轮：恢复、重放与排障 Review<a class="headerlink" href="#review_5" title="Permanent link">&para;</a></h2>
+<h3 id="_13">审查问题<a class="headerlink" href="#_13" title="Permanent link">&para;</a></h3>
+<p>这个单 Agent 单元是否可以长期运行、重放、恢复和排障？</p>
+<h3 id="_14">发现<a class="headerlink" href="#_14" title="Permanent link">&para;</a></h3>
+<p>qwen serve 已有：</p>
 <ul>
-<li>UI 展示。</li>
-<li>状态查询。</li>
-<li>审计。</li>
-<li>权限流。</li>
-<li>重试和恢复。</li>
+<li>SSE <code>Last-Event-ID</code>。</li>
+<li>event ring。</li>
+<li><code>/session/:id/load</code>。</li>
+<li><code>/session/:id/resume</code>。</li>
+<li><code>/daemon/status</code>。</li>
+<li><code>/session/:id/status</code>。</li>
+<li>stats/context/tasks 等诊断端点。</li>
 </ul>
-<p>离线任务读 JSONL：</p>
+<p>但仍有生产缺口：</p>
 <ul>
-<li>case 复盘。</li>
-<li>prompt 调优。</li>
-<li>regression eval。</li>
-<li>bug report。</li>
-<li>模型回放 fixture。</li>
+<li>event ring 有界，不能长期审计。</li>
+<li>qwen session 恢复不等于完整 run 恢复。</li>
+<li>tool output 和 workspace snapshot 需要外部保存。</li>
+<li>daemon 崩溃后必须明确恢复成功或失败，不能静默重跑。</li>
 </ul>
-<h2 id="_4">回放模式<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>模式</th>
-<th>目标</th>
-<th>要求</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Transcript replay</td>
-<td>重建对话和工具历史</td>
-<td>JSONL 足够起步</td>
-</tr>
-<tr>
-<td>State replay</td>
-<td>重建 run 状态</td>
-<td>canonical events</td>
-</tr>
-<tr>
-<td>UI replay</td>
-<td>重放用户看到的流式过程</td>
-<td>delta events + timestamps</td>
-</tr>
-<tr>
-<td>Tool replay</td>
-<td>不重新执行工具，使用录制结果</td>
-<td>tool input/output fixtures</td>
-</tr>
-<tr>
-<td>Deterministic replay</td>
-<td>尽量复现原执行</td>
-<td>workspace snapshot + model/tool fixtures</td>
-</tr>
-<tr>
-<td>Resume</td>
-<td>从中断点继续执行</td>
-<td>stable message chain + workspace + config</td>
-</tr>
-</tbody>
-</table>
-<h2 id="mvp">MVP 建议<a class="headerlink" href="#mvp" title="Permanent link">&para;</a></h2>
-<ol>
-<li>保留 Qwen Code 原生 JSONL。</li>
-<li>由 adapter 把 JSONL 和 runtime signal 转成内部 run_events。</li>
-<li>大字段保存到 artifact，事件里只放引用。</li>
-<li>每个 run 结束时导出：</li>
+<h3 id="_15">修正<a class="headerlink" href="#_15" title="Permanent link">&para;</a></h3>
+<p>要求每个 run 产出 artifact 包：</p>
+<ul>
+<li><code>manifest.json</code></li>
+<li><code>qwen-sse.raw.jsonl</code></li>
+<li><code>events.canonical.jsonl</code></li>
 <li><code>transcript.jsonl</code></li>
-<li><code>events.jsonl</code></li>
-<li><code>meta.json</code></li>
+<li><code>permissions.jsonl</code></li>
+<li><code>diagnostics.start.json</code></li>
+<li><code>diagnostics.end.json</code></li>
+<li><code>stdout.log</code></li>
+<li><code>stderr.log</code></li>
 <li><code>diff.patch</code></li>
 <li><code>final.md</code></li>
-<li>回放工具先支持 transcript replay 和 state replay，再做 tool/model mock replay。</li>
-</ol>
-<h2 id="metajson">最小 <code>meta.json</code><a class="headerlink" href="#metajson" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-code&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;repo&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;git@example.com:org/repo.git&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">&quot;commit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">&quot;sandbox&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-code-runner@sha256:...&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="nt">&quot;memory&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;768m&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="nt">&quot;cpus&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.75&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="nt">&quot;network&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;egress-proxy&quot;</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="nt">&quot;provider&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen3-coder&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">&quot;temperature&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
-<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">  </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">    </span><span class="nt">&quot;transcript&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;transcript.jsonl&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;events.jsonl&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">    </span><span class="nt">&quot;diff&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;diff.patch&quot;</span>
-<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">  </span><span class="p">}</span>
-<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="p">}</span>
-</code></pre></div>
-<h2 id="_5">结论<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
-<p>事件溯源是云端 Agent 的基础设施能力。JSONL 是非常实用的承载格式，但真正可靠的长期运行系统，还需要把 run、tool、permission、artifact、checkpoint 和 sandbox 都纳入统一事件模型。</p>
+</ul>
+<p>恢复策略分为：</p>
+<ul>
+<li>客户端断线：从 Event Store 恢复。</li>
+<li>Supervisor SSE 断线：用 qwen <code>Last-Event-ID</code> 重连。</li>
+<li>qwen daemon 崩溃：重启并尝试 load/resume。</li>
+<li>worker 节点重启：扫描 running runs 并 attach/recover。</li>
+</ul>
+<h3 id="_16">结论<a class="headerlink" href="#_16" title="Permanent link">&para;</a></h3>
+<p>通过。可恢复性依赖外部 Event Store 和 artifact，不依赖 qwen serve 单点缓存。</p>
+<h2 id="open-risks">Open Risks<a class="headerlink" href="#open-risks" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>等级</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>qwen serve 仍是 experimental/local-first</td>
+<td>高</td>
+<td>只作为内部 worker，用 Supervisor 包装；必要时 fork 小边界</td>
+</tr>
+<tr>
+<td>权限请求映射到 A2A 没有统一标准</td>
+<td>中</td>
+<td>内部 Permission Service 为准，A2A 只暴露 blocked/input-required 状态</td>
+</tr>
+<tr>
+<td>小 VPS 资源不足</td>
+<td>中</td>
+<td>并发 1-2，队列限流，第二台 VPS 做 sandbox worker</td>
+</tr>
+<tr>
+<td>恢复无法确定性重放</td>
+<td>中</td>
+<td>保存 workspace snapshot、model/tool fixtures，先实现 UI/transcript replay</td>
+</tr>
+<tr>
+<td>多 Agent patch 冲突</td>
+<td>中</td>
+<td>每个 coder 独立 worktree，merge agent 独立处理</td>
+</tr>
+<tr>
+<td>Event Store 写入失败</td>
+<td>高</td>
+<td>写入失败时暂停 run 或标记 degraded，不能继续无审计执行</td>
+</tr>
+</tbody>
+</table>
+<h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>
+<h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
+<ul>
+<li>单 SAEU + qwen serve wrapper。</li>
+<li>外部 Event Store。</li>
+<li>Permission Service。</li>
+<li>Artifact Collector。</li>
+<li>多 Agent 通过 Supervisor + artifact 协作。</li>
+<li>A2A Gateway 放在系统边界。</li>
+</ul>
+<h3 id="no-go">No-Go<a class="headerlink" href="#no-go" title="Permanent link">&para;</a></h3>
+<ul>
+<li>直接把 qwen serve 暴露公网。</li>
+<li>多 Agent 共享同一个可写 workspace。</li>
+<li>把 qwen event ring 当审计日志。</li>
+<li>把 A2A 当内部 worker 全量控制协议。</li>
+<li>从头实现 coding agent core。</li>
+</ul>
+<h2 id="_17">最终可实施判断<a class="headerlink" href="#_17" title="Permanent link">&para;</a></h2>
+<p>方案可行，且适合 1-2 台 VPS 起步。推荐第一阶段只实现一个 qwen serve SAEU，把审计、权限、事件、artifact 和恢复做扎实；第二阶段再做多 SAEU 并发；第三阶段再做 Supervisor 多 Agent 编排。</p>
+<p>只要不跳过单 Agent 单元稳定性，多 Agent 编排不会建立在松散 CLI 进程上，而是建立在可管理、可恢复、可审计的执行单元上。</p>
 
 
 

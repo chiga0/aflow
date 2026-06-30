@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://chiga0.github.io/agent-research/implementation/event-sourcing-and-replay/">
+        <link rel="canonical" href="https://chiga0.github.io/agent-research/implementation/stable-agent-execution-unit/">
       
       
-        <link rel="prev" href="../temporal-evaluation/">
+        <link rel="prev" href="../">
       
       
-        <link rel="next" href="../single-agent-strategy/">
+        <link rel="next" href="../qwen-serve-single-agent-cloud-unit/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>事件溯源、JSONL 与回放 - Agent Research</title>
+        <title>稳定单 Agent 执行单元 - Agent Research</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#jsonl" class="md-skip">
+        <a href="#agent" class="md-skip">
           跳转至
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              事件溯源、JSONL 与回放
+              稳定单 Agent 执行单元
             
           </span>
         </div>
@@ -347,10 +347,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../stable-agent-execution-unit/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    稳定单 Agent 执行单元
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -361,6 +383,134 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      定义
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      为什么需要这个抽象
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      边界
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saeu" class="md-nav__link">
+    <span class="md-ellipsis">
+      SAEU 接口契约
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      生命周期状态
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      事件标准
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      权限请求
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      健康检查
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      可恢复性
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a2aacp" class="md-nav__link">
+    <span class="md-ellipsis">
+      与 A2A/ACP 的关系
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      验收标准
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      决策
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -462,32 +612,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    事件溯源、JSONL 与回放
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../event-sourcing-and-replay/" class="md-nav__link">
         
   
   
@@ -498,125 +626,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      事件溯源是什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      JSONL 可以做什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#qwen-code-jsonl" class="md-nav__link">
-    <span class="md-ellipsis">
-      qwen-code JSONL 能否复现和回放
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      完整回放还需要什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      推荐事件模型
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#opencode" class="md-nav__link">
-    <span class="md-ellipsis">
-      与 OpenCode 的启发
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      在线事件与离线 JSONL 的关系
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      回放模式
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#mvp" class="md-nav__link">
-    <span class="md-ellipsis">
-      MVP 建议
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#metajson" class="md-nav__link">
-    <span class="md-ellipsis">
-      最小 meta.json
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_5" class="md-nav__link">
-    <span class="md-ellipsis">
-      结论
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -946,25 +955,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      事件溯源是什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      JSONL 可以做什么
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#qwen-code-jsonl" class="md-nav__link">
-    <span class="md-ellipsis">
-      qwen-code JSONL 能否复现和回放
+      定义
     </span>
   </a>
   
@@ -973,7 +964,7 @@
         <li class="md-nav__item">
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
-      完整回放还需要什么
+      为什么需要这个抽象
     </span>
   </a>
   
@@ -982,25 +973,16 @@
         <li class="md-nav__item">
   <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
-      推荐事件模型
+      边界
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#opencode" class="md-nav__link">
+  <a href="#saeu" class="md-nav__link">
     <span class="md-ellipsis">
-      与 OpenCode 的启发
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jsonl_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      在线事件与离线 JSONL 的关系
+      SAEU 接口契约
     </span>
   </a>
   
@@ -1009,25 +991,7 @@
         <li class="md-nav__item">
   <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
-      回放模式
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#mvp" class="md-nav__link">
-    <span class="md-ellipsis">
-      MVP 建议
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#metajson" class="md-nav__link">
-    <span class="md-ellipsis">
-      最小 meta.json
+      生命周期状态
     </span>
   </a>
   
@@ -1036,7 +1000,61 @@
         <li class="md-nav__item">
   <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
-      结论
+      事件标准
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      权限请求
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      健康检查
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      可恢复性
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a2aacp" class="md-nav__link">
+    <span class="md-ellipsis">
+      与 A2A/ACP 的关系
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      验收标准
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      决策
     </span>
   </a>
   
@@ -1061,315 +1079,409 @@
   
 
 
-<h1 id="jsonl">事件溯源、JSONL 与回放<a class="headerlink" href="#jsonl" title="Permanent link">&para;</a></h1>
+<h1 id="agent">稳定单 Agent 执行单元<a class="headerlink" href="#agent" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>结论：JSONL 是一种事件或 transcript 的存储格式；事件溯源是一种系统建模方法。Qwen Code 的 JSONL 可以支持恢复和部分复现，但如果想完整复现用户场景，还必须记录 workspace、配置、工具输出、权限决策、模型输出和运行环境。</p>
+<p>结论：应该把云端 Agent 的基础调度原子抽象成“稳定单 Agent 执行单元”。外部编排系统只依赖这个执行单元的统一契约，而不直接依赖 Qwen Code、Claude Code、OpenCode 或 Gemini CLI 的内部实现。</p>
 </blockquote>
-<h2 id="_1">事件溯源是什么<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
-<p>事件溯源的核心不是“把日志写成 JSONL”，而是：</p>
-<ol>
-<li>系统状态由 append-only 事件推导出来。</li>
-<li>每个事件代表已经发生的事实。</li>
-<li>当前状态可以通过重放事件重建。</li>
-<li>审计、调试、恢复、回放都基于同一条事实链。</li>
-</ol>
-<p>示例事件：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;run.created&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="s2">&quot;qwen-code&quot;</span><span class="p">,</span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="s2">&quot;2026-06-30T10:00:00Z&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;step.started&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;step_id&quot;</span><span class="p">:</span><span class="s2">&quot;step_1&quot;</span><span class="p">,</span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="s2">&quot;model_turn&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;tool.called&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool&quot;</span><span class="p">:</span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="nt">&quot;input_ref&quot;</span><span class="p">:</span><span class="s2">&quot;artifact://input/tool_1.json&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;permission.requested&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;permission_id&quot;</span><span class="p">:</span><span class="s2">&quot;perm_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;permission.approved&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;permission_id&quot;</span><span class="p">:</span><span class="s2">&quot;perm_1&quot;</span><span class="p">,</span><span class="nt">&quot;decider&quot;</span><span class="p">:</span><span class="s2">&quot;user_1&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;tool.succeeded&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="s2">&quot;tool_1&quot;</span><span class="p">,</span><span class="nt">&quot;output_ref&quot;</span><span class="p">:</span><span class="s2">&quot;artifact://output/tool_1.json&quot;</span><span class="p">}</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;run.completed&quot;</span><span class="p">,</span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;succeeded&quot;</span><span class="p">}</span>
+<h2 id="_1">定义<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p>稳定单 Agent 执行单元（Stable Agent Execution Unit，简称 SAEU）是一个可被云端控制面调度、观察、取消、恢复和审计的长期运行 Agent worker。</p>
+<p>它不是一个模型调用，也不是一个 CLI 进程，而是以下能力的封装：</p>
+<ul>
+<li>一个隔离 workspace。</li>
+<li>一个 Agent runtime。</li>
+<li>一个受控工具集合。</li>
+<li>一个事件流。</li>
+<li>一个权限请求通道。</li>
+<li>一个 artifact 输出面。</li>
+<li>一个健康检查和恢复面。</li>
+<li>一个审计与回放面。</li>
+</ul>
+<p>外部多 Agent 编排、任务调度、Kanban 控制面、A2A Gateway、Web UI 都只把 SAEU 当作基础执行单元。</p>
+<h2 id="_2">为什么需要这个抽象<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>直接调度 CLI 或容器会把上层系统绑定到具体实现：</p>
+<ul>
+<li>Qwen Code 的 session event 和 OpenCode 的 session event 不同。</li>
+<li>Claude Code 的 tool permission 与 Qwen Code 的 permission mediation 不同。</li>
+<li>Gemini CLI remote subagent 走 A2A，而 qwen serve 走 HTTP + SSE + ACP bridge。</li>
+<li>某些 worker 支持 resume，某些只支持重新开始。</li>
+</ul>
+<p>SAEU 的价值是把这些差异收敛到统一接口：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>external orchestrator -&gt; SAEU contract -&gt; concrete agent adapter -&gt; qwen-code serve
 </code></pre></div>
-<h2 id="jsonl_1">JSONL 可以做什么<a class="headerlink" href="#jsonl_1" title="Permanent link">&para;</a></h2>
-<p>JSONL 适合保存 Agent transcript，因为：</p>
+<p>这样多 Agent 编排调度的是“可靠执行单元”，而不是某个项目的私有 API。</p>
+<h2 id="_3">边界<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<p>SAEU 内部负责：</p>
 <ul>
-<li>append 简单。</li>
-<li>人和脚本都容易读取。</li>
-<li>每行一个事件或消息，适合流式写入。</li>
-<li>方便脱敏、切片和导入评测集。</li>
+<li>启动 Agent。</li>
+<li>持有 workspace。</li>
+<li>接收 prompt/input。</li>
+<li>输出事件。</li>
+<li>请求权限。</li>
+<li>执行取消。</li>
+<li>产出 artifact。</li>
+<li>上报健康状态。</li>
+<li>支持恢复或声明不可恢复。</li>
 </ul>
-<p>Qwen Code 的 background subagent transcript 就采用 JSONL，并配套 meta sidecar。它记录 ChatRecord 形态的 assistant、tool_result、external_message、system bootstrap 等内容，并通过 <code>uuid</code> 和 <code>parentUuid</code> 维护链路。</p>
-<p>相关本地源码：</p>
+<p>SAEU 外部负责：</p>
 <ul>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/agents/agent-transcript.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/agents/background-agent-resume.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/opensource/qwen-code/packages/core/src/tools/agent/agent.ts</code></li>
+<li>租户和用户身份。</li>
+<li>run/thread 业务建模。</li>
+<li>任务队列和资源调度。</li>
+<li>跨执行单元编排。</li>
+<li>全局审计和计费。</li>
+<li>长期 artifact 归档。</li>
+<li>A2A/MCP 网关。</li>
 </ul>
-<h2 id="qwen-code-jsonl">qwen-code JSONL 能否复现和回放<a class="headerlink" href="#qwen-code-jsonl" title="Permanent link">&para;</a></h2>
-<p>答案分三层：</p>
+<h2 id="saeu">SAEU 接口契约<a class="headerlink" href="#saeu" title="Permanent link">&para;</a></h2>
+<p>最小控制面接口：</p>
 <table>
 <thead>
 <tr>
-<th>能力</th>
-<th>是否可以</th>
-<th>说明</th>
+<th>接口</th>
+<th>语义</th>
+<th>幂等要求</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>恢复对话上下文</td>
-<td>可以</td>
-<td>qwen-code 已能从 JSONL 恢复稳定消息链，过滤不稳定尾部</td>
+<td><code>CreateUnit</code></td>
+<td>为一个 run 创建执行单元</td>
+<td><code>run_id</code> 幂等</td>
 </tr>
 <tr>
-<td>复现用户场景</td>
-<td>部分可以</td>
-<td>可以看到 prompt、工具调用、tool result、assistant 输出</td>
+<td><code>StartSession</code></td>
+<td>启动或附着到 Agent session</td>
+<td><code>session_key</code> 幂等</td>
 </tr>
 <tr>
-<td>确定性回放</td>
-<td>不完整</td>
-<td>还缺 workspace 快照、模型响应固定、工具 I/O、环境和权限决策</td>
+<td><code>SendInput</code></td>
+<td>向 Agent 发送 prompt 或后续用户输入</td>
+<td><code>input_id</code> 幂等</td>
+</tr>
+<tr>
+<td><code>StreamEvents</code></td>
+<td>订阅执行单元事件</td>
+<td>支持 <code>last_event_id</code></td>
+</tr>
+<tr>
+<td><code>ResolvePermission</code></td>
+<td>对权限请求作出 allow/deny/cancel</td>
+<td><code>permission_id</code> 幂等</td>
+</tr>
+<tr>
+<td><code>CancelRun</code></td>
+<td>取消当前 run</td>
+<td>可重复调用</td>
+</tr>
+<tr>
+<td><code>GetStatus</code></td>
+<td>查询 unit/session/run 当前状态</td>
+<td>只读</td>
+</tr>
+<tr>
+<td><code>GetDiagnostics</code></td>
+<td>查询排障快照</td>
+<td>只读</td>
+</tr>
+<tr>
+<td><code>CollectArtifacts</code></td>
+<td>收集产物</td>
+<td>可重复调用</td>
+</tr>
+<tr>
+<td><code>RestoreUnit</code></td>
+<td>从 checkpoint/transcript 恢复</td>
+<td><code>run_id</code> 幂等</td>
+</tr>
+<tr>
+<td><code>DestroyUnit</code></td>
+<td>释放容器、workspace、端口</td>
+<td>可重复调用</td>
 </tr>
 </tbody>
 </table>
-<p>因此，Qwen Code JSONL 是很好的恢复基础，但不能单独承担完整事件溯源。</p>
-<h2 id="_2">完整回放还需要什么<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
-<p>要把某个 case 复现到足够接近原现场，至少记录：</p>
-<table>
-<thead>
-<tr>
-<th>类别</th>
-<th>必须记录</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>代码现场</td>
-<td>repo URL、commit SHA、branch、diff、worktree snapshot</td>
-</tr>
-<tr>
-<td>Agent 配置</td>
-<td>agent type、system prompt、tool allowlist/denylist、max turns、approval mode</td>
-</tr>
-<tr>
-<td>模型配置</td>
-<td>provider、model、temperature、tool schema、system prompt hash</td>
-</tr>
-<tr>
-<td>模型输出</td>
-<td>原始 streaming delta 或最终 message/tool call</td>
-</tr>
-<tr>
-<td>工具输入输出</td>
-<td>shell command、exit code、stdout/stderr 引用、文件读写摘要</td>
-</tr>
-<tr>
-<td>权限决策</td>
-<td>request、policy、approval/deny、审批人、时间</td>
-</tr>
-<tr>
-<td>沙箱环境</td>
-<td>image digest、env 白名单、资源限制、网络策略</td>
-</tr>
-<tr>
-<td>外部依赖</td>
-<td>npm/pip registry、API 返回、MCP server 版本</td>
-</tr>
-<tr>
-<td>artifact</td>
-<td>diff、测试报告、最终摘要、日志</td>
-</tr>
-</tbody>
-</table>
-<p>如果缺少模型输出，只能“重新跑一次”，结果可能不同。如果缺少 workspace 快照，工具调用即使一样也可能得到不同结果。</p>
-<h2 id="_3">推荐事件模型<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<p>内部 canonical event 不应直接等同于某个 Agent 的 JSONL。建议用统一事件表：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">create</span><span class="w"> </span><span class="k">table</span><span class="w"> </span><span class="n">run_events</span><span class="w"> </span><span class="p">(</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="n">id</span><span class="w"> </span><span class="n">bigserial</span><span class="w"> </span><span class="k">primary</span><span class="w"> </span><span class="k">key</span><span class="p">,</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="n">run_id</span><span class="w"> </span><span class="nb">text</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="n">seq</span><span class="w"> </span><span class="nb">bigint</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="k">type</span><span class="w"> </span><span class="nb">text</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="n">payload</span><span class="w"> </span><span class="n">jsonb</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="n">created_at</span><span class="w"> </span><span class="n">timestamptz</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="k">null</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="n">now</span><span class="p">(),</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="k">unique</span><span class="w"> </span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">seq</span><span class="p">)</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">);</span>
+<p>最小数据契约：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;unit_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;unit_run_123&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run_123&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;workspace_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ws_abc&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;agent_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-code-serve&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;running&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">&quot;permission_requests&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">&quot;resume&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">&quot;diagnostics&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="p">}</span>
 </code></pre></div>
-<p>事件类型起步：</p>
+<h2 id="_4">生命周期状态<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>stateDiagram-v2
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    [*] --&gt; Allocated: CreateUnit
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    Allocated --&gt; Starting: StartSession
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    Starting --&gt; Ready: health ok
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    Ready --&gt; Running: SendInput
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    Running --&gt; WaitingPermission: permission requested
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    WaitingPermission --&gt; Running: permission resolved
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    Running --&gt; Recovering: worker/session died
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    Recovering --&gt; Running: restore success
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    Recovering --&gt; Failed: restore failed
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    Running --&gt; Succeeded: final result
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    Running --&gt; Cancelling: CancelRun
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    WaitingPermission --&gt; Cancelling: CancelRun
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    Cancelling --&gt; Cancelled: cleanup done
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    Succeeded --&gt; Destroyed: DestroyUnit
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    Failed --&gt; Destroyed: DestroyUnit
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    Cancelled --&gt; Destroyed: DestroyUnit
+</code></pre></div>
+<p>状态必须满足：</p>
+<ul>
+<li>终态只有 <code>succeeded</code>、<code>failed</code>、<code>cancelled</code>、<code>timed_out</code>。</li>
+<li>每次状态变化写入 append-only event。</li>
+<li>恢复必须记录 <code>recovering -&gt; running</code> 或 <code>recovering -&gt; failed</code>。</li>
+<li>外部调度器不得只看进程 PID 判断状态。</li>
+</ul>
+<h2 id="_5">事件标准<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<p>SAEU 输出统一事件，具体 Agent 的事件由 adapter 转换。</p>
 <table>
 <thead>
 <tr>
-<th>类型</th>
-<th>用途</th>
+<th>SAEU 事件</th>
+<th>含义</th>
+<th>Qwen serve 对应</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>run.created</code></td>
-<td>run 创建</td>
+<td><code>unit.created</code></td>
+<td>执行单元创建</td>
+<td>wrapper event</td>
+</tr>
+<tr>
+<td><code>unit.ready</code></td>
+<td>daemon/session ready</td>
+<td><code>/health</code>、<code>/capabilities</code>、<code>POST /session</code></td>
 </tr>
 <tr>
 <td><code>run.started</code></td>
-<td>worker 接管</td>
+<td>prompt 被接收</td>
+<td><code>POST /session/:id/prompt</code> 返回 202</td>
 </tr>
 <tr>
 <td><code>agent.message.delta</code></td>
 <td>模型流式文本</td>
+<td><code>session_update</code> chunk</td>
 </tr>
 <tr>
-<td><code>agent.message.completed</code></td>
-<td>完整 assistant 消息</td>
-</tr>
-<tr>
-<td><code>tool.call.requested</code></td>
+<td><code>tool.call.started</code></td>
 <td>工具调用开始</td>
+<td><code>session_update</code> tool call</td>
 </tr>
 <tr>
 <td><code>tool.call.output</code></td>
-<td>工具增量输出</td>
+<td>工具输出增量</td>
+<td><code>session_update</code> tool output</td>
 </tr>
 <tr>
 <td><code>tool.call.completed</code></td>
 <td>工具调用完成</td>
+<td><code>session_update</code> tool result</td>
 </tr>
 <tr>
 <td><code>permission.requested</code></td>
 <td>权限请求</td>
+<td><code>permission_request</code></td>
 </tr>
 <tr>
 <td><code>permission.resolved</code></td>
-<td>权限决策</td>
+<td>权限完成</td>
+<td><code>permission_resolved</code></td>
 </tr>
 <tr>
-<td><code>artifact.created</code></td>
-<td>产物创建</td>
-</tr>
-<tr>
-<td><code>checkpoint.created</code></td>
-<td>检查点</td>
+<td><code>permission.partial_vote</code></td>
+<td>多客户端投票进展</td>
+<td><code>permission_partial_vote</code></td>
 </tr>
 <tr>
 <td><code>run.heartbeat</code></td>
-<td>worker 心跳</td>
+<td>活性心跳</td>
+<td>SSE heartbeat + wrapper heartbeat</td>
 </tr>
 <tr>
 <td><code>run.completed</code></td>
-<td>成功</td>
+<td>turn/run 成功</td>
+<td><code>turn_complete</code> 或 adapter 判定</td>
 </tr>
 <tr>
 <td><code>run.failed</code></td>
-<td>失败</td>
+<td>turn/run 失败</td>
+<td><code>turn_error</code>、<code>session_died</code></td>
 </tr>
 <tr>
-<td><code>run.cancelled</code></td>
-<td>取消</td>
+<td><code>unit.diagnostics</code></td>
+<td>排障快照</td>
+<td><code>/daemon/status</code>、<code>/session/:id/status</code></td>
+</tr>
+<tr>
+<td><code>artifact.created</code></td>
+<td>产物落盘</td>
+<td>wrapper artifact collector</td>
 </tr>
 </tbody>
 </table>
-<h2 id="opencode">与 OpenCode 的启发<a class="headerlink" href="#opencode" title="Permanent link">&para;</a></h2>
-<p>OpenCode 的 <code>session-event.ts</code> 很适合作为事件类型设计参考。它把 session 中的 AgentSwitched、ModelSwitched、Prompted、Shell.Started/Ended、Step.Started/Ended/Failed、Tool.Called/Progress/Success/Failed、Compaction 等都建成强类型事件。</p>
-<p>相关本地源码：</p>
+<p>内部事件应当带上：</p>
 <ul>
-<li><code>/Users/gawain/Documents/codebase/github/opencode/packages/opencode/src/v2/session-event.ts</code></li>
-<li><code>/Users/gawain/Documents/codebase/github/opencode/packages/opencode/src/v2/session.ts</code></li>
+<li><code>event_id</code>：执行单元内单调递增。</li>
+<li><code>run_id</code>。</li>
+<li><code>unit_id</code>。</li>
+<li><code>source</code>：<code>qwen_sse</code>、<code>supervisor</code>、<code>model_proxy</code>、<code>artifact_collector</code> 等。</li>
+<li><code>occurred_at</code>。</li>
+<li><code>payload_ref</code>：大对象引用。</li>
+<li><code>correlation_id</code>：关联 prompt、tool call 或 permission。</li>
 </ul>
-<p>这说明生产系统需要的不是“日志字符串”，而是可消费、可索引、可转换的事件 schema。</p>
-<h2 id="jsonl_2">在线事件与离线 JSONL 的关系<a class="headerlink" href="#jsonl_2" title="Permanent link">&para;</a></h2>
-<p>建议采用双层：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Postgres run_events = canonical event store
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>JSONL export = agent transcript / debug artifact / eval fixture
+<h2 id="_6">权限请求<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<p>权限请求必须是一等能力。SAEU 的权限事件需要包含：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;permission_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;perm_123&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run_123&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;tool_call_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tool_456&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">&quot;tool_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run_shell_command&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">&quot;risk&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;allow_once&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Allow once&quot;</span><span class="p">},</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;deny&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Deny&quot;</span><span class="p">}</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span><span class="nt">&quot;timeout_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-06-30T12:10:00Z&quot;</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">}</span>
 </code></pre></div>
-<p>在线服务读 Postgres：</p>
+<p>策略：</p>
 <ul>
-<li>UI 展示。</li>
-<li>状态查询。</li>
-<li>审计。</li>
-<li>权限流。</li>
-<li>重试和恢复。</li>
+<li>所有 permission request 必须进入 event store。</li>
+<li><code>ResolvePermission</code> 必须幂等。</li>
+<li>超时视为 cancel 或 deny，不能无限挂起。</li>
+<li>多客户端审批要记录投票人和策略。</li>
+<li>权限请求与工具调用必须能互相关联。</li>
 </ul>
-<p>离线任务读 JSONL：</p>
-<ul>
-<li>case 复盘。</li>
-<li>prompt 调优。</li>
-<li>regression eval。</li>
-<li>bug report。</li>
-<li>模型回放 fixture。</li>
-</ul>
-<h2 id="_4">回放模式<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<p>Qwen serve 已经具备 <code>first-responder</code>、<code>designated</code>、<code>consensus</code>、<code>local-only</code> 等 permission mediation 策略，适合直接映射到 SAEU 的权限面。</p>
+<h2 id="_7">健康检查<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p>SAEU 至少提供四级健康：</p>
 <table>
 <thead>
 <tr>
-<th>模式</th>
-<th>目标</th>
+<th>层级</th>
+<th>检查</th>
+<th>失败处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Process</td>
+<td>qwen serve 进程是否存在</td>
+<td>supervisor 重启或标记 failed</td>
+</tr>
+<tr>
+<td>HTTP</td>
+<td><code>/health</code> 是否 ok</td>
+<td>重试、重启</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td><code>/daemon/status</code> 是否可读</td>
+<td>降级为 degraded</td>
+</tr>
+<tr>
+<td>Session</td>
+<td><code>/session/:id/status</code>、SSE heartbeat</td>
+<td>尝试 resume/load</td>
+</tr>
+</tbody>
+</table>
+<p>健康状态：</p>
+<ul>
+<li><code>healthy</code>：可接收输入。</li>
+<li><code>degraded</code>：仍可读状态，但不建议接新任务。</li>
+<li><code>recovering</code>：正在恢复。</li>
+<li><code>unhealthy</code>：不可用，需要重建或失败转移。</li>
+</ul>
+<h2 id="_8">可恢复性<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<p>SAEU 的恢复能力分为三档：</p>
+<table>
+<thead>
+<tr>
+<th>等级</th>
+<th>能力</th>
 <th>要求</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Transcript replay</td>
-<td>重建对话和工具历史</td>
-<td>JSONL 足够起步</td>
+<td>R0</td>
+<td>不恢复，只保留审计</td>
+<td>事件和 artifact 完整</td>
 </tr>
 <tr>
-<td>State replay</td>
-<td>重建 run 状态</td>
-<td>canonical events</td>
+<td>R1</td>
+<td>session 恢复</td>
+<td>Agent transcript/session 可 load/resume</td>
 </tr>
 <tr>
-<td>UI replay</td>
-<td>重放用户看到的流式过程</td>
-<td>delta events + timestamps</td>
-</tr>
-<tr>
-<td>Tool replay</td>
-<td>不重新执行工具，使用录制结果</td>
-<td>tool input/output fixtures</td>
-</tr>
-<tr>
-<td>Deterministic replay</td>
-<td>尽量复现原执行</td>
-<td>workspace snapshot + model/tool fixtures</td>
-</tr>
-<tr>
-<td>Resume</td>
-<td>从中断点继续执行</td>
-<td>stable message chain + workspace + config</td>
+<td>R2</td>
+<td>run 级恢复</td>
+<td>workspace、transcript、权限、tool 状态都可恢复</td>
 </tr>
 </tbody>
 </table>
-<h2 id="mvp">MVP 建议<a class="headerlink" href="#mvp" title="Permanent link">&para;</a></h2>
-<ol>
-<li>保留 Qwen Code 原生 JSONL。</li>
-<li>由 adapter 把 JSONL 和 runtime signal 转成内部 run_events。</li>
-<li>大字段保存到 artifact，事件里只放引用。</li>
-<li>每个 run 结束时导出：</li>
-<li><code>transcript.jsonl</code></li>
-<li><code>events.jsonl</code></li>
-<li><code>meta.json</code></li>
-<li><code>diff.patch</code></li>
-<li><code>final.md</code></li>
-<li>回放工具先支持 transcript replay 和 state replay，再做 tool/model mock replay。</li>
-</ol>
-<h2 id="metajson">最小 <code>meta.json</code><a class="headerlink" href="#metajson" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run_1&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-code&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;repo&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;git@example.com:org/repo.git&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">&quot;commit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">&quot;sandbox&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-code-runner@sha256:...&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="nt">&quot;memory&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;768m&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="nt">&quot;cpus&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.75&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="nt">&quot;network&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;egress-proxy&quot;</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="nt">&quot;provider&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen3-coder&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">&quot;temperature&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
-<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">  </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">    </span><span class="nt">&quot;transcript&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;transcript.jsonl&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;events.jsonl&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">    </span><span class="nt">&quot;diff&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;diff.patch&quot;</span>
-<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">  </span><span class="p">}</span>
-<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="p">}</span>
-</code></pre></div>
-<h2 id="_5">结论<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
-<p>事件溯源是云端 Agent 的基础设施能力。JSONL 是非常实用的承载格式，但真正可靠的长期运行系统，还需要把 run、tool、permission、artifact、checkpoint 和 sandbox 都纳入统一事件模型。</p>
+<p>基于 qwen serve 的第一版目标是 R1+：</p>
+<ul>
+<li>使用 <code>/session/:id/load</code> 或 <code>/session/:id/resume</code> 恢复 session。</li>
+<li>用外部 Event Store 补足 qwen serve event ring 的持久性。</li>
+<li>对工具和权限事件做外部幂等记录。</li>
+<li>workspace 用 git commit/worktree snapshot 保证现场可恢复。</li>
+</ul>
+<h2 id="a2aacp">与 A2A/ACP 的关系<a class="headerlink" href="#a2aacp" title="Permanent link">&para;</a></h2>
+<p>SAEU 是内部抽象，不等同于 ACP 或 A2A。</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>协议建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Run Manager -&gt; qwen serve SAEU</td>
+<td>qwen serve HTTP/SSE + ACP bridge</td>
+</tr>
+<tr>
+<td>外部 Agent -&gt; 本系统</td>
+<td>A2A Gateway</td>
+</tr>
+<tr>
+<td>Agent -&gt; 工具</td>
+<td>MCP Gateway</td>
+</tr>
+<tr>
+<td>UI/CLI -&gt; Run Manager</td>
+<td>REST/SSE/WebSocket</td>
+</tr>
+</tbody>
+</table>
+<p>A2A 可以表达 Agent Card、task、status、artifact、streaming 和 push notification；但 coding agent 的权限请求、workspace 诊断、tool stdout、session resume 等细节需要用扩展 metadata 或由内部 SAEU contract 承担。</p>
+<h2 id="_9">验收标准<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<p>一个 SAEU 合格的最低标准：</p>
+<ul>
+<li>能用统一接口创建、启动、输入、订阅、取消、销毁。</li>
+<li>所有状态变化和权限请求都有事件。</li>
+<li>客户端断线后能用 <code>last_event_id</code> 追事件。</li>
+<li>qwen serve event ring 丢失窗口时，外部 Event Store 仍有完整事件。</li>
+<li>权限请求能被审批、拒绝、超时和审计。</li>
+<li>每次运行都有 transcript、events、diff、final report 和 diagnostics。</li>
+<li>进程崩溃后能判断是否恢复、重试或终止。</li>
+<li>不把模型 key、SSH key、Docker socket 暴露给 Agent 容器。</li>
+</ul>
+<h2 id="_10">决策<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<p>后续多 Agent 编排应当只调度 SAEU，而不是直接调度“某个 qwen serve 进程”。第一版 SAEU adapter 可以由 Qwen Code 实现，后续可接入 Claude Code、OpenCode、Gemini CLI 或自研 worker。</p>
 
 
 
