@@ -7,11 +7,15 @@ Online site: https://chiga0.github.io/agent-research/
 ## Key documents
 
 - [可云端长期运行的多 Agent 系统落地方案](docs/implementation/index.md)
+- [稳定单 Agent 执行单元](docs/implementation/stable-agent-execution-unit.md)
+- [基于 qwen-code serve 的云端单 Agent 单元方案](docs/implementation/qwen-serve-single-agent-cloud-unit.md)
 - [沙箱与隔离方案](docs/implementation/sandbox-isolation.md)
 - [ACP、A2A 与 MCP 协议选型](docs/implementation/protocol-acp-a2a.md)
 - [Temporal 调研与适配方案](docs/implementation/temporal-evaluation.md)
 - [事件溯源、JSONL 与回放](docs/implementation/event-sourcing-and-replay.md)
 - [单 Agent 基座选型](docs/implementation/single-agent-strategy.md)
+- [从单 Agent 执行单元到多 Agent 编排](docs/implementation/single-to-multi-agent-implementation-plan.md)
+- [方案审计与 Review 记录](docs/implementation/review-and-audit-record.md)
 
 ## Local preview
 

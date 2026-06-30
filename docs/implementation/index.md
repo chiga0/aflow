@@ -12,17 +12,23 @@
 - 多 Agent 是控制平面：负责拆分任务、分派执行器、协调状态、处理失败、做人机协同和审计。
 - 云端长期运行是运行时问题：必须有 run/thread/session 建模、事件日志、心跳、租约、队列、重试、取消、恢复、artifact 管理和部署治理。
 
-建议的落地路线是：**先把 Qwen Code 作为单 Agent worker 使用，在外层自建 Cloud Agent Runtime；等控制面稳定后，再按需 fork Qwen Code 的核心模块。不要从头实现完整 coding agent。**
+建议的落地路线是：**先把 Qwen Code `qwen serve` 包装成稳定单 Agent 执行单元，在外层自建 Cloud Agent Runtime；多 Agent 编排只调度这个执行单元；等控制面稳定后，再按需 fork Qwen Code 的核心模块。不要从头实现完整 coding agent。**
+
+稳定单 Agent 执行单元是后续调度、编排和协议互操作的基础原子。它对外提供统一的启动、输入、事件、权限、取消、恢复、artifact 和 diagnostics 接口；对内可以由 qwen serve、Claude Code、OpenCode、Gemini CLI 或其他 worker 实现。
 
 ## 文档归类
 
 本方案拆成以下专题，便于后续持续补充：
 
+- [稳定单 Agent 执行单元](stable-agent-execution-unit.md)：定义外部编排和调度的基础原子。
+- [基于 qwen-code serve 的云端单 Agent 单元方案](qwen-serve-single-agent-cloud-unit.md)：完整设计单 Agent 云端部署、审计、重放、恢复和排障。
 - [沙箱与隔离方案](sandbox-isolation.md)：回答 Docker、多 VPS、资源限制、网络和密钥隔离。
 - [ACP、A2A 与 MCP 协议选型](protocol-acp-a2a.md)：回答 ACP 是否可以替代 A2A，以及三类协议的边界。
 - [Temporal 调研与适配方案](temporal-evaluation.md)：解释 Temporal 的核心概念、适用边界和低资源部署策略。
 - [事件溯源、JSONL 与回放](event-sourcing-and-replay.md)：回答 JSONL 是否可复现 qwen-code 场景，以及完整回放还缺什么。
 - [单 Agent 基座选型](single-agent-strategy.md)：比较直接部署、fork、抽取核心和从头实现。
+- [从单 Agent 执行单元到多 Agent 编排](single-to-multi-agent-implementation-plan.md)：给出可实施的多 Agent 演进路线。
+- [方案审计与 Review 记录](review-and-audit-record.md)：记录多轮审计结论、风险和 Go/No-Go。
 
 ## 目标形态
 
@@ -46,7 +52,7 @@ flowchart TB
     Queue["Job Queue<br/>Lease / Heartbeat / Retry"]
     Worker["Agent Worker Supervisor"]
     Sandbox["Per-run Sandbox<br/>Docker / Worktree / cgroups"]
-    Agent["Qwen Code Worker<br/>serve / headless / ACP"]
+    Agent["SAEU Adapter<br/>qwen serve / ACP bridge"]
     ModelProxy["Model Proxy<br/>Budget / Key isolation / Audit"]
     Tools["Tool Gateway<br/>MCP / Git / Shell / Browser"]
     EventStore["Event Store<br/>PostgreSQL + JSONL export"]
@@ -173,9 +179,9 @@ VPS-2: sandbox worker
 
 ## MVP 实施路线
 
-### Phase 0：验证 Qwen Code worker
+### Phase 0：验证 qwen serve SAEU
 
-- 用 Qwen Code headless 或 `qwen serve` 跑真实代码任务。
+- 用 `qwen serve` 包装成一个稳定单 Agent 执行单元，跑真实代码任务。
 - 记录 token、耗时、失败类型、权限请求和 JSONL。
 - 明确哪些工具必须禁用，哪些工具需要人工审批。
 
@@ -244,10 +250,10 @@ VPS-2: sandbox worker
 | --- | --- |
 | 是否一开始多 ECS/K8s | 不需要。1-2 台 VPS 用 Docker 隔离和低并发更现实。 |
 | Docker 是否足够 | 对普通 coding 任务足够起步；对恶意代码不够，需要独立 worker VPS 或 microVM。 |
-| ACP 能否替代 A2A | 内部 client-to-agent 控制可以用 ACP；开放式 agent-to-agent 互操作仍建议 A2A Gateway。 |
+| ACP 能否替代 A2A | 内部 worker 控制走 SAEU contract，qwen 侧用 qwen serve/ACP bridge；开放式 agent-to-agent 互操作仍建议 A2A Gateway。 |
 | 是否立即上 Temporal | 不建议。先用 Postgres queue + event store；长流程复杂后再引入。 |
 | JSONL 是否就是事件溯源 | JSONL 是格式，事件溯源是建模方法。qwen-code JSONL 可用于恢复和部分复现，但不是完整确定性回放。 |
-| 单 Agent 用什么 | 先直接部署 Qwen Code worker，外围做云端 runtime；稳定后再小范围 fork。 |
+| 单 Agent 用什么 | 先直接部署 `qwen serve` SAEU，外围做云端 runtime；稳定后再小范围 fork。 |
 
 ## 参考资料
 
