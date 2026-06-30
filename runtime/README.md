@@ -200,3 +200,18 @@ sudo cp deploy/systemd/cloud-agents-runtime.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now cloud-agents-runtime
 ```
+
+For a qwen-backed deployment, place the qwen settings file at:
+
+```text
+/home/cloudagents/.qwen/settings.json
+```
+
+with owner `cloudagents:cloudagents` and mode `600`.
+
+The helper script can do that automatically:
+
+```bash
+QWEN_SETTINGS_FILE=/path/to/settings.json \
+  bash scripts/deploy_runtime_vps.sh root@<host> /path/to/key.pem
+```

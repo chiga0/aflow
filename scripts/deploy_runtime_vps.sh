@@ -12,16 +12,25 @@ APP_DIR="${APP_DIR:-/opt/agent-research}"
 STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
 REPO_URL="${REPO_URL:-https://github.com/chiga0/agent-research.git}"
 NODE_PACKAGE="${NODE_PACKAGE:-@qwen-code/qwen-code@0.19.3}"
+QWEN_SETTINGS_FILE="${QWEN_SETTINGS_FILE:-}"
 
 ssh_cmd() {
   ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "$@"
 }
+
+if [[ -n "$QWEN_SETTINGS_FILE" ]]; then
+  scp -i "$SSH_KEY" \
+    -o StrictHostKeyChecking=accept-new \
+    "$QWEN_SETTINGS_FILE" \
+    "$SSH_TARGET:/tmp/qwen-settings.json"
+fi
 
 REMOTE_ENV=(
   "APP_DIR='$APP_DIR'"
   "STATE_DIR='$STATE_DIR'"
   "REPO_URL='$REPO_URL'"
   "NODE_PACKAGE='$NODE_PACKAGE'"
+  "HAS_QWEN_SETTINGS='$([[ -n "$QWEN_SETTINGS_FILE" ]] && echo 1 || echo 0)'"
 )
 
 ssh_cmd "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
@@ -43,6 +52,14 @@ if ! id cloudagents >/dev/null 2>&1; then
 fi
 
 mkdir -p "$APP_DIR" "$STATE_DIR/artifacts" "$STATE_DIR/workspace"
+install -d -m 700 -o cloudagents -g cloudagents /home/cloudagents/.qwen
+if [[ "$HAS_QWEN_SETTINGS" == "1" ]]; then
+  install -m 600 -o cloudagents -g cloudagents \
+    /tmp/qwen-settings.json \
+    /home/cloudagents/.qwen/settings.json
+  rm -f /tmp/qwen-settings.json
+fi
+
 if [[ ! -d "$APP_DIR/.git" ]]; then
   git clone "$REPO_URL" "$APP_DIR"
 else
