@@ -997,6 +997,36 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>Permission timeout 的自动 deny/cancel 尚未进入 P2 MVP；当前先保证人工决策的完整审计链。</li>
 <li>stdout/stderr 类 worker 进程日志将在独立 sandbox worker 引入后纳入 artifact manifest。</li>
 </ul>
+<h2 id="2026-07-01-p3">2026-07-01 P3 实施审计<a class="headerlink" href="#2026-07-01-p3" title="Permanent link">&para;</a></h2>
+<h3 id="_24">项目测试要求<a class="headerlink" href="#_24" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Runtime CI 必须通过 <code>python3 scripts/check_style.py</code>。</li>
+<li>Runtime CI 必须通过 <code>python3 -m compileall -q runtime scripts</code>。</li>
+<li>Runtime CI 必须通过 <code>python3 scripts/check_runtime_coverage.py</code>，runtime 覆盖率门槛为 90%。</li>
+<li>Runtime CI 必须通过 <code>mkdocs build --strict</code>。</li>
+<li>本地 smoke 需要覆盖 health、capabilities、queue、create run、SSE、artifact、<code>runtime.db</code>。</li>
+</ul>
+<h3 id="_25">多轮审计结论<a class="headerlink" href="#_25" title="Permanent link">&para;</a></h3>
+<ul>
+<li>正向审计：jobs/leases、worker heartbeat、capacity、per-run workspace、resource policy、timeout watchdog、cleanup policy 都有 runtime tests 覆盖。</li>
+<li>反向审计：覆盖 unknown adapter、远程 repo 拒绝、超资源请求拒绝、queued run 不清理、shared workspace 不清理、unauthorized cleanup。</li>
+<li>恢复审计：artifact 被清理后，canonical events 仍保留在 SQLite；<code>scripts/replay_run.py</code> 已支持从 <code>runtime.db</code> fallback replay。</li>
+<li>隔离审计：local git source 使用 detached worktree；cleanup 现在优先用 <code>git worktree remove --force</code>，避免源仓库残留 stale worktree metadata。</li>
+<li>运维审计：<code>POST /cleanup</code> 需要 bearer token；默认 retention 下不会误删新完成 run。</li>
+</ul>
+<h3 id="_26">新增回归覆盖<a class="headerlink" href="#_26" title="Permanent link">&para;</a></h3>
+<ul>
+<li>artifact cleanup 后仍可通过 DB fallback 运行 <code>scripts/replay_run.py --format state</code>。</li>
+<li>artifact 先清理、workspace 后清理时，不会重新留下 artifact 目录。</li>
+<li>git worktree cleanup 后，<code>git worktree list --porcelain</code> 不再包含已删除 workspace。</li>
+<li>cleanup policy 在 API 层受 auth 保护，并通过 <code>/capabilities</code> 暴露。</li>
+</ul>
+<h3 id="p3">P3 剩余风险<a class="headerlink" href="#p3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CPU/memory/pids 当前是执行单元级限制；严格 per-run cgroup 需要容器 worker。</li>
+<li>双 VPS worker 模式仍是 deferred；当前 P3 完成的是单 VPS / local worker 主线。</li>
+<li>SQLite 适合当前单控制面 MVP；多控制面需要迁移到 Postgres 或等价外部事件库。</li>
+</ul>
 <h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>
 <h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1018,7 +1048,7 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>把所有 SubAgent 都强制拆成独立 daemon。</li>
 <li>从头实现 coding agent core。</li>
 </ul>
-<h2 id="_24">最终可实施判断<a class="headerlink" href="#_24" title="Permanent link">&para;</a></h2>
+<h2 id="_27">最终可实施判断<a class="headerlink" href="#_27" title="Permanent link">&para;</a></h2>
 <p>方案可行，且适合 1-2 台 VPS 起步。推荐第一阶段只实现一个 qwen serve SAEU adapter，把审计、权限、事件、artifact 和恢复做扎实；第二阶段再抽象 ACP-compatible runtime adapter；第三阶段再做常驻 Supervisor + SubAgent + SAEU 的多 Agent 编排。</p>
 <p>只要不跳过单 Agent 单元稳定性，多 Agent 编排不会建立在松散 CLI 进程上，而是建立在可管理、可恢复、可审计的执行单元上。</p>
   </div>
@@ -1457,6 +1487,40 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
+        <a href="#2026-07-01-p3"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#2026-07-01-p3');">
+            2026-07-01 P3 实施审计
+        </a>
+        
+        
+        <a href="#_24"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_24');">
+            项目测试要求
+        </a>
+        
+        <a href="#_25"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_25');">
+            多轮审计结论
+        </a>
+        
+        <a href="#_26"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_26');">
+            新增回归覆盖
+        </a>
+        
+        <a href="#p3"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#p3');">
+            P3 剩余风险
+        </a>
+        
+        
+
+        
         <a href="#go-no-go"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#go-no-go');">
@@ -1479,9 +1543,9 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
-        <a href="#_24"
+        <a href="#_27"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_24');">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_27');">
             最终可实施判断
         </a>
         
