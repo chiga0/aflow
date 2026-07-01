@@ -1112,8 +1112,8 @@
 </tr>
 <tr>
 <td>per-run workspace</td>
-<td><code>not_started</code></td>
-<td>并发 run 文件隔离</td>
+<td><code>done</code></td>
+<td>每个 run 默认分配 <code>artifact_root/workspaces/&lt;run_id&gt;</code>；local git source 优先使用 detached worktree</td>
 </tr>
 <tr>
 <td>resource limits</td>
@@ -1135,6 +1135,7 @@
 <p>P3 当前实现：</p>
 <ul>
 <li><code>POST /runs</code> 先写入 <code>run.queued</code>，由本地 worker 在容量允许时 claim lease。</li>
+<li>每个 run 在入队前写入 <code>workspace.prepared</code>，并保存 <code>workspace.json</code> 和 resolved workspace metadata。</li>
 <li><code>lease.claimed</code>、<code>lease.expired</code>、<code>run.completed</code> / <code>run.failed</code> / <code>run.cancelled</code> 都写入同一 canonical event stream。</li>
 <li><code>GET /queue</code> 返回 job counts、jobs 和 workers；<code>GET /workers</code> 返回 worker heartbeat 视图。</li>
 <li>浏览器控制台增加 Queue 面板，显示 queued/running/capacity/active 和 worker heartbeat。</li>
@@ -1143,7 +1144,8 @@
 <p>P3 剩余风险：</p>
 <ul>
 <li>当前 worker 仍在 Run Manager 进程内，跨 VPS worker 需要把 claim/heartbeat 迁移到远程 worker loop。</li>
-<li>当前 workspace 仍依赖 adapter/workspace 参数，尚未强制每个 run 一个 git worktree 或容器目录。</li>
+<li>远程 repo clone/credential policy 尚未接入，当前会显式拒绝而不是静默创建空 workspace。</li>
+<li>qwen adapter 仍连接一个 <code>qwen serve</code> endpoint；强隔离 qwen 并发需要 per-workspace daemon registry 或容器 worker。</li>
 <li>当前 resource limit 仍是部署层要求，尚未由 Run Manager 自动下发 cgroup/Docker 限制。</li>
 </ul>
 <h2 id="p4supervisor-profile-saeu">P4：Supervisor + Profile + SAEU 编排<a class="headerlink" href="#p4supervisor-profile-saeu" title="Permanent link">&para;</a></h2>
