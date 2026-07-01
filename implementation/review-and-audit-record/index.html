@@ -1027,6 +1027,34 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>双 VPS worker 模式仍是 deferred；当前 P3 完成的是单 VPS / local worker 主线。</li>
 <li>SQLite 适合当前单控制面 MVP；多控制面需要迁移到 Postgres 或等价外部事件库。</li>
 </ul>
+<h2 id="2026-07-01-p4">2026-07-01 P4 实施审计<a class="headerlink" href="#2026-07-01-p4" title="Permanent link">&para;</a></h2>
+<h3 id="_27">已落地能力<a class="headerlink" href="#_27" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Profile Registry：内置 <code>planner</code>、<code>coder</code>、<code>tester</code>、<code>reviewer</code>、<code>doc-writer</code>，并支持用户 profile 版本化。</li>
+<li>Mission 数据模型：<code>missions</code>、<code>mission_tasks</code>、<code>mission_events</code> 与 run 表共存于 SQLite。</li>
+<li>Supervisor MVP：确定性 <code>MissionManager</code> 负责 ready task 识别、创建 SAEU run、监听 run terminal event 并推进依赖。</li>
+<li>DAG 策略：支持 <code>sequential</code>、<code>fanout</code>、<code>custom</code>；custom DAG 做 duplicate、missing dependency、cycle 校验。</li>
+<li>Artifact handoff：下游 task run spec 写入 dependency artifact refs，不共享 sibling workspace。</li>
+<li>Final report：mission 完成后生成 <code>final_report.md</code>，并持久化 <code>mission_manifest.json</code> 与 task JSON。</li>
+<li>API：<code>/profiles</code>、<code>/missions</code>、mission events/artifacts、mission cancel 已接入 Run Manager HTTP 层。</li>
+<li>验收脚本：<code>scripts/validate_runtime.py --validate-mission</code> 可做两 task mission smoke。</li>
+</ul>
+<h3 id="_28">多轮审计结论<a class="headerlink" href="#_28" title="Permanent link">&para;</a></h3>
+<ul>
+<li>正向审计：<code>mission -&gt; task -&gt; profile -&gt; SAEU run</code> 已复用 P1-P3 的 run queue、workspace、resource、event、artifact 和 cleanup 能力。</li>
+<li>反向审计：覆盖 unknown profile、unknown adapter、bad DAG、cycle、duplicate task、bad mission payload。</li>
+<li>取消审计：测试发现 active child run 先取消会把 pending dependent task 标成 <code>blocked</code>；已修复为先取消无 run 的 pending task，再取消 active child run。</li>
+<li>恢复审计：mission/task/profile 进入 SQLite；<code>MissionManager.reconcile()</code> 会在启动时同步已有 task run 状态并继续调度 ready task。</li>
+<li>隔离审计：P4 没有引入跨 task 共享可写 workspace；profile 里的 workspace policy 先作为审计模板，不绕过 P3 workspace allocator。</li>
+<li>覆盖率审计：新增 P4 后 runtime coverage 维持在 90% 以上，满足 CI 门槛。</li>
+</ul>
+<h3 id="p4">P4 剩余风险<a class="headerlink" href="#p4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Supervisor 仍是规则控制器，不是长期 Project Agent；长期 memory、目标管理和人机协作需要后续设计。</li>
+<li>Reviewer gate 尚未解析 reviewer artifact 中的高风险 finding，也不会自动阻塞 merge。</li>
+<li>Artifact handoff 只传 artifact 引用，不做 patch merge、diff conflict 解决或 artifact 内容内联。</li>
+<li>qwen 多 workspace 强隔离仍需 per-workspace daemon registry 或容器 worker；当前 mission 多 task 可以用 fake 完整验收，qwen 真实多 task 要等部署密钥恢复后再跑。</li>
+</ul>
 <h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>
 <h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1048,7 +1076,7 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>把所有 SubAgent 都强制拆成独立 daemon。</li>
 <li>从头实现 coding agent core。</li>
 </ul>
-<h2 id="_27">最终可实施判断<a class="headerlink" href="#_27" title="Permanent link">&para;</a></h2>
+<h2 id="_29">最终可实施判断<a class="headerlink" href="#_29" title="Permanent link">&para;</a></h2>
 <p>方案可行，且适合 1-2 台 VPS 起步。推荐第一阶段只实现一个 qwen serve SAEU adapter，把审计、权限、事件、artifact 和恢复做扎实；第二阶段再抽象 ACP-compatible runtime adapter；第三阶段再做常驻 Supervisor + SubAgent + SAEU 的多 Agent 编排。</p>
 <p>只要不跳过单 Agent 单元稳定性，多 Agent 编排不会建立在松散 CLI 进程上，而是建立在可管理、可恢复、可审计的执行单元上。</p>
   </div>
@@ -1521,6 +1549,34 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
+        <a href="#2026-07-01-p4"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#2026-07-01-p4');">
+            2026-07-01 P4 实施审计
+        </a>
+        
+        
+        <a href="#_27"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_27');">
+            已落地能力
+        </a>
+        
+        <a href="#_28"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_28');">
+            多轮审计结论
+        </a>
+        
+        <a href="#p4"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#p4');">
+            P4 剩余风险
+        </a>
+        
+        
+
+        
         <a href="#go-no-go"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#go-no-go');">
@@ -1543,9 +1599,9 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
-        <a href="#_27"
+        <a href="#_29"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_27');">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_29');">
             最终可实施判断
         </a>
         

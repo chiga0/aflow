@@ -840,13 +840,13 @@
 <tr>
 <td>P3</td>
 <td>多 SAEU 并发与任务队列</td>
-<td><code>in_progress</code></td>
+<td><code>done</code></td>
 <td>1-2 个 SAEU 并发运行，队列限流生效</td>
 </tr>
 <tr>
 <td>P4</td>
 <td>Supervisor + Profile + SAEU 编排</td>
-<td><code>not_started</code></td>
+<td><code>done</code></td>
 <td>常驻 supervisor 可基于 profile 创建一个或多个 SAEU run；SubAgent 仅作为 SAEU 内部优化</td>
 </tr>
 <tr>
@@ -1152,7 +1152,7 @@
 <li>CPU/memory/pids 当前是执行单元级限制；严格的 per-run cgroup/Docker 限制需要引入容器 worker。</li>
 </ul>
 <h2 id="p4supervisor-profile-saeu">P4：Supervisor + Profile + SAEU 编排<a class="headerlink" href="#p4supervisor-profile-saeu" title="Permanent link">&para;</a></h2>
-<p>状态：<code>not_started</code></p>
+<p>状态：<code>done</code></p>
 <p>目标：</p>
 <ul>
 <li>多 Agent 编排不直接编排 CLI，也不直接编排 runtime 内部 SubAgent。</li>
@@ -1172,28 +1172,28 @@
 <tbody>
 <tr>
 <td>mission/task 数据模型</td>
-<td><code>not_started</code></td>
-<td>mission 可拆多个 task</td>
+<td><code>done</code></td>
+<td><code>missions</code>、<code>mission_tasks</code>、<code>mission_events</code> 持久化，mission 可拆多个 task</td>
 </tr>
 <tr>
 <td>Profile Registry</td>
-<td><code>not_started</code></td>
+<td><code>done</code></td>
 <td>系统内置 profile + 用户自定义 profile + 版本化 resolved profile</td>
 </tr>
 <tr>
 <td>profile 定义</td>
-<td><code>not_started</code></td>
+<td><code>done</code></td>
 <td>planner/coder/tester/reviewer/doc-writer 权限、模型、workspace、artifact 要求不同</td>
 </tr>
 <tr>
 <td>profile -&gt; agent instance 映射</td>
-<td><code>not_started</code></td>
-<td>一个 profile 可启动多个 SAEU instance</td>
+<td><code>done</code></td>
+<td>一个 profile 可启动多个 SAEU instance；每个 task run 带 profile snapshot</td>
 </tr>
 <tr>
 <td>task -&gt; SAEU 调度策略</td>
-<td><code>not_started</code></td>
-<td>mission/task DAG 中的 task 默认创建 SAEU run</td>
+<td><code>done</code></td>
+<td>mission/task DAG 中的 ready task 默认创建 SAEU run</td>
 </tr>
 <tr>
 <td>runtime SubAgent 内部优化策略</td>
@@ -1202,26 +1202,44 @@
 </tr>
 <tr>
 <td>task dependency</td>
-<td><code>not_started</code></td>
+<td><code>done</code></td>
 <td>支持串行和 fan-out/fan-in</td>
 </tr>
 <tr>
 <td>artifact handoff</td>
-<td><code>not_started</code></td>
-<td>子任务只通过 artifact 传递结果</td>
+<td><code>done</code></td>
+<td>子任务只通过 artifact 引用和事件传递结果</td>
 </tr>
 <tr>
 <td>reviewer gate</td>
-<td><code>not_started</code></td>
-<td>高风险 finding 阻塞合并</td>
+<td><code>deferred</code></td>
+<td>当前有 reviewer task；自动高风险 finding 阻塞合并放入 P6 hardening</td>
 </tr>
 <tr>
 <td>final report</td>
-<td><code>not_started</code></td>
+<td><code>done</code></td>
 <td>汇总所有子任务和 artifact 引用</td>
 </tr>
 </tbody>
 </table></div>
+<p>P4 当前实现：</p>
+<ul>
+<li><code>GET /profiles</code>、<code>GET /profiles/{profile_id}</code>、<code>POST /profiles</code> 提供 profile registry。</li>
+<li>内置 <code>planner</code>、<code>coder</code>、<code>tester</code>、<code>reviewer</code>、<code>doc-writer</code> profile。</li>
+<li><code>POST /missions</code> 创建 mission，并支持 <code>sequential</code>、<code>fanout</code>、<code>custom</code> 三种策略。</li>
+<li>每个 ready task 都创建一个普通 SAEU run，继承 P1-P3 的 workspace、resource、queue、event、artifact、cleanup 能力。</li>
+<li>task run spec 写入 <code>mission_id</code>、<code>task_id</code>、<code>task_profile</code>、<code>profile_snapshot</code> 和 dependency artifact refs。</li>
+<li><code>GET /missions/{mission_id}</code>、<code>events.json</code>、<code>artifacts</code> 可恢复 mission 状态和审计链。</li>
+<li><code>POST /missions/{mission_id}/cancel</code> 会取消 active child run，并把 pending task 标为 cancelled。</li>
+<li>mission artifact 存放在 <code>artifact_root/missions/&lt;mission_id&gt;/</code>，包含 manifest、events、task JSON 和 final report。</li>
+</ul>
+<p>P4 剩余风险：</p>
+<ul>
+<li>Supervisor 目前是确定性 in-process controller，还不是有长期记忆的 Project Agent SAEU。</li>
+<li>reviewer gate 只完成 reviewer task 与 artifact 汇总，尚未解析 finding 并自动阻塞 merge。</li>
+<li>artifact handoff 当前传递稳定引用，不复制 sibling workspace，也不做 patch merge。</li>
+<li>qwen adapter 仍是单 <code>qwen serve</code> endpoint；强隔离多 qwen daemon registry 属于后续 worker/container 化。</li>
+</ul>
 <h2 id="p5">P5：外部协议与替代组件评估<a class="headerlink" href="#p5" title="Permanent link">&para;</a></h2>
 <p>状态：<code>not_started</code></p>
 <p>目标：</p>
@@ -1380,17 +1398,15 @@
 </tbody>
 </table></div>
 <h2 id="_4">当前优先级<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
-<p>近期只做 P1 和 P2，不提前铺太大：</p>
+<p>近期主线：</p>
 <ol>
-<li>qwen serve SAEU adapter。</li>
-<li>canonical event schema。</li>
-<li>Event Store。</li>
-<li>Permission Service。</li>
-<li>Artifact Collector。</li>
-<li>runtime adapter capability schema。</li>
-<li>基础 replay。</li>
+<li>用 fake adapter 跑通 P4 mission/profile smoke。</li>
+<li>等部署密钥可用后，用 qwen serve 验收单 run 和两 task mission。</li>
+<li>设计 reviewer gate finding schema。</li>
+<li>评估 P5 的 ACP Streamable HTTP adapter 和 A2A Gateway。</li>
+<li>评估 Temporal/LangGraph 是否接管 durable mission workflow。</li>
 </ol>
-<p>这些完成前，不建议投入复杂多 Agent supervisor，也不建议接入 Temporal 或云沙箱。</p>
+<p>P4 已能证明 <code>mission -&gt; task -&gt; profile -&gt; SAEU run</code> 的基础编排闭环；P5/P6 再决定是否把 mission workflow 迁移到 Temporal/LangGraph，或引入云沙箱。</p>
   </div>
   
   <script>
