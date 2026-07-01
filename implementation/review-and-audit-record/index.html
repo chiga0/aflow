@@ -1051,9 +1051,35 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <h3 id="p4">P4 剩余风险<a class="headerlink" href="#p4" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Supervisor 仍是规则控制器，不是长期 Project Agent；长期 memory、目标管理和人机协作需要后续设计。</li>
-<li>Reviewer gate 尚未解析 reviewer artifact 中的高风险 finding，也不会自动阻塞 merge。</li>
+<li>Reviewer gate 已支持结构化 JSON 阻塞；人工 override 和 merge/deploy gate 尚未实现。</li>
 <li>Artifact handoff 只传 artifact 引用，不做 patch merge、diff conflict 解决或 artifact 内容内联。</li>
 <li>qwen 多 workspace 强隔离仍需 per-workspace daemon registry 或容器 worker；当前 mission 多 task 可以用 fake 完整验收，qwen 真实多 task 要等部署密钥恢复后再跑。</li>
+</ul>
+<h2 id="2026-07-01-p41-reviewer-gate">2026-07-01 P4.1 Reviewer Gate 实施审计<a class="headerlink" href="#2026-07-01-p41-reviewer-gate" title="Permanent link">&para;</a></h2>
+<h3 id="_29">已落地能力<a class="headerlink" href="#_29" title="Permanent link">&para;</a></h3>
+<ul>
+<li>内置 <code>reviewer</code> profile 要求 <code>review_gate.json</code>，并标记 <code>artifacts.gate.type=reviewer</code>。</li>
+<li>新增 reviewer gate schema：<code>decision</code>、<code>severity</code>、<code>reason</code>、<code>findings</code>。</li>
+<li>支持 <code>pass</code>、<code>warn</code>、<code>block</code>、<code>needs_human</code> 四种 decision。</li>
+<li>高/严重 finding 会把 <code>pass</code> 或 <code>warn</code> 保守提升为 <code>block</code>。</li>
+<li>缺失或非法 <code>review_gate.json</code> 会进入 <code>needs_human</code>，并阻塞下游 pending task。</li>
+<li>Mission Supervisor 产出 <code>review.gate_passed</code>、<code>review.gate_warned</code>、<code>review.gate_blocked</code>、<code>review.gate_needs_human</code> 事件。</li>
+<li>gate 阻塞时 mission 状态为 <code>blocked</code>，并写入 mission 级 <code>review_gate.json</code> 和 <code>final_report.md</code>。</li>
+<li>fake adapter 会为 reviewer task 生成 pass gate，保证本地 P4/P4.1 smoke 可重复验证。</li>
+</ul>
+<h3 id="_30">多轮审计结论<a class="headerlink" href="#_30" title="Permanent link">&para;</a></h3>
+<ul>
+<li>正向审计：warn gate 允许下游 report task 继续，mission 最终 <code>completed</code>。</li>
+<li>反向审计：block/high finding 会阻塞 report task，mission 进入 <code>blocked</code>。</li>
+<li>保守审计：缺失 gate artifact 被判定为 <code>needs_human</code>，不会静默放行。</li>
+<li>schema 审计：非法 decision、非法 finding、未知 severity 都不会降低风险等级。</li>
+<li>恢复审计：gate 结果写入 task result、mission event、mission artifact；重启后不会重复评估已写入的 gate。</li>
+</ul>
+<h3 id="p41">P4.1 剩余风险<a class="headerlink" href="#p41" title="Permanent link">&para;</a></h3>
+<ul>
+<li>当前 gate 只解析结构化 JSON，不从自由文本 <code>review-findings.md</code> 推断风险。</li>
+<li>人工 override、审批超时、merge/deploy gate 尚未实现。</li>
+<li>qwen reviewer 必须按提示写出 <code>review_gate.json</code>；否则 mission 会保守阻塞为 <code>needs_human</code>。</li>
 </ul>
 <h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>
 <h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
@@ -1076,7 +1102,7 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>把所有 SubAgent 都强制拆成独立 daemon。</li>
 <li>从头实现 coding agent core。</li>
 </ul>
-<h2 id="_29">最终可实施判断<a class="headerlink" href="#_29" title="Permanent link">&para;</a></h2>
+<h2 id="_31">最终可实施判断<a class="headerlink" href="#_31" title="Permanent link">&para;</a></h2>
 <p>方案可行，且适合 1-2 台 VPS 起步。推荐第一阶段只实现一个 qwen serve SAEU adapter，把审计、权限、事件、artifact 和恢复做扎实；第二阶段再抽象 ACP-compatible runtime adapter；第三阶段再做常驻 Supervisor + SubAgent + SAEU 的多 Agent 编排。</p>
 <p>只要不跳过单 Agent 单元稳定性，多 Agent 编排不会建立在松散 CLI 进程上，而是建立在可管理、可恢复、可审计的执行单元上。</p>
   </div>
@@ -1577,6 +1603,34 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
+        <a href="#2026-07-01-p41-reviewer-gate"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#2026-07-01-p41-reviewer-gate');">
+            2026-07-01 P4.1 Reviewer Gate 实施审计
+        </a>
+        
+        
+        <a href="#_29"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_29');">
+            已落地能力
+        </a>
+        
+        <a href="#_30"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_30');">
+            多轮审计结论
+        </a>
+        
+        <a href="#p41"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#p41');">
+            P4.1 剩余风险
+        </a>
+        
+        
+
+        
         <a href="#go-no-go"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#go-no-go');">
@@ -1599,9 +1653,9 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
-        <a href="#_29"
+        <a href="#_31"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_29');">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_31');">
             最终可实施判断
         </a>
         

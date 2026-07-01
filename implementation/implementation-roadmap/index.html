@@ -1212,8 +1212,8 @@
 </tr>
 <tr>
 <td>reviewer gate</td>
-<td><code>deferred</code></td>
-<td>当前有 reviewer task；自动高风险 finding 阻塞合并放入 P6 hardening</td>
+<td><code>done</code></td>
+<td><code>review_gate.json</code> 可触发 pass/warn/block/needs_human，阻塞下游 task</td>
 </tr>
 <tr>
 <td>final report</td>
@@ -1231,12 +1231,13 @@
 <li>task run spec 写入 <code>mission_id</code>、<code>task_id</code>、<code>task_profile</code>、<code>profile_snapshot</code> 和 dependency artifact refs。</li>
 <li><code>GET /missions/{mission_id}</code>、<code>events.json</code>、<code>artifacts</code> 可恢复 mission 状态和审计链。</li>
 <li><code>POST /missions/{mission_id}/cancel</code> 会取消 active child run，并把 pending task 标为 cancelled。</li>
+<li>reviewer task 可通过 <code>review_gate.json</code> 输出结构化 gate；高/严重 finding、<code>block</code>、<code>needs_human</code>、缺失或非法 gate 都会让 mission 进入 <code>blocked</code>。</li>
 <li>mission artifact 存放在 <code>artifact_root/missions/&lt;mission_id&gt;/</code>，包含 manifest、events、task JSON 和 final report。</li>
 </ul>
 <p>P4 剩余风险：</p>
 <ul>
 <li>Supervisor 目前是确定性 in-process controller，还不是有长期记忆的 Project Agent SAEU。</li>
-<li>reviewer gate 只完成 reviewer task 与 artifact 汇总，尚未解析 finding 并自动阻塞 merge。</li>
+<li>reviewer gate 已支持结构化阻塞；更细的 finding 分类、人工 override、merge/deploy gate 仍属于 P6 hardening。</li>
 <li>artifact handoff 当前传递稳定引用，不复制 sibling workspace，也不做 patch merge。</li>
 <li>qwen adapter 仍是单 <code>qwen serve</code> endpoint；强隔离多 qwen daemon registry 属于后续 worker/container 化。</li>
 </ul>
@@ -1402,7 +1403,7 @@
 <ol>
 <li>用 fake adapter 跑通 P4 mission/profile smoke。</li>
 <li>等部署密钥可用后，用 qwen serve 验收单 run 和两 task mission。</li>
-<li>设计 reviewer gate finding schema。</li>
+<li>设计 reviewer gate 人工 override 和 merge/deploy gate。</li>
 <li>评估 P5 的 ACP Streamable HTTP adapter 和 A2A Gateway。</li>
 <li>评估 Temporal/LangGraph 是否接管 durable mission workflow。</li>
 </ol>
