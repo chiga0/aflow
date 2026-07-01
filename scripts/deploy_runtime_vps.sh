@@ -33,6 +33,7 @@ RUN_MANAGER_CLEANUP_INTERVAL_SECONDS="${RUN_MANAGER_CLEANUP_INTERVAL_SECONDS:-36
 RUNTIME_CPU_QUOTA="${RUNTIME_CPU_QUOTA:-100%}"
 RUNTIME_MEMORY_MAX="${RUNTIME_MEMORY_MAX:-1G}"
 RUNTIME_TASKS_MAX="${RUNTIME_TASKS_MAX:-512}"
+DEPLOY_RUNTIME_PRINT_SECRETS="${DEPLOY_RUNTIME_PRINT_SECRETS:-1}"
 
 case "$PUBLIC_HOST" in
   *[!A-Za-z0-9._-]*)
@@ -98,6 +99,7 @@ append_remote_env \
 append_remote_env \
   RUN_MANAGER_CLEANUP_INTERVAL_SECONDS \
   "$RUN_MANAGER_CLEANUP_INTERVAL_SECONDS"
+append_remote_env DEPLOY_RUNTIME_PRINT_SECRETS "$DEPLOY_RUNTIME_PRINT_SECRETS"
 
 ssh_cmd "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
 set -euo pipefail
@@ -195,7 +197,11 @@ systemctl restart cloud-agents-runtime
 sleep 3
 systemctl --no-pager --full status cloud-agents-runtime
 
-echo "RUN_MANAGER_TOKEN=$RUN_MANAGER_TOKEN"
-echo "BASIC_AUTH_USER=$BASIC_AUTH_USER"
-echo "BASIC_AUTH_PASSWORD=$BASIC_AUTH_PASSWORD"
+if [[ "$DEPLOY_RUNTIME_PRINT_SECRETS" == "1" ]]; then
+  echo "RUN_MANAGER_TOKEN=$RUN_MANAGER_TOKEN"
+  echo "BASIC_AUTH_USER=$BASIC_AUTH_USER"
+  echo "BASIC_AUTH_PASSWORD=$BASIC_AUTH_PASSWORD"
+else
+  echo "credentials written to /etc/cloud-agents-runtime.env and nginx basic auth files"
+fi
 REMOTE

@@ -1,0 +1,136 @@
+name: Deploy Runtime
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "runtime/**"
+      - "scripts/**"
+      - "deploy/**"
+      - ".github/workflows/deploy-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.RUNTIME_DEPLOY_ENABLED == '1'
+    runs-on: ubuntu-latest
+    environment: runtime-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate required secrets
+        env:
+          RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          RUNTIME_SSH_KEY: ${{ secrets.RUNTIME_SSH_KEY }}
+          RUNTIME_BASIC_AUTH_PASSWORD: ${{ secrets.RUNTIME_BASIC_AUTH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$RUNTIME_SSH_TARGET" || { echo "missing RUNTIME_SSH_TARGET"; exit 1; }
+          test -n "$RUNTIME_SSH_KEY" || { echo "missing RUNTIME_SSH_KEY"; exit 1; }
+          test -n "$RUNTIME_BASIC_AUTH_PASSWORD" || {
+            echo "missing RUNTIME_BASIC_AUTH_PASSWORD";
+            exit 1;
+          }
+
+      - name: Check style
+        run: python3 scripts/check_style.py
+
+      - name: Compile runtime
+        run: python3 -m compileall -q runtime scripts
+
+      - name: Install coverage tool
+        run: python3 -m pip install "coverage>=7,<8"
+
+      - name: Runtime tests with coverage gate
+        run: python3 scripts/check_runtime_coverage.py
+
+      - name: Write deploy credentials
+        env:
+          RUNTIME_SSH_KEY: ${{ secrets.RUNTIME_SSH_KEY }}
+          QWEN_SETTINGS_JSON: ${{ secrets.QWEN_SETTINGS_JSON }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/runtime-deploy"
+          printf '%s\n' "$RUNTIME_SSH_KEY" > "$RUNNER_TEMP/runtime-deploy/ssh_key"
+          chmod 600 "$RUNNER_TEMP/runtime-deploy/ssh_key"
+          if [[ -n "$QWEN_SETTINGS_JSON" ]]; then
+            printf '%s\n' "$QWEN_SETTINGS_JSON" > "$RUNNER_TEMP/runtime-deploy/qwen-settings.json"
+            chmod 600 "$RUNNER_TEMP/runtime-deploy/qwen-settings.json"
+          fi
+
+      - name: Deploy runtime to VPS
+        env:
+          RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          PUBLIC_HOST: ${{ secrets.RUNTIME_PUBLIC_HOST }}
+          BASIC_AUTH_USER: ${{ secrets.RUNTIME_BASIC_AUTH_USER }}
+          BASIC_AUTH_PASSWORD: ${{ secrets.RUNTIME_BASIC_AUTH_PASSWORD }}
+          APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
+          STATE_DIR: ${{ vars.RUNTIME_STATE_DIR }}
+          NODE_PACKAGE: ${{ vars.RUNTIME_QWEN_NODE_PACKAGE }}
+          RUN_MANAGER_DEFAULT_CPUS: ${{ vars.RUN_MANAGER_DEFAULT_CPUS }}
+          RUN_MANAGER_MAX_CPUS: ${{ vars.RUN_MANAGER_MAX_CPUS }}
+          RUN_MANAGER_DEFAULT_MEMORY_MB: ${{ vars.RUN_MANAGER_DEFAULT_MEMORY_MB }}
+          RUN_MANAGER_MAX_MEMORY_MB: ${{ vars.RUN_MANAGER_MAX_MEMORY_MB }}
+          RUN_MANAGER_DEFAULT_PIDS: ${{ vars.RUN_MANAGER_DEFAULT_PIDS }}
+          RUN_MANAGER_MAX_PIDS: ${{ vars.RUN_MANAGER_MAX_PIDS }}
+          RUN_MANAGER_DEFAULT_TIMEOUT_SECONDS: ${{ vars.RUN_MANAGER_DEFAULT_TIMEOUT_SECONDS }}
+          RUN_MANAGER_MAX_TIMEOUT_SECONDS: ${{ vars.RUN_MANAGER_MAX_TIMEOUT_SECONDS }}
+          RUN_MANAGER_CLEANUP_ENABLED: ${{ vars.RUN_MANAGER_CLEANUP_ENABLED }}
+          WORKSPACE_RETENTION_SECONDS: ${{ vars.RUN_MANAGER_WORKSPACE_RETENTION_SECONDS }}
+          ARTIFACT_RETENTION_SECONDS: ${{ vars.RUN_MANAGER_ARTIFACT_RETENTION_SECONDS }}
+          CLEANUP_INTERVAL_SECONDS: ${{ vars.RUN_MANAGER_CLEANUP_INTERVAL_SECONDS }}
+          RUNTIME_CPU_QUOTA: ${{ vars.RUNTIME_CPU_QUOTA }}
+          RUNTIME_MEMORY_MAX: ${{ vars.RUNTIME_MEMORY_MAX }}
+          RUNTIME_TASKS_MAX: ${{ vars.RUNTIME_TASKS_MAX }}
+        run: |
+          set -euo pipefail
+          export PUBLIC_HOST="${PUBLIC_HOST:-_}"
+          export BASIC_AUTH_USER="${BASIC_AUTH_USER:-cloudagents}"
+          export APP_DIR="${APP_DIR:-/opt/agent-research}"
+          export STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
+          export RUN_MANAGER_WORKSPACE_RETENTION_SECONDS="$WORKSPACE_RETENTION_SECONDS"
+          export RUN_MANAGER_ARTIFACT_RETENTION_SECONDS="$ARTIFACT_RETENTION_SECONDS"
+          export RUN_MANAGER_CLEANUP_INTERVAL_SECONDS="$CLEANUP_INTERVAL_SECONDS"
+          export DEPLOY_RUNTIME_PRINT_SECRETS=0
+          if [[ -f "$RUNNER_TEMP/runtime-deploy/qwen-settings.json" ]]; then
+            export QWEN_SETTINGS_FILE="$RUNNER_TEMP/runtime-deploy/qwen-settings.json"
+          fi
+          bash scripts/deploy_runtime_vps.sh \
+            "$RUNTIME_SSH_TARGET" \
+            "$RUNNER_TEMP/runtime-deploy/ssh_key"
+
+      - name: Smoke test deployed runtime
+        env:
+          RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/agent-research}"
+          ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
+            -o StrictHostKeyChecking=accept-new \
+            "$RUNTIME_SSH_TARGET" \
+            "APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source /etc/cloud-agents-runtime.env
+          cd "$APP_DIR"
+          python3 scripts/validate_runtime.py \
+            --base-url http://127.0.0.1:8765 \
+            --token "$RUN_MANAGER_TOKEN" \
+            --adapter fake \
+            --timeout 30
+          REMOTE
