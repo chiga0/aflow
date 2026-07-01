@@ -17,6 +17,7 @@ PUBLIC_HOST="${PUBLIC_HOST:-_}"
 PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-}"
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-cloudagents}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
+BASIC_AUTH_FORCE_ROTATE="${BASIC_AUTH_FORCE_ROTATE:-0}"
 RUN_MANAGER_DEFAULT_CPUS="${RUN_MANAGER_DEFAULT_CPUS:-1.0}"
 RUN_MANAGER_MAX_CPUS="${RUN_MANAGER_MAX_CPUS:-$RUN_MANAGER_DEFAULT_CPUS}"
 RUN_MANAGER_DEFAULT_MEMORY_MB="${RUN_MANAGER_DEFAULT_MEMORY_MB:-1024}"
@@ -125,6 +126,7 @@ append_remote_env \
   RUN_MANAGER_BACKUP_RETENTION_COUNT \
   "$RUN_MANAGER_BACKUP_RETENTION_COUNT"
 append_remote_env DEPLOY_RUNTIME_PRINT_SECRETS "$DEPLOY_RUNTIME_PRINT_SECRETS"
+append_remote_env BASIC_AUTH_FORCE_ROTATE "$BASIC_AUTH_FORCE_ROTATE"
 
 ssh_cmd "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
 set -euo pipefail
@@ -207,17 +209,25 @@ chown -R cloudagents:cloudagents "$STATE_DIR"
 chmod 600 /etc/cloud-agents-runtime.env
 
 install -d -m 755 /etc/nginx/snippets
-if [[ -n "$BASIC_AUTH_PASSWORD" ]]; then
+if [[ "$BASIC_AUTH_FORCE_ROTATE" != "1" \
+  && -f /etc/cloud-agents-runtime.preserve-basic-auth \
+  && -f /etc/nginx/cloud-agents.htpasswd ]]; then
+  echo "preserving existing nginx basic auth password"
+elif [[ -n "$BASIC_AUTH_PASSWORD" ]]; then
   HASH="$(openssl passwd -apr1 "$BASIC_AUTH_PASSWORD")"
   printf '%s:%s\n' "$BASIC_AUTH_USER" "$HASH" > /etc/nginx/cloud-agents.htpasswd
   chown root:www-data /etc/nginx/cloud-agents.htpasswd
   chmod 640 /etc/nginx/cloud-agents.htpasswd
+  touch /etc/cloud-agents-runtime.preserve-basic-auth
+  chmod 600 /etc/cloud-agents-runtime.preserve-basic-auth
 elif [[ ! -f /etc/nginx/cloud-agents.htpasswd ]]; then
   BASIC_AUTH_PASSWORD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-18)"
   HASH="$(openssl passwd -apr1 "$BASIC_AUTH_PASSWORD")"
   printf '%s:%s\n' "$BASIC_AUTH_USER" "$HASH" > /etc/nginx/cloud-agents.htpasswd
   chown root:www-data /etc/nginx/cloud-agents.htpasswd
   chmod 640 /etc/nginx/cloud-agents.htpasswd
+  touch /etc/cloud-agents-runtime.preserve-basic-auth
+  chmod 600 /etc/cloud-agents-runtime.preserve-basic-auth
 else
   echo "preserving existing nginx basic auth password"
 fi
