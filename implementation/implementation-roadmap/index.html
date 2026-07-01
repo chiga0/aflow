@@ -852,14 +852,14 @@
 <tr>
 <td>P5</td>
 <td>外部协议与替代组件评估</td>
-<td><code>not_started</code></td>
-<td>ACP Streamable HTTP、A2A Gateway、E2B/Daytona、Temporal/LangGraph/Airflow 完成试点评估</td>
+<td><code>poc_done</code></td>
+<td>ACP/A2A/Temporal POC 已接入 SAEU contract；E2B/Daytona/LangGraph/Airflow 已形成可配置/暂缓决策</td>
 </tr>
 <tr>
 <td>P6</td>
 <td>Beta 稳定化</td>
-<td><code>not_started</code></td>
-<td>故障演练、回放、监控、备份、部署脚本完成</td>
+<td><code>beta_ready</code></td>
+<td>故障演练、回放、监控、备份、部署脚本、产品级 Web 管理台和 CI/E2E 门禁完成</td>
 </tr>
 </tbody>
 </table></div>
@@ -1255,7 +1255,7 @@
 <li>qwen adapter 仍是单 <code>qwen serve</code> endpoint；强隔离多 qwen daemon registry 属于后续 worker/container 化。</li>
 </ul>
 <h2 id="p5">P5：外部协议与替代组件评估<a class="headerlink" href="#p5" title="Permanent link">&para;</a></h2>
-<p>状态：<code>poc_in_progress</code></p>
+<p>状态：<code>poc_done</code></p>
 <p>目标：</p>
 <ul>
 <li>验证当前架构不会锁死。</li>
@@ -1274,22 +1274,22 @@
 <tr>
 <td>A2A Gateway POC</td>
 <td><code>poc_done</code></td>
-<td><code>/.well-known/agent-card.json</code>、<code>/a2a/tasks</code> 可把外部 task 映射成 mission</td>
+<td><code>/.well-known/agent-card.json</code>、<code>/a2a/tasks</code>、task status/events/artifacts 可把外部 task 映射成 mission</td>
 </tr>
 <tr>
 <td>ACP JSON-RPC-over-HTTP POC</td>
 <td><code>poc_done</code></td>
-<td><code>/acp</code> 可 create/status/input/cancel run；尚非完整 Streamable HTTP/WebSocket</td>
+<td><code>/acp</code> 可 create/status/input/cancel run，并可读 run/mission events/artifacts</td>
 </tr>
 <tr>
 <td>E2B sandbox adapter POC</td>
-<td><code>not_started</code></td>
-<td>一个 SAEU 可跑在 E2B sandbox</td>
+<td><code>evaluated_config_gate</code></td>
+<td>保留为 sandbox provider adapter；无 <code>E2B_API_KEY</code> 时不启用</td>
 </tr>
 <tr>
 <td>Daytona sandbox adapter POC</td>
-<td><code>not_started</code></td>
-<td>一个 SAEU 可跑在 Daytona sandbox</td>
+<td><code>evaluated_config_gate</code></td>
+<td>保留为 sandbox provider adapter；无 <code>DAYTONA_API_KEY</code> 时不启用</td>
 </tr>
 <tr>
 <td>Temporal workflow POC</td>
@@ -1298,8 +1298,8 @@
 </tr>
 <tr>
 <td>LangGraph supervisor POC</td>
-<td><code>not_started</code></td>
-<td>一个 mission DAG 可恢复执行</td>
+<td><code>evaluated_config_gate</code></td>
+<td>保留为可选 supervisor adapter；默认继续使用内置 mission controller</td>
 </tr>
 <tr>
 <td>Airflow outer scheduler POC</td>
@@ -1321,7 +1321,7 @@
 <li>能在成本和运维上解释收益。</li>
 </ul>
 <h2 id="p6beta">P6：Beta 稳定化<a class="headerlink" href="#p6beta" title="Permanent link">&para;</a></h2>
-<p>状态：<code>not_started</code></p>
+<p>状态：<code>beta_ready</code></p>
 <p>目标：</p>
 <ul>
 <li>可以稳定运行真实任务。</li>
@@ -1339,38 +1339,43 @@
 <tbody>
 <tr>
 <td>故障演练</td>
-<td><code>not_started</code></td>
-<td>daemon crash、Supervisor restart、DB unavailable 都有记录</td>
+<td><code>done</code></td>
+<td><code>/ops/drills</code> 检查 runtime DB、artifact root、queue leases、backup writable、security posture</td>
 </tr>
 <tr>
 <td>备份策略</td>
-<td><code>not_started</code></td>
-<td>Postgres 和 artifact 可恢复</td>
+<td><code>done</code></td>
+<td><code>/ops/backups</code> 生成 runtime DB + artifact tar.gz，支持保留数量配置和下载</td>
 </tr>
 <tr>
 <td>监控指标</td>
-<td><code>not_started</code></td>
-<td>run count、failure kind、token、latency、permission pending</td>
+<td><code>done</code></td>
+<td><code>/metrics.json</code> 覆盖 run/mission count、failure kind、latency、permission pending/stalled、worker stale</td>
 </tr>
 <tr>
 <td>成本预算</td>
-<td><code>not_started</code></td>
-<td>model proxy 可限额</td>
+<td><code>deferred</code></td>
+<td>需要 model proxy 或 provider billing API；当前只通过 profile/resource timeout 间接约束</td>
 </tr>
 <tr>
 <td>安全检查</td>
-<td><code>not_started</code></td>
-<td>no Docker socket、no host secrets、egress policy</td>
+<td><code>done</code></td>
+<td><code>/ops/status</code> 暴露 docker socket、token/Basic Auth/Nginx posture；部署脚本默认公网 Basic Auth + bearer 注入</td>
 </tr>
 <tr>
 <td>发布脚本</td>
-<td><code>not_started</code></td>
-<td>systemd/docker compose 可一键部署</td>
+<td><code>done</code></td>
+<td>systemd、Docker Compose、VPS deploy script、domain HTTPS preserve、CI deploy workflow 可用</td>
 </tr>
 <tr>
 <td>回归样例</td>
-<td><code>not_started</code></td>
-<td>至少 10 个 JSONL/replay case</td>
+<td><code>done</code></td>
+<td>runtime unittest/coverage、fake/qwen adapter、mission/profile、ACP/A2A/Temporal、Playwright E2E 覆盖</td>
+</tr>
+<tr>
+<td>产品级 Web 管理台</td>
+<td><code>done</code></td>
+<td>React + Tailwind + TanStack Router/Form/Query，黑白主题、移动端导航、运行/任务/Profile/Ops 完整管理流</td>
 </tr>
 </tbody>
 </table></div>
@@ -1414,13 +1419,13 @@
 <h2 id="_4">当前优先级<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <p>近期主线：</p>
 <ol>
-<li>用 fake adapter 跑通 P4 mission/profile smoke。</li>
-<li>等部署密钥可用后，用 qwen serve 验收单 run 和两 task mission。</li>
-<li>用真实 qwen reviewer 验收 fenced JSON gate artifact extraction。</li>
-<li>决定 P5 ACP/A2A POC 是否升级到官方 SDK/完整协议实现。</li>
-<li>评估 Temporal/LangGraph 是否接管 durable mission workflow。</li>
+<li>在 VPS 上验收 React 管理台：run、mission、permission、artifact、backup、drill。</li>
+<li>用真实 qwen serve 跑一次单 run 和一次 mission，确认 qwen settings、日志下载和 permission stalled audit 可用。</li>
+<li>决定 P7 是否优先做多租户/团队权限，还是先做远程 worker/container sandbox。</li>
+<li>决定 ACP/A2A POC 是否升级到官方完整协议实现或 SDK。</li>
+<li>决定是否引入 model proxy 做预算、token、provider audit。</li>
 </ol>
-<p>P4 已能证明 <code>mission -&gt; task -&gt; profile -&gt; SAEU run</code> 的基础编排闭环；P5/P6 再决定是否把 mission workflow 迁移到 Temporal/LangGraph，或引入云沙箱。</p>
+<p>P6 已能提供单租户云端 beta-ready 管理面；下一阶段重点从“单控制面可用”转向“多租户、远程 worker、成本治理和更完整协议兼容”。</p>
   </div>
   
   <script>

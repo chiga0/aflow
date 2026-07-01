@@ -1108,6 +1108,33 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>qwen gate extraction 依赖模型按提示输出 fenced JSON；不从任意自然语言推断风险。</li>
 <li>人工 override 尚未实现审批超时、多人审批、策略引擎或审计签名。</li>
 </ul>
+<h2 id="2026-07-02-p5p6-beta-ready">2026-07-02 P5/P6 Beta Ready 与产品化管理台审计<a class="headerlink" href="#2026-07-02-p5p6-beta-ready" title="Permanent link">&para;</a></h2>
+<h3 id="_34">已落地能力<a class="headerlink" href="#_34" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>/metrics.json</code> 提供 run/mission/queue/permission/failure/latency 指标。</li>
+<li><code>/ops/status</code>、<code>/ops/drills</code>、<code>/ops/backups</code> 提供 beta 运维面：状态、演练、DB + artifact 备份和下载。</li>
+<li>ACP POC 扩展到 run/mission events/artifacts；A2A POC 扩展到 task events/artifacts。</li>
+<li>React + Tailwind + TanStack Router/Form/Query 管理台替换静态页面，使用 hash routing 适配 <code>/cloud-agents/</code> 公网前缀。</li>
+<li>管理台覆盖 Overview、Runs、Run Detail、Missions、Profiles、Operations；支持创建 run/mission、取消 run、处理 permission request、查看事件、下载 artifact/audit/backup、触发 drill。</li>
+<li>管理台支持黑白主题、桌面侧边导航和移动端抽屉导航。</li>
+<li>CI 增加 Node 22、web lint、90%+ web coverage、production build、Playwright desktop/mobile E2E。</li>
+<li>Deploy workflow 增加 web gate，并将 <code>PUBLIC_DOMAIN</code>、stale worker、backup retention 配置传入部署脚本。</li>
+</ul>
+<h3 id="_35">审计结论<a class="headerlink" href="#_35" title="Permanent link">&para;</a></h3>
+<ul>
+<li>产品可用性审计：首屏直接进入管理控制台，而不是说明页；功能按运行、任务、Profile、Ops 分区，核心操作均有明确按钮和下载入口。</li>
+<li>路由审计：使用 hash routing 避免 <code>/cloud-agents/runs</code> 刷新时被后端 API <code>/runs</code> 截获。</li>
+<li>恢复审计：备份包包含 <code>runtime.db</code> 和 artifact 目录，排除 workspace 和 backup 自身，能支撑单节点 beta 恢复。</li>
+<li>安全审计：公网仍由 Nginx Basic Auth + bearer 注入保护；Run Manager token 不暴露给浏览器。</li>
+<li>测试审计：前端单元/集成覆盖率超过 90%，E2E 覆盖桌面和移动端主流程；后端 runtime coverage gate 继续保持。</li>
+</ul>
+<h3 id="_36">剩余风险<a class="headerlink" href="#_36" title="Permanent link">&para;</a></h3>
+<ul>
+<li>成本预算仍缺 model proxy/provider billing 接入，当前只能通过 timeout、profile limits、resource policy 间接治理。</li>
+<li>备份是单节点 tar.gz 形态；多控制面或高并发阶段仍需要 Postgres + 对象存储策略。</li>
+<li>P5 ACP/A2A 仍是 POC facade，不等同官方完整协议实现。</li>
+<li>Web 管理台当前是单租户控制台；团队权限、审计签名、多人审批属于后续 P7/P8。</li>
+</ul>
 <h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>
 <h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1129,7 +1156,7 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>把所有 SubAgent 都强制拆成独立 daemon。</li>
 <li>从头实现 coding agent core。</li>
 </ul>
-<h2 id="_34">最终可实施判断<a class="headerlink" href="#_34" title="Permanent link">&para;</a></h2>
+<h2 id="_37">最终可实施判断<a class="headerlink" href="#_37" title="Permanent link">&para;</a></h2>
 <p>方案可行，且适合 1-2 台 VPS 起步。推荐第一阶段只实现一个 qwen serve SAEU adapter，把审计、权限、事件、artifact 和恢复做扎实；第二阶段再抽象 ACP-compatible runtime adapter；第三阶段再做常驻 Supervisor + SubAgent + SAEU 的多 Agent 编排。</p>
 <p>只要不跳过单 Agent 单元稳定性，多 Agent 编排不会建立在松散 CLI 进程上，而是建立在可管理、可恢复、可审计的执行单元上。</p>
   </div>
@@ -1686,6 +1713,34 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
+        <a href="#2026-07-02-p5p6-beta-ready"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#2026-07-02-p5p6-beta-ready');">
+            2026-07-02 P5/P6 Beta Ready 与产品化管理台审计
+        </a>
+        
+        
+        <a href="#_34"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_34');">
+            已落地能力
+        </a>
+        
+        <a href="#_35"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_35');">
+            审计结论
+        </a>
+        
+        <a href="#_36"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#_36');">
+            剩余风险
+        </a>
+        
+        
+
+        
         <a href="#go-no-go"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#go-no-go');">
@@ -1708,9 +1763,9 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
         
 
         
-        <a href="#_34"
+        <a href="#_37"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_34');">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#_37');">
             最终可实施判断
         </a>
         
