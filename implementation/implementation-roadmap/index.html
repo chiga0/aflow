@@ -1432,7 +1432,7 @@
 <ol>
 <li><code>done</code>：在 VPS 上验收 React 管理台、部署后公网 Monitor、fake smoke。</li>
 <li><code>done</code>：用真实 qwen + <code>per_run_process</code> 跑通单 run 和 <code>mission_task_count=1</code> 轻量 mission。</li>
-<li>下一步：在 VPS 上用 <code>container</code> strategy + <code>qwen_container_build=true</code> 做 Docker/cgroup/network 实机验收。</li>
+<li><code>in_progress</code>：在 VPS 上用 <code>container</code> strategy + <code>qwen_container_build=true</code> 做 Docker/cgroup/network 实机验收；第一轮 run <code>28592133076</code> 已通过部署、镜像构建和 fake smoke，但 qwen deep acceptance 在容器启动阶段失败，已补失败 artifact 诊断和 token 不落 argv，下一步重跑 container workflow。</li>
 <li>决定 ACP/A2A POC 是否升级到官方完整协议实现或 SDK。</li>
 <li>决定是否引入 model proxy 做预算、token、provider audit。</li>
 </ol>
@@ -1473,7 +1473,7 @@
 <tr>
 <td>qwen mission 验收脚本</td>
 <td><code>done</code></td>
-<td><code>scripts/validate_qwen_mission.py</code> 可创建 qwen-backed single-run 和轻量 mission，并校验 events/artifacts/final report</td>
+<td><code>scripts/validate_qwen_mission.py</code> 可创建 qwen-backed single-run 和轻量 mission，校验 events/artifacts/final report，并在失败时拉取 executor stdout/stderr/executor/diagnostics artifact 尾部且遮罩 token</td>
 </tr>
 <tr>
 <td>Access/RBAC foundation</td>
@@ -1488,7 +1488,7 @@
 <tr>
 <td>多 SAEU executor isolation</td>
 <td><code>foundation_done</code></td>
-<td>backend Executor Registry、per-run qwen serve process、默认 Docker container command builder、executor artifacts/events/API/UI、VPS deploy 参数透传和手动 qwen deep acceptance 已落地；仍需带真实 Docker image 的实机验收</td>
+<td>backend Executor Registry、per-run qwen serve process、默认 Docker container command builder、executor artifacts/events/API/UI、VPS deploy 参数透传和手动 qwen deep acceptance 已落地；container 实机第一轮已暴露 qwen 容器启动失败，已补诊断，仍需重跑真实 Docker image 验收</td>
 </tr>
 <tr>
 <td>Executor 管理台</td>
@@ -1529,9 +1529,10 @@
   <code>qwen serve</code>、分配端口、写入 <code>executor.json</code> 和 executor lifecycle 事件。</li>
 <li><code>container</code> 已支持两种启动方式：</li>
 <li><code>QWEN_CONTAINER_COMMAND</code> 自定义命令模板。</li>
-<li><code>QWEN_CONTAINER_IMAGE</code> 默认 Docker foreground worker，自动注入 <code>--cpus</code>、<code>--memory</code>、<code>--pids-limit</code>、端口映射、workspace mount、qwen token，并在 VPS deploy 时把宿主 <code>.qwen/settings.json</code> 凭据只读挂进容器。</li>
+<li><code>QWEN_CONTAINER_IMAGE</code> 默认 Docker foreground worker，自动注入 <code>--cpus</code>、<code>--memory</code>、<code>--pids-limit</code>、端口映射、workspace mount、qwen token env 名称，并在 VPS deploy 时把宿主 <code>.qwen/settings.json</code> 凭据只读挂进容器。</li>
 <li><code>Deploy Runtime</code> workflow_dispatch 已支持选择 executor strategy、container image/local build、container resource limit，并可打开真实 qwen single-run + bounded mission acceptance。</li>
-<li>下一步仍必须在 VPS 上用真实镜像或 <code>qwen_container_build=true</code> 做 Docker/cgroup/network 验收；当前自动 push 部署仍保持 shared strategy 以降低生产风险。</li>
+<li>Container 第一轮实机验收 run <code>28592133076</code> 已证明部署脚本、Docker build、service reload 和 fake smoke 可用；qwen single-run 在 container executor 启动后 <code>Connection reset by peer</code>，当前已补 stdout/stderr artifact 诊断和 Docker token 不落 argv，下一步重跑以定位 qwen 容器内退出原因。</li>
+<li>下一步仍必须在 VPS 上用真实镜像或 <code>qwen_container_build=true</code> 做到 Docker/cgroup/network qwen acceptance 验收通过；当前自动 push 部署仍保持 shared strategy 以降低生产风险。</li>
 </ul>
 <p>P7 当前判断：</p>
 <ul>
@@ -1547,7 +1548,7 @@
 </li>
 <li>
 <ol>
-<li>Container worker：默认 Docker 命令生成、可选本地镜像构建、VPS Docker 安装/启动、<code>cloudagents</code> docker group、<code>.qwen/settings.json</code> 只读挂载和审计 metadata 已落地；实机部署需要真实镜像或 <code>QWEN_CONTAINER_BUILD=1</code>。</li>
+<li>Container worker：默认 Docker 命令生成、可选本地镜像构建、VPS Docker 安装/启动、<code>cloudagents</code> docker group、<code>.qwen/settings.json</code> 只读挂载和审计 metadata 已落地；第一轮实机 container qwen acceptance 未通过，已补失败 artifact 诊断，下一步重跑并根据 stderr 修容器用户/home/settings 挂载策略。</li>
 </ol>
 </li>
 <li>
