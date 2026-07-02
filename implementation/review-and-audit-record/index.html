@@ -1345,18 +1345,24 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li><code>resources</code> 中数值型要求按 <code>worker &gt;= required</code> 判断。</li>
 <li><code>executor</code> / <code>sandbox</code> 按 key-value 精确匹配。</li>
 <li>远程 artifact 上传支持 text <code>mode=append</code>、<code>chunk_index</code>、<code>final</code>；JSON artifact 保持 write-only。</li>
+<li>API token registry 已接入 runtime 鉴权，master <code>RUN_MANAGER_TOKEN</code> 保持全权限；scoped token 需要匹配路由 scope 才能访问。</li>
+<li>远程 worker HTTP API 要求 <code>workers:write</code> 或 <code>workers:*</code>；worker token revoke 后立即失效。</li>
+<li>Nginx 增加 <code>/cloud-agents-worker/</code> 专用入口，透传 worker 的 Bearer token；浏览器 <code>/cloud-agents/</code> 仍保持 Basic Auth 并由 Nginx 注入内部 master token。</li>
 <li>新增 <code>python -m cloud_agents_runtime.worker</code> 远程 worker daemon foundation：</li>
 <li>使用 stdlib HTTP client 连接 control-plane。</li>
 <li>周期 heartbeat，<code>/claim</code> 成功后在本机执行 fake/qwen adapter。</li>
 <li>通过 HTTP-backed store 把 canonical events、raw event artifact 和 JSON artifact 回传中心。</li>
 <li><code>raw_events.jsonl</code> 使用 append chunk 上传，worker 本地 artifact mirror 也写入同名 JSONL。</li>
 <li>支持 <code>--once</code> 验收模式和长期 poll 模式。</li>
+<li>新增 <code>deploy/systemd/cloud-agents-worker.service</code>、<code>cloud-agents-worker.env.example</code> 和 <code>scripts/deploy_worker_vps.sh</code>，用于第二台 VPS 上安装依赖、同步 repo、写入 worker env、启动 worker daemon。</li>
 </ul>
 <h3 id="_62">测试覆盖<a class="headerlink" href="#_62" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>test_remote_worker_registry_claims_events_and_artifacts</code> 覆盖 manager 级 heartbeat、claim、metadata 合并、event 回传、artifact 写入/append、跨 worker 越权拒绝和 terminal 后 capacity 释放。</li>
 <li><code>test_remote_worker_claim_respects_requirements</code> 覆盖 adapter、feature、label、resource 能力匹配调度。</li>
 <li><code>test_remote_worker_http_registry_claims_and_reports_run</code> 覆盖 HTTP API 级注册、worker 查询、claim、event、artifact append 和 run completion。</li>
+<li><code>test_auth_protects_run_routes_and_allows_health</code> 覆盖 scoped token forbidden 和 revoked token unauthorized。</li>
+<li><code>test_remote_worker_http_registry_claims_and_reports_run</code> 同时覆盖 <code>workers:*</code> scoped token 可执行 worker 闭环、但不能访问 access 管理接口。</li>
 <li><code>test_remote_worker_daemon_once_executes_fake_run</code> 覆盖真实 HTTP control-plane 下远程 worker daemon claim、heartbeat、执行 fake adapter、分片上传 raw events、中心 run completion 和 worker metadata。</li>
 </ul>
 <h3 id="_63">审计结论<a class="headerlink" href="#_63" title="Permanent link">&para;</a></h3>
@@ -1365,6 +1371,8 @@ qwen 第一实现: qwen serve HTTP/SSE + ACP bridge，后续优先 `/acp` Stream
 <li>qwen worker 目前要求 worker 本机已有 <code>QWEN_SERVE_URL</code> 或等价 qwen serve endpoint；per-run/container qwen executor 与 remote daemon 的深度结合仍是后续项。</li>
 <li>能力匹配已覆盖 adapters/features/labels/resources/executor/sandbox 的 foundation；更复杂的优先级、亲和性、反亲和性和队列公平性仍未实现。</li>
 <li>Artifact API 当前支持轻量 JSON/text 和 text append；二进制产物、大文件压缩、断点续传和对象存储 multipart 仍未实现。</li>
+<li>多 VPS deploy 已有手动脚本和 systemd worker unit；尚未接 GitHub Actions workflow_dispatch 自动部署 worker VPS。</li>
+<li>Worker route 当前依赖 TLS + scoped bearer token；mTLS、Nginx IP allowlist、WireGuard/Tailscale 仍属于外部部署配置。</li>
 <li>远程取消和 permission resolution 仍需补 worker pull-loop 对 control-plane state 的反向订阅/轮询。</li>
 </ul>
 <h2 id="go-no-go">Go / No-Go 决策<a class="headerlink" href="#go-no-go" title="Permanent link">&para;</a></h2>

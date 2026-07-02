@@ -1622,13 +1622,13 @@
 </tr>
 <tr>
 <td>多 VPS deploy</td>
-<td><code>next</code></td>
-<td>新增 <code>deploy_worker_vps.sh</code> 或 workflow_dispatch，第二台 VPS 可注册到主控制面</td>
+<td><code>foundation_done</code></td>
+<td><code>deploy_worker_vps.sh</code>、worker systemd unit/env example 已可把第二台 VPS 注册到主控制面</td>
 </tr>
 <tr>
 <td>安全边界</td>
-<td><code>next</code></td>
-<td>worker token scope、per-worker revoke、mTLS/Basic Auth/Nginx allowlist 策略明确</td>
+<td><code>foundation_done</code></td>
+<td>API token 已接入 runtime 鉴权；worker route 使用 scoped bearer token，支持 per-worker revoke</td>
 </tr>
 </tbody>
 </table></div>
@@ -1642,6 +1642,15 @@
 <li>当 worker 显式声明 <code>capabilities.adapters</code> 时，即使 run 未声明 <code>worker_requirements.adapters</code>，也必须包含 run adapter。</li>
 <li>远程 artifact 上传支持 text <code>mode=append</code>、<code>chunk_index</code>、<code>final</code>，并限制单次上传大小；JSON artifact 保持 write-only，避免半截 JSON 进入审计包。</li>
 <li>Worker daemon 的 <code>raw_events.jsonl</code> 使用 append chunk 上传，worker 本地 artifact mirror 也写入同名 JSONL。</li>
+<li>API token registry 已接入请求鉴权，master <code>RUN_MANAGER_TOKEN</code> 保持全权限；scoped API token 需要匹配路由 scope 才能访问。</li>
+<li>远程 worker HTTP API 要求 <code>workers:write</code> 或 <code>workers:*</code>；worker token revoke 后立即失效。</li>
+<li>Nginx 增加 <code>/cloud-agents-worker/</code> 专用入口，透传 worker 的 Bearer token；浏览器 <code>/cloud-agents/</code> 仍保持 Basic Auth 并由 Nginx 注入内部 master token。</li>
+<li>新增 <code>deploy/systemd/cloud-agents-worker.service</code>、<code>cloud-agents-worker.env.example</code> 和 <code>scripts/deploy_worker_vps.sh</code>，用于第二台 VPS 上安装依赖、同步 repo、写入 worker env、启动 worker daemon。</li>
+</ul>
+<p>剩余限制：</p>
+<ul>
+<li>多 VPS deploy 尚未接 GitHub <code>workflow_dispatch</code> 自动化；当前是脚本化手动部署。</li>
+<li>Worker route 目前依赖 TLS + scoped bearer token；mTLS、Nginx IP allowlist、WireGuard/Tailscale 策略仍是外部部署配置，不由 runtime 自动生成。</li>
 </ul>
   </div>
   
