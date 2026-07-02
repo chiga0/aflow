@@ -1583,7 +1583,7 @@
 </li>
 </ul>
 <h2 id="p8-worker-vps">P8：远程 Worker 与多 VPS 调度<a class="headerlink" href="#p8-worker-vps" title="Permanent link">&para;</a></h2>
-<p>状态：<code>planned</code></p>
+<p>状态：<code>in_progress</code></p>
 <p>目标：</p>
 <ul>
 <li>把单进程本地 worker 拆成 control-plane + remote worker。</li>
@@ -1612,13 +1612,13 @@
 </tr>
 <tr>
 <td>能力匹配调度</td>
-<td><code>next</code></td>
-<td>run metadata 可指定 required adapters/labels/resources；claim 只返回匹配 worker 的任务</td>
+<td><code>foundation_done</code></td>
+<td>run metadata 可指定 required adapters/features/labels/resources/executor/sandbox；claim 只返回匹配 worker 的任务</td>
 </tr>
 <tr>
 <td>Artifact streaming</td>
-<td><code>next</code></td>
-<td>worker 端 executor stdout/stderr/events 可分片上传，中心 artifacts 完整可审计</td>
+<td><code>foundation_done</code></td>
+<td>worker 端 text artifact 支持 append/chunk metadata；raw_events.jsonl 已按分片追加上传，中心 artifacts 完整可审计</td>
 </tr>
 <tr>
 <td>多 VPS deploy</td>
@@ -1632,6 +1632,17 @@
 </tr>
 </tbody>
 </table></div>
+<p>当前实现：</p>
+<ul>
+<li>远程 worker claim 会按 run <code>metadata.worker_requirements</code> 或 <code>metadata.required_worker</code> 过滤：</li>
+<li><code>adapters</code> / <code>features</code> 匹配 worker <code>capabilities</code>。</li>
+<li><code>labels</code> 匹配 worker <code>labels</code>，并兼容 top-level <code>region</code>、<code>zone</code>。</li>
+<li><code>resources</code> 中数值型要求按 <code>worker &gt;= required</code> 判断。</li>
+<li><code>executor</code> / <code>sandbox</code> 按 key-value 精确匹配。</li>
+<li>当 worker 显式声明 <code>capabilities.adapters</code> 时，即使 run 未声明 <code>worker_requirements.adapters</code>，也必须包含 run adapter。</li>
+<li>远程 artifact 上传支持 text <code>mode=append</code>、<code>chunk_index</code>、<code>final</code>，并限制单次上传大小；JSON artifact 保持 write-only，避免半截 JSON 进入审计包。</li>
+<li>Worker daemon 的 <code>raw_events.jsonl</code> 使用 append chunk 上传，worker 本地 artifact mirror 也写入同名 JSONL。</li>
+</ul>
   </div>
   
   <script>
