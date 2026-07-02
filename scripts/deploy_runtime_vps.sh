@@ -233,6 +233,53 @@ run_timeout() {
   timeout "$timeout_seconds" "$@"
 }
 
+node_package_name() {
+  local package="$1"
+  if [[ "$package" == @*/*@* ]]; then
+    package="${package%@*}"
+  elif [[ "$package" != @* && "$package" == *@* ]]; then
+    package="${package%@*}"
+  fi
+  printf '%s\n' "$package"
+}
+
+remove_qwen_npm_staging_dirs() {
+  local npm_root=""
+  npm_root="$(npm root -g 2>/dev/null || true)"
+  if [[ -n "$npm_root" && -d "$npm_root/@qwen-code" ]]; then
+    find "$npm_root/@qwen-code" \
+      -maxdepth 1 \
+      -type d \
+      -name '.qwen-code-*' \
+      -exec rm -rf {} +
+  fi
+}
+
+install_node_package() {
+  local package="$1"
+  local package_name=""
+  local attempt=1
+  local exit_code=0
+  package_name="$(node_package_name "$package")"
+  while (( attempt <= 3 )); do
+    if run_timeout \
+      "install node package $package attempt $attempt/3" \
+      "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
+      npm install -g "$package"; then
+      return 0
+    fi
+    exit_code=$?
+    if (( attempt == 3 )); then
+      return "$exit_code"
+    fi
+    log_step "clean npm install state for $package_name"
+    remove_qwen_npm_staging_dirs
+    npm uninstall -g "$package_name" || true
+    npm cache verify || true
+    attempt=$((attempt + 1))
+  done
+}
+
 if ! command -v git >/dev/null \
   || ! command -v python3 >/dev/null \
   || ! command -v npm >/dev/null \
@@ -244,10 +291,12 @@ if ! command -v git >/dev/null \
     apt-get install -y git python3 npm nginx
 fi
 
-run_timeout \
-  "install node package $NODE_PACKAGE" \
-  "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
-  npm install -g "$NODE_PACKAGE"
+install_node_package "$NODE_PACKAGE"
+QWEN_BIN="$(command -v qwen || true)"
+if [[ -z "$QWEN_BIN" ]]; then
+  echo "qwen executable was not found after installing $NODE_PACKAGE" >&2
+  exit 1
+fi
 
 if [[ "$QWEN_EXECUTOR_STRATEGY" == "container" ]]; then
   if ! command -v docker >/dev/null; then
@@ -330,7 +379,7 @@ fi
 
 RUN_MANAGER_TOKEN="$(openssl rand -hex 32)"
 QWEN_SERVER_TOKEN="$(openssl rand -hex 32)"
-QWEN_COMMAND="qwen serve --hostname 127.0.0.1 --port 4170"
+QWEN_COMMAND="$QWEN_BIN serve --hostname 127.0.0.1 --port 4170"
 QWEN_COMMAND="$QWEN_COMMAND --workspace $STATE_DIR/workspace --no-web --require-auth"
 
 cat > /etc/cloud-agents-runtime.env <<EOF
