@@ -576,6 +576,10 @@ RUNTIME_BASIC_AUTH_PASSWORD=<password> \
 python3 scripts/monitor_runtime.py --json
 ```
 
+If `RUNTIME_PUBLIC_URL` is not set, the script prefers
+`RUNTIME_PUBLIC_DOMAIN` as `https://<domain>/cloud-agents`; if only
+`RUNTIME_PUBLIC_HOST` is set, it falls back to `http://<host>/cloud-agents`.
+
 The default monitor checks:
 
 - Public `/cloud-agents/` is protected by Basic Auth.

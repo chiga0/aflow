@@ -59,8 +59,11 @@ def default_base_url() -> str | None:
     explicit = os.environ.get("RUNTIME_PUBLIC_URL") or os.environ.get("MONITOR_BASE_URL")
     if explicit:
         return explicit
+    domain = os.environ.get("RUNTIME_PUBLIC_DOMAIN")
+    if domain:
+        return f"https://{domain}/cloud-agents"
     host = os.environ.get("RUNTIME_PUBLIC_HOST")
-    return f"https://{host}/cloud-agents" if host else None
+    return f"http://{host}/cloud-agents" if host else None
 
 
 def normalize_base_url(value: str) -> str:
