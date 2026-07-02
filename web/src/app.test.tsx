@@ -35,9 +35,37 @@ const mission = {
       status: "completed",
       run_id: "run_1",
       depends_on: [],
+      result: { artifacts: [{ name: "plan.md" }] },
+    },
+    {
+      task_id: "review",
+      title: "Review mission",
+      profile_id: "reviewer",
+      status: "pending",
+      run_id: null,
+      depends_on: ["plan"],
     },
   ],
 };
+
+const missionEvents = [
+  {
+    id: "mevt_1",
+    mission_id: "mission_1",
+    sequence: 1,
+    type: "task.created",
+    created_at: new Date().toISOString(),
+    data: { task_id: "plan" },
+  },
+  {
+    id: "mevt_2",
+    mission_id: "mission_1",
+    sequence: 2,
+    type: "mission.started",
+    created_at: new Date().toISOString(),
+    data: { strategy: "sequential" },
+  },
+];
 
 const events = [
   {
@@ -119,6 +147,17 @@ const fixtures: Record<string, unknown> = {
     ],
   },
   missions: { missions: [mission] },
+  "missions/mission_1": mission,
+  "missions/mission_1/events.json": { events: missionEvents },
+  "missions/mission_1/artifacts": {
+    artifacts: [
+      {
+        name: "final_report.md",
+        size_bytes: 88,
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
   profiles: {
     profiles: [
       {
@@ -170,6 +209,23 @@ const fixtures: Record<string, unknown> = {
       },
     ],
   },
+  "access/policy": {
+    mode: "single-tenant-rbac-foundation",
+    current_principal: {
+      id: "operator",
+      display_name: "operator",
+      roles: ["owner"],
+    },
+    roles: [
+      {
+        id: "owner",
+        description: "Can administer runtime",
+        permissions: ["runs:*", "missions:*", "profiles:*"],
+      },
+    ],
+    scopes: ["runs:*", "missions:*", "profiles:*"],
+    audit: { auth_boundary: "basic auth plus bearer" },
+  },
 };
 
 describe("Cloud Agents console", () => {
@@ -185,6 +241,7 @@ describe("Cloud Agents console", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -228,6 +285,20 @@ describe("Cloud Agents console", () => {
 
   it("resolves a run permission and exposes artifact downloads", async () => {
     const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => "blob:runner-report");
+    const revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(document, "createElement").mockImplementation((tagName) => {
+      const element = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        tagName,
+      ) as HTMLAnchorElement;
+      if (tagName === "a") {
+        element.click = click;
+      }
+      return element;
+    });
     await act(async () => {
       await router.navigate({ to: "/runs/$runId", params: { runId: "run_1" } });
     });
@@ -238,6 +309,13 @@ describe("Cloud Agents console", () => {
     expect(
       screen.getByText("Inspecting live runner state."),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent" }));
+    await user.click(screen.getByRole("button", { name: "Permissions" }));
+    await user.click(screen.getByRole("button", { name: "Warnings" }));
+    await user.click(screen.getByRole("button", { name: "Errors" }));
+    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "Download Report" }));
+    expect(click).toHaveBeenCalled();
     expect(screen.getByText("final-report.md")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Approve" }));
@@ -253,7 +331,8 @@ describe("Cloud Agents console", () => {
     );
   });
 
-  it("shows missions and profile policy details", async () => {
+  it("shows mission detail and profile policy editor", async () => {
+    const user = userEvent.setup();
     await act(async () => {
       await router.navigate({ to: "/missions" });
     });
@@ -261,13 +340,21 @@ describe("Cloud Agents console", () => {
 
     expect(await screen.findByText("Ship beta")).toBeInTheDocument();
     expect(screen.getByText("Plan mission")).toBeInTheDocument();
-    await userEvent.clear(screen.getByLabelText("Goal"));
-    await userEvent.type(
+    await user.click(screen.getByRole("link", { name: /open detail/i }));
+    expect(await screen.findByText("Task DAG")).toBeInTheDocument();
+    expect(screen.getByText("Mission Events")).toBeInTheDocument();
+    expect(screen.getByText("final_report.md")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate({ to: "/missions" });
+    });
+    await user.clear(screen.getByLabelText("Goal"));
+    await user.type(
       screen.getByLabelText("Goal"),
       "Create a beta validation report",
     );
-    await userEvent.selectOptions(screen.getByLabelText("Strategy"), "fanout");
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    await user.selectOptions(screen.getByLabelText("Strategy"), "fanout");
+    await user.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/missions",
@@ -283,6 +370,47 @@ describe("Cloud Agents console", () => {
     });
     await screen.findByText("Planner");
     expect(screen.getByText("Runtime")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "Planner Copy");
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/profiles",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Planner Copy"),
+        }),
+      ),
+    );
+  });
+
+  it("shows access policy foundations", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => "blob:access-policy");
+    const revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(document, "createElement").mockImplementation((tagName) => {
+      const element = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        tagName,
+      ) as HTMLAnchorElement;
+      if (tagName === "a") {
+        element.click = click;
+      }
+      return element;
+    });
+    await act(async () => {
+      await router.navigate({ to: "/access" });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("Current Principal")).toBeInTheDocument();
+    expect(screen.getByText("Role Matrix")).toBeInTheDocument();
+    expect((await screen.findAllByText("runs:*")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    expect(click).toHaveBeenCalled();
   });
 
   it("runs operations drills and creates backups", async () => {
@@ -371,9 +499,26 @@ describe("Cloud Agents console", () => {
       event("run.failed", 18, { reason: "boom" }, now),
       event("run.cancelled", 19, { reason: "user" }, now),
       event("turn_error", 20, { raw: true }, now),
+      event(
+        "adapter.event",
+        21,
+        { command: "npm test", cwd: "/workspace", exit_code: 0 },
+        now,
+      ),
+      event(
+        "adapter.event",
+        22,
+        { command: "npm lint", exit_code: 1, stderr: "lint failed" },
+        now,
+      ),
     ];
 
     const transcript = __testUtils.runnerTranscript(liveEvents);
+    const plannerProfile = (
+      fixtures.profiles as {
+        profiles: Array<Parameters<typeof __testUtils.copyProfile>[0]>;
+      }
+    ).profiles[0];
 
     expect(transcript.map((item) => item.title)).toContain("Agent output #1");
     expect(
@@ -395,6 +540,88 @@ describe("Cloud Agents console", () => {
     expect(__testUtils.connectionTone("reconnecting")).toBe("warn");
     expect(__testUtils.connectionTone("closed")).toBe("neutral");
     expect(__testUtils.bubbleClass("error")).toContain("destructive");
+    expect(__testUtils.filterLabel("warning")).toBe("Warnings");
+    expect(__testUtils.filterTranscript(transcript, "all")).toBe(transcript);
+    expect(__testUtils.filterTranscript(transcript, "agent")).toHaveLength(1);
+    expect(
+      __testUtils.filterTranscript(transcript, "permission").length,
+    ).toBeGreaterThan(1);
+    expect(
+      __testUtils.filterTranscript(transcript, "warning").length,
+    ).toBeGreaterThan(1);
+    expect(
+      __testUtils.filterTranscript(transcript, "error").length,
+    ).toBeGreaterThan(1);
+    expect(__testUtils.runnerSignal(liveEvents.at(-1), "running").label).toBe(
+      "active",
+    );
+    expect(__testUtils.runnerSignal(undefined, "running").label).toBe(
+      "waiting",
+    );
+    expect(__testUtils.runnerSignal(liveEvents[0], "completed").label).toBe(
+      "terminal",
+    );
+    expect(
+      __testUtils.runnerSignal(
+        event(
+          "run.started",
+          30,
+          {},
+          new Date(Date.now() - 180_000).toISOString(),
+        ),
+        "running",
+      ).label,
+    ).toBe("stalled");
+    expect(__testUtils.runnerReadableReport(transcript, liveEvents)).toContain(
+      "Runner Execution Report",
+    );
+    expect(__testUtils.copyProfile(plannerProfile).id).toBe("planner-copy");
+    expect(__testUtils.compactJson(null)).toBe("");
+    expect(__testUtils.compactJson({ ok: true })).toContain("ok");
+    expect(__testUtils.emptyProfile().id).toBe("custom-profile");
+    expect(__testUtils.emptyToNull("  ")).toBeNull();
+    expect(__testUtils.formatBytes(1024)).toBe("1.0 KB");
+    expect(__testUtils.prettyJson({ ok: true })).toContain("ok");
+    expect(__testUtils.parseJsonObject("{}", "test")).toEqual({});
+    expect(() => __testUtils.parseJsonObject("[]", "test")).toThrow(
+      "test must be a JSON object",
+    );
+    expect(
+      __testUtils.toolEventBody(
+        event("adapter.event", 31, { tool: "shell", stdout: "ok" }, now),
+      ),
+    ).toContain("shell");
+    expect(
+      __testUtils.toolEventRole(
+        event("adapter.event", 32, { status: "failed" }, now),
+      ),
+    ).toBe("error");
+    expect(__testUtils.statusLine({ running: 2 })).toBe("running 2");
+    expect(__testUtils.stringValue(123)).toBe("123");
+    expect(__testUtils.timeAgo(undefined)).toBe("-");
+  });
+
+  it("downloads a readable runner report", () => {
+    const createObjectURL = vi.fn(() => "blob:report");
+    const revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(document, "createElement").mockImplementation((tagName) => {
+      const element = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        tagName,
+      ) as HTMLAnchorElement;
+      if (tagName === "a") {
+        element.click = click;
+      }
+      return element;
+    });
+
+    __testUtils.downloadText("report.md", "# report");
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:report");
   });
 });
 
@@ -422,6 +649,15 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   }
   if (init?.method === "POST" && path === "missions") {
     return jsonResponse({ ...mission, mission_id: "mission_created" });
+  }
+  if (init?.method === "POST" && path === "profiles") {
+    return jsonResponse({
+      ...(fixtures.profiles as { profiles: Array<Record<string, unknown>> })
+        .profiles[0],
+      display_name: "Planner Copy",
+      source: "user",
+      version: 2,
+    });
   }
   if (init?.method === "POST" && path.includes("/permissions/")) {
     return jsonResponse({ accepted: true });

@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Sun,
   UserCog,
+  Users,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/runs", label: "Runs", icon: ClipboardList },
   { to: "/missions", label: "Missions", icon: Boxes },
   { to: "/profiles", label: "Profiles", icon: UserCog },
+  { to: "/access", label: "Access", icon: Users },
   { to: "/operations", label: "Operations", icon: ShieldCheck },
 ] as const;
 

@@ -84,6 +84,9 @@ def make_handler(
             if path == "/ops/backups":
                 self.write_json({"backups": manager.list_backups()})
                 return
+            if path == "/access/policy":
+                self.write_json(access_policy(self.headers))
+                return
             if len(parts) == 3 and parts[0] == "ops" and parts[1] == "backups":
                 try:
                     self.write_file(manager.backup_path(unquote(parts[2])))
@@ -494,6 +497,70 @@ def parse_last_event_id(value: str | None) -> int:
         return max(0, int(value))
     except ValueError:
         return 0
+
+
+def access_policy(headers: Any) -> dict[str, Any]:
+    principal = (
+        headers.get("x-remote-user")
+        or headers.get("x-forwarded-user")
+        or os.environ.get("RUN_MANAGER_DEFAULT_PRINCIPAL")
+        or "single-tenant-operator"
+    )
+    roles = [
+        {
+            "id": "owner",
+            "description": "Can administer runtime, profiles, missions, runs, and backups.",
+            "permissions": [
+                "runs:*",
+                "missions:*",
+                "profiles:*",
+                "permissions:*",
+                "ops:*",
+                "access:read",
+            ],
+        },
+        {
+            "id": "operator",
+            "description": "Can create and operate runs, missions, and human approvals.",
+            "permissions": [
+                "runs:create",
+                "runs:read",
+                "runs:cancel",
+                "missions:create",
+                "missions:read",
+                "missions:cancel",
+                "permissions:resolve",
+                "artifacts:read",
+            ],
+        },
+        {
+            "id": "auditor",
+            "description": "Can read events, artifacts, metrics, and audit bundles.",
+            "permissions": [
+                "runs:read",
+                "missions:read",
+                "events:read",
+                "artifacts:read",
+                "ops:read",
+                "access:read",
+            ],
+        },
+    ]
+    return {
+        "mode": "single-tenant-rbac-foundation",
+        "current_principal": {
+            "id": principal,
+            "display_name": principal,
+            "roles": ["owner"],
+        },
+        "roles": roles,
+        "scopes": sorted({permission for role in roles for permission in role["permissions"]}),
+        "audit": {
+            "auth_boundary": "nginx basic auth plus runtime bearer token",
+            "user_header": "x-remote-user or x-forwarded-user when configured",
+            "status": "foundation only; external IAM is a P7/P8 replacement point",
+        },
+    }
 
 
 def load_index_html() -> str:

@@ -27,8 +27,21 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("final-report.md")).toBeVisible();
 
+  await navigate(page, /Missions/);
+  await page.getByRole("link", { name: /Open detail/ }).click();
+  await expect(page.getByText("Task DAG")).toBeVisible();
+  await expect(page.getByText("Mission Events")).toBeVisible();
+
   await navigate(page, /Profiles/);
   await expect(page.getByRole("heading", { name: "Planner" })).toBeVisible();
+  await page.getByRole("button", { name: "Copy" }).click();
+  await page.getByLabel("Display name").fill("Planner Copy");
+  await page.getByRole("button", { name: "Save Profile" }).click();
+  await expect(page.getByText("Planner Copy")).toBeVisible();
+
+  await navigate(page, /Access/);
+  await expect(page.getByText("Role Matrix")).toBeVisible();
+  await expect(page.getByText("runs:*").first()).toBeVisible();
 
   await navigate(page, /Operations/);
   await page.getByRole("button", { name: "Create" }).click();
@@ -72,10 +85,36 @@ async function mockRuntime(page: Page) {
         status: "running",
         run_id: "run_1",
         depends_on: [],
+        result: { artifacts: [{ name: "plan.md" }] },
       },
     ],
   };
+  const missionEvents = [
+    {
+      id: "mevt_1",
+      mission_id: "mission_1",
+      sequence: 1,
+      type: "task.created",
+      created_at: now,
+      data: { task_id: "plan" },
+    },
+  ];
   const runs = [run];
+  const profiles = [
+    {
+      id: "planner",
+      display_name: "Planner",
+      description: "Plan work",
+      version: 1,
+      source: "system",
+      runtime: {},
+      tools: {},
+      approval: {},
+      limits: {},
+      workspace: {},
+      artifacts: {},
+    },
+  ];
   const fixtures: Record<string, unknown> = {
     health: { ok: true, version: "0.1-e2e" },
     capabilities: {
@@ -142,22 +181,34 @@ async function mockRuntime(page: Page) {
       artifacts: [{ name: "final-report.md", size_bytes: 42, updated_at: now }],
     },
     missions: { missions: [mission] },
-    profiles: {
-      profiles: [
+    "missions/mission_1": mission,
+    "missions/mission_1/events.json": { events: missionEvents },
+    "missions/mission_1/artifacts": {
+      artifacts: [
         {
-          id: "planner",
-          display_name: "Planner",
-          description: "Plan work",
-          version: 1,
-          source: "system",
-          runtime: {},
-          tools: {},
-          approval: {},
-          limits: {},
-          workspace: {},
-          artifacts: {},
+          name: "final_report.md",
+          size_bytes: 88,
+          updated_at: now,
         },
       ],
+    },
+    profiles: { profiles },
+    "access/policy": {
+      mode: "single-tenant-rbac-foundation",
+      current_principal: {
+        id: "operator",
+        display_name: "operator",
+        roles: ["owner"],
+      },
+      roles: [
+        {
+          id: "owner",
+          description: "Can administer runtime",
+          permissions: ["runs:*", "missions:*", "profiles:*"],
+        },
+      ],
+      scopes: ["runs:*", "missions:*", "profiles:*"],
+      audit: { auth_boundary: "basic auth plus bearer" },
     },
     "ops/status": { database: { exists: true } },
     "ops/drills": {
@@ -199,6 +250,18 @@ async function mockRuntime(page: Page) {
     if (request.method() === "POST" && path === "runs") {
       const created = { ...run, run_id: "run_created", status: "queued" };
       runs.unshift(created);
+      await route.fulfill({ json: created });
+      return;
+    }
+    if (request.method() === "POST" && path === "profiles") {
+      const created = {
+        ...profiles[0],
+        display_name: "Planner Copy",
+        id: "planner-copy",
+        source: "user",
+        version: 2,
+      };
+      profiles.unshift(created);
       await route.fulfill({ json: created });
       return;
     }

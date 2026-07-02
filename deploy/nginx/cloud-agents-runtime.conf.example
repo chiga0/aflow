@@ -15,6 +15,7 @@ server {
         proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Remote-User $remote_user;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         include /etc/nginx/snippets/cloud-agents-runtime-auth.conf;
@@ -24,5 +25,9 @@ server {
         proxy_send_timeout 3600s;
         rewrite ^/cloud-agents/(.*)$ /$1 break;
         proxy_pass http://127.0.0.1:8765;
+    }
+
+    location / {
+        return 302 /cloud-agents/;
     }
 }

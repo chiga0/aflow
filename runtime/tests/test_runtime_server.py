@@ -47,6 +47,13 @@ class RuntimeServerTest(unittest.TestCase):
                 headers={"authorization": "Bearer secret"},
             )
             self.assertGreaterEqual(workers["workers"][0]["capacity"], 1)
+            access = request_json(
+                f"{base_url}/access/policy",
+                headers={"authorization": "Bearer secret", "x-remote-user": "alice"},
+            )
+            self.assertEqual(access["current_principal"]["id"], "alice")
+            self.assertIn("owner", {role["id"] for role in access["roles"]})
+            self.assertIn("runs:*", access["scopes"])
 
             with self.assertRaises(urllib.error.HTTPError) as cleanup_ctx:
                 request_json(f"{base_url}/cleanup", method="POST", payload={})

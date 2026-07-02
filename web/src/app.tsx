@@ -16,13 +16,21 @@ import {
 } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import {
+  AlertTriangle,
+  Copy,
   Download,
+  FileText,
+  Filter,
+  GitBranch,
   MessageSquare,
   PauseCircle,
   Play,
   Radio,
   RefreshCw,
+  Save,
   ShieldCheck,
+  UserCog,
+  Users,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -54,10 +62,13 @@ import {
   runtimeApi,
   type ArtifactInfo,
   type DrillCheck,
+  type AgentProfile,
+  type MissionEvent,
   type MissionState,
   type RuntimeEvent,
   type RunState,
 } from "./lib/api";
+import { downloadJson } from "./lib/utils";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,10 +100,20 @@ const missionsRoute = createRoute({
   path: "/missions",
   component: MissionsPage,
 });
+const missionDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/missions/$missionId",
+  component: MissionDetailPage,
+});
 const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiles",
   component: ProfilesPage,
+});
+const accessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/access",
+  component: AccessPage,
 });
 const operationsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -105,7 +126,9 @@ const routeTree = rootRoute.addChildren([
   runsRoute,
   runDetailRoute,
   missionsRoute,
+  missionDetailRoute,
   profilesRoute,
+  accessRoute,
   operationsRoute,
 ]);
 
@@ -567,7 +590,13 @@ function LiveRunnerPanel({
   runStatus?: string;
 }) {
   const transcript = useMemo(() => runnerTranscript(events), [events]);
+  const [filter, setFilter] = useState<RunnerFilter>("all");
+  const filteredTranscript = useMemo(
+    () => filterTranscript(transcript, filter),
+    [filter, transcript],
+  );
   const latest = events.at(-1);
+  const signal = runnerSignal(latest, runStatus);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -582,7 +611,7 @@ function LiveRunnerPanel({
       return;
     }
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [transcript.length, latest?.sequence]);
+  }, [filteredTranscript.length, latest?.sequence]);
 
   return (
     <Card>
@@ -600,16 +629,55 @@ function LiveRunnerPanel({
         <div className="grid gap-3 md:grid-cols-3">
           <Metric label="Run status" value={runStatus ?? "loading"} />
           <Metric label="Last event" value={latest?.type ?? "-"} />
-          <Metric label="Sequence" value={latest?.sequence ?? "-"} />
+          <Metric
+            label="Runner signal"
+            value={signal.label}
+            detail={latest ? `seq ${latest.sequence}` : undefined}
+          />
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            {(["all", "agent", "permission", "warning", "error"] as const).map(
+              (item) => (
+                <Button
+                  key={item}
+                  size="sm"
+                  variant={filter === item ? "primary" : "secondary"}
+                  onClick={() => setFilter(item)}
+                >
+                  <Filter className="h-4 w-4" />
+                  {filterLabel(item)}
+                </Button>
+              ),
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() =>
+              downloadText(
+                `run-${latest?.run_id ?? "runner"}-report.md`,
+                runnerReadableReport(transcript, events),
+              )
+            }
+          >
+            <FileText className="h-4 w-4" />
+            Download Report
+          </Button>
+        </div>
+        {signal.tone === "warn" ? (
+          <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-amber-800 dark:text-warning">
+            No runner event has arrived recently. You can inspect raw events,
+            download the audit bundle, or cancel/retry the run.
+          </div>
+        ) : null}
         <div
           ref={scrollRef}
           className="grid max-h-[520px] gap-3 overflow-auto rounded-md border border-border bg-muted/40 p-3"
         >
-          {transcript.map((item) => (
+          {filteredTranscript.map((item) => (
             <RunnerBubble key={item.id} item={item} />
           ))}
-          {!transcript.length ? (
+          {!filteredTranscript.length ? (
             <EmptyState
               title="Waiting for runner output"
               detail="The live stream will append steps, messages, permission requests, and terminal state here."
@@ -630,6 +698,8 @@ type RunnerTranscriptItem = {
   event_type: string;
   sequence: number;
 };
+
+type RunnerFilter = "all" | "agent" | "permission" | "warning" | "error";
 
 function RunnerBubble({ item }: { item: RunnerTranscriptItem }) {
   return (
@@ -757,6 +827,148 @@ function MissionsPage() {
   );
 }
 
+function MissionDetailPage() {
+  const { missionId } = useParams({ from: "/missions/$missionId" });
+  const queryClient = useQueryClient();
+  const mission = useQuery({
+    queryKey: ["missions", missionId],
+    queryFn: () => runtimeApi.mission(missionId),
+  });
+  const events = useQuery({
+    queryKey: ["missions", missionId, "events"],
+    queryFn: () => runtimeApi.missionEvents(missionId),
+  });
+  const artifacts = useQuery({
+    queryKey: ["missions", missionId, "artifacts"],
+    queryFn: () => runtimeApi.missionArtifacts(missionId),
+  });
+  const cancel = useMutation({
+    mutationFn: () => runtimeApi.cancelMission(missionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["missions"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["missions", missionId],
+      });
+    },
+  });
+  const override = useMutation({
+    mutationFn: (decision: "approve" | "deny") =>
+      runtimeApi.overrideReviewGate(missionId, {
+        decision,
+        reason: `review gate ${decision} from web console`,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["missions"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["missions", missionId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["missions", missionId, "events"],
+      });
+    },
+  });
+  const state = mission.data;
+  const missionEvents = events.data?.events ?? [];
+  return (
+    <Page title="Mission Detail" subtitle={missionId}>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <div className="min-w-0">
+                <CardTitle>Mission State</CardTitle>
+                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  {state?.spec.goal ?? "Loading mission goal"}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                {state ? <StatusBadge status={state.status} /> : null}
+                <Button
+                  disabled={cancel.isPending || isTerminal(state?.status)}
+                  size="sm"
+                  onClick={() => cancel.mutate()}
+                >
+                  <PauseCircle className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </div>
+            </CardHeader>
+            <CardBody className="grid gap-3 md:grid-cols-4">
+              <Metric label="Strategy" value={state?.spec.strategy ?? "-"} />
+              <Metric label="Adapter" value={state?.spec.adapter ?? "-"} />
+              <Metric
+                label="Progress"
+                value={`${state?.completed_task_count ?? 0}/${state?.task_count ?? 0}`}
+              />
+              <Metric label="Events" value={state?.event_count ?? "-"} />
+            </CardBody>
+          </Card>
+          {state?.status === "blocked" ? (
+            <Card className="border-warning/40">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <CardTitle>Review Gate Blocked</CardTitle>
+                </div>
+                <Badge tone="warn">human decision</Badge>
+              </CardHeader>
+              <CardBody className="flex flex-wrap gap-2">
+                <Button
+                  disabled={override.isPending}
+                  size="sm"
+                  variant="primary"
+                  onClick={() => override.mutate("approve")}
+                >
+                  Approve Gate
+                </Button>
+                <Button
+                  disabled={override.isPending}
+                  size="sm"
+                  variant="danger"
+                  onClick={() => override.mutate("deny")}
+                >
+                  Deny Gate
+                </Button>
+              </CardBody>
+            </Card>
+          ) : null}
+          <MissionDagPanel mission={state} />
+          <MissionEventList events={missionEvents} />
+        </div>
+        <div className="grid content-start gap-4">
+          <MissionArtifactPanel
+            missionId={missionId}
+            artifacts={artifacts.data?.artifacts ?? []}
+          />
+          <Card>
+            <CardHeader>
+              <CardTitle>Downloads</CardTitle>
+            </CardHeader>
+            <CardBody className="grid gap-2">
+              <LinkButton
+                href={missionArtifactHref(missionId, "manifest.json")}
+              >
+                <Download className="h-4 w-4" />
+                Manifest
+              </LinkButton>
+              <LinkButton href={missionArtifactHref(missionId, "events.jsonl")}>
+                <Download className="h-4 w-4" />
+                Events JSONL
+              </LinkButton>
+              <LinkButton
+                href={missionArtifactHref(missionId, "final-report.md")}
+              >
+                <Download className="h-4 w-4" />
+                Final Report
+              </LinkButton>
+            </CardBody>
+          </Card>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
 function CreateMissionForm({ adapters }: { adapters: string[] }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -856,37 +1068,291 @@ function ProfilesPage() {
     queryKey: ["profiles"],
     queryFn: runtimeApi.profiles,
   });
+  const [draft, setDraft] = useState<AgentProfile | null>(null);
   return (
     <Page
       title="Profiles"
       subtitle="Reusable Agent roles and execution policies."
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {(profiles.data?.profiles ?? []).map((profile) => (
-          <Card key={`${profile.id}-${profile.version}`}>
-            <CardHeader>
-              <div>
-                <CardTitle>{profile.display_name}</CardTitle>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">
-                  {profile.id}
+      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <ProfileEditor
+          key={
+            draft ? `${draft.id}-${draft.version}-${draft.display_name}` : "new"
+          }
+          draft={draft}
+          onSaved={() => setDraft(null)}
+        />
+        <div className="grid gap-4 md:grid-cols-2">
+          {(profiles.data?.profiles ?? []).map((profile) => (
+            <Card key={`${profile.id}-${profile.version}`}>
+              <CardHeader>
+                <div>
+                  <CardTitle>{profile.display_name}</CardTitle>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">
+                    {profile.id}
+                  </div>
                 </div>
-              </div>
-              <Badge tone={profile.source === "system" ? "info" : "neutral"}>
-                v{profile.version}
-              </Badge>
-            </CardHeader>
-            <CardBody className="grid gap-3">
-              <p className="text-sm text-muted-foreground">
-                {profile.description}
-              </p>
-              <ProfileJson label="Runtime" value={profile.runtime} />
-              <ProfileJson label="Tools" value={profile.tools} />
-              <ProfileJson label="Approval" value={profile.approval} />
-            </CardBody>
-          </Card>
-        ))}
+                <Badge tone={profile.source === "system" ? "info" : "neutral"}>
+                  v{profile.version}
+                </Badge>
+              </CardHeader>
+              <CardBody className="grid gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {profile.description}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => setDraft(copyProfile(profile))}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </Button>
+                  <Button size="sm" onClick={() => setDraft(profile)}>
+                    <UserCog className="h-4 w-4" />
+                    Edit
+                  </Button>
+                </div>
+                <ProfileJson label="Runtime" value={profile.runtime} />
+                <ProfileJson label="Tools" value={profile.tools} />
+                <ProfileJson label="Approval" value={profile.approval} />
+                <ProfileJson label="Limits" value={profile.limits} />
+                <ProfileJson label="Workspace" value={profile.workspace} />
+                <ProfileJson label="Artifacts" value={profile.artifacts} />
+              </CardBody>
+            </Card>
+          ))}
+        </div>
       </div>
     </Page>
+  );
+}
+
+function AccessPage() {
+  const policy = useQuery({
+    queryKey: ["access", "policy"],
+    queryFn: runtimeApi.accessPolicy,
+  });
+  const principal = policy.data?.current_principal;
+  return (
+    <Page
+      title="Access"
+      subtitle="Single-tenant beta access posture and RBAC migration plan."
+    >
+      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              <CardTitle>Current Principal</CardTitle>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone="info">{policy.data?.mode ?? "loading"}</Badge>
+              <Button
+                disabled={!policy.data}
+                size="sm"
+                onClick={() => downloadJson("access-policy.json", policy.data)}
+              >
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </div>
+          </CardHeader>
+          <CardBody className="grid gap-3">
+            <Metric label="Identity" value={principal?.display_name ?? "-"} />
+            <Metric label="Roles" value={principal?.roles.join(", ") || "-"} />
+            <ProfileJson
+              label="Audit Posture"
+              value={policy.data?.audit ?? {}}
+            />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Role Matrix</CardTitle>
+            <Badge tone="neutral">{policy.data?.roles.length ?? 0}</Badge>
+          </CardHeader>
+          <CardBody className="grid gap-3">
+            {(policy.data?.roles ?? []).map((role) => (
+              <div
+                key={role.id}
+                className="rounded-md border border-border p-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{role.id}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {role.description}
+                    </div>
+                  </div>
+                  <Badge tone="neutral">{role.permissions.length}</Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {role.permissions.map((permission) => (
+                    <Badge key={permission} tone="neutral">
+                      {permission}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Scopes</CardTitle>
+          <Badge tone="info">P7 foundation</Badge>
+        </CardHeader>
+        <CardBody className="flex flex-wrap gap-2">
+          {(policy.data?.scopes ?? []).map((scope) => (
+            <Badge key={scope} tone="neutral">
+              {scope}
+            </Badge>
+          ))}
+        </CardBody>
+      </Card>
+    </Page>
+  );
+}
+
+function ProfileEditor({
+  draft,
+  onSaved,
+}: {
+  draft: AgentProfile | null;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const createProfile = useMutation({
+    mutationFn: runtimeApi.createProfile,
+    onSuccess: async () => {
+      setError(null);
+      onSaved();
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      await queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+    },
+    onError: (err) => setError(String(err)),
+  });
+  const defaultProfile = draft ?? emptyProfile();
+  const form = useForm({
+    defaultValues: {
+      id: defaultProfile.id,
+      display_name: defaultProfile.display_name,
+      description: defaultProfile.description,
+      runtime: prettyJson(defaultProfile.runtime),
+      tools: prettyJson(defaultProfile.tools),
+      approval: prettyJson(defaultProfile.approval),
+      limits: prettyJson(defaultProfile.limits),
+      workspace: prettyJson(defaultProfile.workspace),
+      artifacts: prettyJson(defaultProfile.artifacts),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await createProfile.mutateAsync({
+          id: value.id,
+          display_name: value.display_name,
+          description: value.description,
+          runtime: parseJsonObject(value.runtime, "runtime"),
+          tools: parseJsonObject(value.tools, "tools"),
+          approval: parseJsonObject(value.approval, "approval"),
+          limits: parseJsonObject(value.limits, "limits"),
+          workspace: parseJsonObject(value.workspace, "workspace"),
+          artifacts: parseJsonObject(value.artifacts, "artifacts"),
+        });
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile Editor</CardTitle>
+        <Badge tone="info">versioned</Badge>
+      </CardHeader>
+      <CardBody>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void form.handleSubmit();
+          }}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            <form.Field name="id">
+              {(field) => (
+                <Field label="Profile ID">
+                  <Input
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                  />
+                </Field>
+              )}
+            </form.Field>
+            <form.Field name="display_name">
+              {(field) => (
+                <Field label="Display name">
+                  <Input
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                  />
+                </Field>
+              )}
+            </form.Field>
+          </div>
+          <form.Field name="description">
+            {(field) => (
+              <Field label="Description">
+                <Textarea
+                  className="min-h-20"
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          {(
+            [
+              "runtime",
+              "tools",
+              "approval",
+              "limits",
+              "workspace",
+              "artifacts",
+            ] as const
+          ).map((name) => (
+            <form.Field key={name} name={name}>
+              {(field) => (
+                <Field label={`${name} JSON`}>
+                  <Textarea
+                    className="min-h-24 font-mono text-xs"
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                  />
+                </Field>
+              )}
+            </form.Field>
+          ))}
+          {error ? (
+            <div className="rounded-md border border-destructive/30 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+          <Button
+            disabled={createProfile.isPending}
+            type="submit"
+            variant="primary"
+          >
+            <Save className="h-4 w-4" />
+            Save Profile
+          </Button>
+        </form>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -1113,6 +1579,14 @@ function MissionList({ missions }: { missions: MissionState[] }) {
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs font-medium text-primary hover:bg-muted"
+              to="/missions/$missionId"
+              params={{ missionId: mission.mission_id }}
+            >
+              <GitBranch className="h-4 w-4" />
+              Open detail
+            </Link>
             <LinkButton
               href={missionArtifactHref(mission.mission_id, "manifest.json")}
               size="sm"
@@ -1131,6 +1605,144 @@ function MissionList({ missions }: { missions: MissionState[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function MissionDagPanel({ mission }: { mission?: MissionState }) {
+  const tasks = mission?.tasks ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <GitBranch className="h-4 w-4 text-primary" />
+          <CardTitle>Task DAG</CardTitle>
+        </div>
+        <Badge tone="neutral">{tasks.length}</Badge>
+      </CardHeader>
+      <CardBody className="grid gap-3">
+        {tasks.map((task) => (
+          <div
+            key={task.task_id}
+            className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[220px_minmax(0,1fr)_180px]"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{task.title}</span>
+                <StatusBadge status={task.status} />
+              </div>
+              <div className="mt-1 font-mono text-xs text-muted-foreground">
+                {task.task_id}
+              </div>
+            </div>
+            <div className="grid gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Profile </span>
+                <span className="font-medium">{task.profile_id}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(task.depends_on.length ? task.depends_on : ["root"]).map(
+                  (dependency) => (
+                    <Badge key={dependency} tone="neutral">
+                      {dependency}
+                    </Badge>
+                  ),
+                )}
+              </div>
+            </div>
+            <div className="grid content-start gap-2">
+              {task.run_id ? (
+                <Link
+                  className="inline-flex items-center gap-2 text-sm text-primary"
+                  to="/runs/$runId"
+                  params={{ runId: task.run_id }}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Open run
+                </Link>
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  Waiting for dependencies
+                </span>
+              )}
+              {task.result ? (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground">
+                    Result
+                  </summary>
+                  <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-slate-950 p-2 text-slate-100">
+                    {JSON.stringify(task.result, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          </div>
+        ))}
+        {!tasks.length ? <EmptyState title="No tasks" /> : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+function MissionEventList({ events }: { events: MissionEvent[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Mission Events</CardTitle>
+        <Badge tone="neutral">{events.length}</Badge>
+      </CardHeader>
+      <CardBody className="grid max-h-[560px] gap-2 overflow-auto">
+        {events.map((event) => (
+          <div key={event.id} className="rounded-md border border-border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-mono text-xs">
+                {event.sequence}. {event.type}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {timeAgo(event.created_at)}
+              </span>
+            </div>
+            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-950 p-2 text-xs text-slate-100">
+              {JSON.stringify(event.data, null, 2)}
+            </pre>
+          </div>
+        ))}
+        {!events.length ? <EmptyState title="No mission events" /> : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+function MissionArtifactPanel({
+  missionId,
+  artifacts,
+}: {
+  missionId: string;
+  artifacts: ArtifactInfo[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Mission Artifacts</CardTitle>
+        <Badge tone="neutral">{artifacts.length}</Badge>
+      </CardHeader>
+      <CardBody className="grid gap-2">
+        {artifacts.map((artifact) => (
+          <a
+            key={artifact.name}
+            className="rounded-md border border-border p-3 text-sm hover:bg-muted"
+            href={missionArtifactHref(missionId, artifact.name)}
+          >
+            <div className="font-medium">{artifact.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatBytes(artifact.size_bytes)}
+            </div>
+          </a>
+        ))}
+        {!artifacts.length ? (
+          <EmptyState title="No mission artifacts yet" />
+        ) : null}
+      </CardBody>
+    </Card>
   );
 }
 
@@ -1226,6 +1838,45 @@ function ProfileJson({
       </pre>
     </details>
   );
+}
+
+function emptyProfile(): AgentProfile {
+  return {
+    id: "custom-profile",
+    display_name: "Custom Profile",
+    description: "Describe when this Agent profile should be used.",
+    version: 1,
+    source: "user",
+    runtime: { preferred_adapter: "qwen" },
+    tools: { allow: [], deny: [] },
+    approval: { mode: "ask" },
+    limits: { max_turns: 40, timeout_seconds: 1800 },
+    workspace: { strategy: "per_run" },
+    artifacts: { required: ["final-report.md"] },
+    metadata: {},
+  };
+}
+
+function copyProfile(profile: AgentProfile): AgentProfile {
+  return {
+    ...profile,
+    id: `${profile.id}-copy`,
+    display_name: `${profile.display_name} Copy`,
+    source: "user",
+    version: 1,
+  };
+}
+
+function prettyJson(value: Record<string, unknown> | undefined) {
+  return JSON.stringify(value ?? {}, null, 2);
+}
+
+function parseJsonObject(value: string, label: string) {
+  const parsed = JSON.parse(value || "{}") as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function Page({
@@ -1457,6 +2108,13 @@ function transcriptItemForEvent(
         title: "Permission stalled",
         body: compactJson(event.data),
       };
+    case "adapter.event":
+      return {
+        ...base,
+        role: toolEventRole(event),
+        title: "Tool event",
+        body: toolEventBody(event),
+      };
     case "stream.warning":
     case "cancel.warning":
       return {
@@ -1512,6 +2170,125 @@ function permissionBody(event: RuntimeEvent) {
 
 function failureBody(event: RuntimeEvent) {
   return stringValue(event.data.reason) ?? compactJson(event.data);
+}
+
+function toolEventRole(event: RuntimeEvent): RunnerTranscriptItem["role"] {
+  const status =
+    stringValue(event.data.status) ?? stringValue(event.data.outcome);
+  const exitCode = event.data.exit_code;
+  if (status === "failed" || exitCode === 1) {
+    return "error";
+  }
+  return "system";
+}
+
+function toolEventBody(event: RuntimeEvent) {
+  const command =
+    stringValue(event.data.command) ??
+    stringValue(event.data.tool) ??
+    stringValue(event.data.name) ??
+    "adapter event";
+  const cwd = stringValue(event.data.cwd);
+  const exitCode =
+    typeof event.data.exit_code === "number"
+      ? `exit ${event.data.exit_code}`
+      : undefined;
+  const stdout = stringValue(event.data.stdout);
+  const stderr = stringValue(event.data.stderr);
+  return [
+    command,
+    cwd ? `cwd: ${cwd}` : undefined,
+    exitCode,
+    stdout ? `stdout: ${stdout.slice(0, 800)}` : undefined,
+    stderr ? `stderr: ${stderr.slice(0, 800)}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function filterTranscript(
+  transcript: RunnerTranscriptItem[],
+  filter: RunnerFilter,
+) {
+  if (filter === "all") {
+    return transcript;
+  }
+  if (filter === "permission") {
+    return transcript.filter((item) =>
+      item.event_type.startsWith("permission."),
+    );
+  }
+  if (filter === "warning") {
+    return transcript.filter((item) => item.role === "warning");
+  }
+  if (filter === "error") {
+    return transcript.filter((item) => item.role === "error");
+  }
+  return transcript.filter((item) => item.role === "agent");
+}
+
+function filterLabel(filter: RunnerFilter) {
+  const labels: Record<RunnerFilter, string> = {
+    agent: "Agent",
+    all: "All",
+    error: "Errors",
+    permission: "Permissions",
+    warning: "Warnings",
+  };
+  return labels[filter];
+}
+
+function runnerSignal(latest?: RuntimeEvent, runStatus?: string) {
+  if (isTerminal(runStatus)) {
+    return { label: "terminal", tone: "neutral" as const };
+  }
+  if (!latest) {
+    return { label: "waiting", tone: "neutral" as const };
+  }
+  const ageMs = Date.now() - new Date(latest.created_at).getTime();
+  if (Number.isFinite(ageMs) && ageMs > 120_000) {
+    return { label: "stalled", tone: "warn" as const };
+  }
+  return { label: "active", tone: "ok" as const };
+}
+
+function runnerReadableReport(
+  transcript: RunnerTranscriptItem[],
+  events: RuntimeEvent[],
+) {
+  const lines = [
+    "# Runner Execution Report",
+    "",
+    `Generated: ${new Date().toISOString()}`,
+    `Events: ${events.length}`,
+    "",
+    "## Timeline",
+    "",
+  ];
+  for (const item of transcript) {
+    lines.push(
+      `### ${item.sequence}. ${item.title}`,
+      "",
+      `Event: ${item.event_type}`,
+      `Time: ${item.created_at}`,
+      "",
+      item.body || "-",
+      "",
+    );
+  }
+  return lines.join("\n");
+}
+
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function compactJson(value: unknown) {
@@ -1578,11 +2355,24 @@ export const __testUtils = {
   bubbleClass,
   connectionLabel,
   connectionTone,
+  compactJson,
+  copyProfile,
+  downloadText,
+  emptyProfile,
   emptyToNull,
+  filterLabel,
+  filterTranscript,
   formatBytes,
   isTerminalEvent,
   mergeEvents,
+  parseJsonObject,
+  prettyJson,
+  runnerReadableReport,
+  runnerSignal,
   runnerTranscript,
+  stringValue,
+  toolEventBody,
+  toolEventRole,
   isTerminal,
   statusLine,
   timeAgo,

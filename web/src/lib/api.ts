@@ -105,6 +105,8 @@ export interface MissionTask {
   status: string;
   run_id?: string | null;
   depends_on: string[];
+  result?: Record<string, unknown>;
+  profile_snapshot?: Record<string, unknown>;
 }
 
 export interface MissionState {
@@ -120,6 +122,15 @@ export interface MissionState {
   tasks: MissionTask[];
 }
 
+export interface MissionEvent {
+  id: string;
+  mission_id: string;
+  sequence: number;
+  type: string;
+  created_at: string;
+  data: Record<string, unknown>;
+}
+
 export interface AgentProfile {
   id: string;
   display_name: string;
@@ -132,6 +143,23 @@ export interface AgentProfile {
   limits: Record<string, unknown>;
   workspace: Record<string, unknown>;
   artifacts: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AccessPolicy {
+  mode: string;
+  current_principal: {
+    id: string;
+    display_name: string;
+    roles: string[];
+  };
+  roles: Array<{
+    id: string;
+    description: string;
+    permissions: string[];
+  }>;
+  scopes: string[];
+  audit: Record<string, unknown>;
 }
 
 export interface BackupInfo {
@@ -193,12 +221,41 @@ export const runtimeApi = {
       body: JSON.stringify({ decided_by: "web-console", ...payload }),
     }),
   missions: () => api<{ missions: MissionState[] }>("missions"),
+  mission: (missionId: string) => api<MissionState>(`missions/${missionId}`),
+  missionEvents: (missionId: string) =>
+    api<{ events: MissionEvent[] }>(`missions/${missionId}/events.json`),
+  missionArtifacts: (missionId: string) =>
+    api<{ artifacts: ArtifactInfo[] }>(`missions/${missionId}/artifacts`),
   createMission: (payload: Record<string, unknown>) =>
     api<MissionState>("missions", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  cancelMission: (missionId: string, reason = "cancelled from console") =>
+    api<MissionState>(`missions/${missionId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  overrideReviewGate: (
+    missionId: string,
+    payload: {
+      decision: "approve" | "deny";
+      reason: string;
+      decided_by?: string;
+    },
+  ) =>
+    api<MissionState>(`missions/${missionId}/review-gate/override`, {
+      method: "POST",
+      body: JSON.stringify({ decided_by: "web-console", ...payload }),
+    }),
   profiles: () => api<{ profiles: AgentProfile[] }>("profiles"),
+  profile: (profileId: string) => api<AgentProfile>(`profiles/${profileId}`),
+  createProfile: (payload: Partial<AgentProfile>) =>
+    api<AgentProfile>("profiles", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  accessPolicy: () => api<AccessPolicy>("access/policy"),
   opsStatus: () => api<Record<string, unknown>>("ops/status"),
   drills: () => api<Record<string, unknown>>("ops/drills"),
   runDrills: () =>

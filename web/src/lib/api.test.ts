@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  artifactHref,
+  auditHref,
+  backupHref,
   extractPermissionRequest,
+  missionArtifactHref,
   resolvedPermissionIds,
+  runEventStreamHref,
   runtimeApi,
   type RuntimeEvent,
 } from "./api";
@@ -63,16 +68,71 @@ describe("api helpers", () => {
     await runtimeApi.queue();
     await runtimeApi.runAudit("run_1");
     await runtimeApi.cancelRun("run_1");
+    await runtimeApi.mission("mission_1");
+    await runtimeApi.missionEvents("mission_1");
+    await runtimeApi.missionArtifacts("mission_1");
+    await runtimeApi.cancelMission("mission_1");
+    await runtimeApi.overrideReviewGate("mission_1", {
+      decision: "approve",
+      reason: "reviewed",
+    });
+    await runtimeApi.profile("planner");
+    await runtimeApi.createProfile({ id: "planner-copy" });
+    await runtimeApi.accessPolicy();
     await runtimeApi.createMission({ goal: "ship", strategy: "sequential" });
 
     expect(calls.map(([path]) => path)).toEqual([
       "/queue",
       "/runs/run_1/audit.json",
       "/runs/run_1/cancel",
+      "/missions/mission_1",
+      "/missions/mission_1/events.json",
+      "/missions/mission_1/artifacts",
+      "/missions/mission_1/cancel",
+      "/missions/mission_1/review-gate/override",
+      "/profiles/planner",
+      "/profiles",
+      "/access/policy",
       "/missions",
     ]);
     expect(calls[2][1]?.method).toBe("POST");
-    expect(calls[3][1]?.method).toBe("POST");
+    expect(calls[6][1]?.method).toBe("POST");
+    expect(calls[7][1]?.method).toBe("POST");
+    expect(calls[9][1]?.method).toBe("POST");
+    expect(calls[11][1]?.method).toBe("POST");
+  });
+
+  it("builds hrefs from the current app base", async () => {
+    window.history.pushState({}, "", "/cloud-agents/");
+    vi.resetModules();
+    const fresh = await import("./api");
+
+    expect(fresh.artifactHref("run_1", "a b.json")).toBe(
+      "/cloud-agents/runs/run_1/artifacts/a%20b.json",
+    );
+    expect(fresh.auditHref("run_1")).toBe(
+      "/cloud-agents/runs/run_1/audit.json",
+    );
+    expect(fresh.runEventStreamHref("run_1")).toBe(
+      "/cloud-agents/runs/run_1/events",
+    );
+    expect(fresh.backupHref("backup.tgz")).toBe(
+      "/cloud-agents/ops/backups/backup.tgz",
+    );
+    expect(fresh.missionArtifactHref("mission_1", "final report.md")).toBe(
+      "/cloud-agents/missions/mission_1/artifacts/final%20report.md",
+    );
+
+    window.history.pushState({}, "", "/");
+    expect(artifactHref("run_1", "events.jsonl")).toBe(
+      "/runs/run_1/artifacts/events.jsonl",
+    );
+    expect(auditHref("run_1")).toBe("/runs/run_1/audit.json");
+    expect(runEventStreamHref("run_1")).toBe("/runs/run_1/events");
+    expect(backupHref("backup.tgz")).toBe("/ops/backups/backup.tgz");
+    expect(missionArtifactHref("mission_1", "manifest.json")).toBe(
+      "/missions/mission_1/artifacts/manifest.json",
+    );
   });
 });
 
