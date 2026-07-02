@@ -429,6 +429,38 @@ class RunStore:
             )
         return [run_id for run_id, _previous_worker, _attempts in recovered]
 
+    def fail_orphaned_jobs_for_worker(self, worker_id: str, reason: str) -> list[str]:
+        orphaned: list[tuple[str, int, str | None]] = []
+        with self._lock:
+            for job in self._jobs.values():
+                if job.status != "running" or job.worker_id != worker_id:
+                    continue
+                run = self._runs[job.run_id]
+                if run.status in {"completed", "failed", "cancelled"}:
+                    self._finish_job(run.run_id, run.status)
+                    continue
+                orphaned.append((job.run_id, job.attempts, job.lease_expires_at))
+        for run_id, attempts, lease_expires_at in orphaned:
+            self.append_event(
+                run_id,
+                "lease.orphaned",
+                {
+                    "worker_id": worker_id,
+                    "attempts": attempts,
+                    "lease_expires_at": lease_expires_at,
+                    "reason": reason,
+                },
+            )
+            self.append_event(
+                run_id,
+                "run.failed",
+                {
+                    "reason": reason,
+                    "recovery": "orphaned_worker_run",
+                },
+            )
+        return [run_id for run_id, _attempts, _lease_expires_at in orphaned]
+
     def prune_stale_workers(self, stale_after_seconds: int | None) -> list[str]:
         if not stale_after_seconds or stale_after_seconds <= 0:
             return []

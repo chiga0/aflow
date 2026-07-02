@@ -88,6 +88,10 @@ class RunManager:
         self._stop = threading.Event()
         self._closed = False
         self.store.add_event_listener(self._on_event)
+        self.store.fail_orphaned_jobs_for_worker(
+            self.worker_id,
+            "runtime restarted without active run thread",
+        )
         self.store.register_worker(
             self.worker_id,
             self.worker_capacity,

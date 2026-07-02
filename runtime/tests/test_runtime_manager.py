@@ -1303,6 +1303,36 @@ class RunManagerTest(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_runtime_restart_fails_orphaned_running_job_for_same_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = RunStore(root)
+            try:
+                run = store.create_run(RunSpec(prompt="lost", adapter="fake"))
+                store.enqueue_run(run.run_id)
+                store.register_worker("stable-worker", capacity=1, lease_ttl_seconds=300)
+                claimed = store.claim_next_job("stable-worker", lease_ttl_seconds=300)
+                self.assertIsNotNone(claimed)
+                store.append_event(run.run_id, "run.started", {"adapter": "fake"})
+            finally:
+                store.close()
+
+            manager = RunManager(root, worker_id="stable-worker", worker_capacity=1)
+            try:
+                recovered = manager.get_run(run.run_id)
+                self.assertIsNotNone(recovered)
+                self.assertEqual(recovered.status, "failed")
+                events = [event.type for event in manager.store.events_since(run.run_id)]
+                self.assertIn("lease.orphaned", events)
+                self.assertIn("run.failed", events)
+                snapshot = manager.queue_status()
+                self.assertEqual(snapshot["counts"].get("running"), None)
+
+                fresh = manager.create_run(RunSpec(prompt="fresh", adapter="fake"))
+                self.wait_for_status(manager, fresh.run_id, "completed")
+            finally:
+                manager.shutdown()
+
     def test_prune_stale_workers_keeps_workers_with_running_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = RunStore(Path(tmp))
