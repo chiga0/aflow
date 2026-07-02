@@ -1,0 +1,13 @@
+ARG BASE_IMAGE=node:22-bookworm-slim
+FROM ${BASE_IMAGE}
+
+ARG NODE_PACKAGE=@qwen-code/qwen-code@0.19.3
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g "${NODE_PACKAGE}" \
+    && mkdir -p /workspace /root/.qwen /home/cloudagents/.qwen \
+    && chmod 777 /workspace /root/.qwen /home/cloudagents /home/cloudagents/.qwen
+
+WORKDIR /workspace

@@ -5,6 +5,63 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      executor_strategy:
+        description: "qwen executor strategy for this deployment"
+        required: false
+        default: "shared"
+        type: choice
+        options:
+          - shared
+          - per_run_process
+          - container
+      qwen_container_image:
+        description: >-
+          Docker image for container executor; required when strategy=container
+          unless command var is configured
+        required: false
+        default: ""
+        type: string
+      qwen_container_build:
+        description: "Build the local qwen executor image on the VPS"
+        required: false
+        default: false
+        type: boolean
+      qwen_container_base_image:
+        description: "Base image for local qwen executor build"
+        required: false
+        default: "node:22-bookworm-slim"
+        type: string
+      qwen_container_cpus:
+        description: "Container CPU limit"
+        required: false
+        default: "1"
+        type: string
+      qwen_container_memory_mb:
+        description: "Container memory limit in MB"
+        required: false
+        default: "1024"
+        type: string
+      qwen_container_pids:
+        description: "Container pids limit"
+        required: false
+        default: "256"
+        type: string
+      validate_qwen:
+        description: "Run real qwen single-run and mission acceptance on the VPS"
+        required: false
+        default: false
+        type: boolean
+      expect_executor_strategy:
+        description: "Expected executor strategy for qwen acceptance; defaults to executor_strategy"
+        required: false
+        default: ""
+        type: string
+      qwen_validation_timeout:
+        description: "qwen acceptance timeout in seconds"
+        required: false
+        default: "600"
+        type: string
 
 permissions:
   contents: read
@@ -125,6 +182,30 @@ jobs:
           RUNTIME_TASKS_MAX: ${{ vars.RUNTIME_TASKS_MAX }}
           RUN_MANAGER_STALE_WORKER_SECONDS: ${{ vars.RUN_MANAGER_STALE_WORKER_SECONDS }}
           RUN_MANAGER_BACKUP_RETENTION_COUNT: ${{ vars.RUN_MANAGER_BACKUP_RETENTION_COUNT }}
+          DISPATCH_QWEN_EXECUTOR_STRATEGY: ${{ inputs.executor_strategy }}
+          VAR_QWEN_EXECUTOR_STRATEGY: ${{ vars.QWEN_EXECUTOR_STRATEGY }}
+          QWEN_EXECUTOR_HOST: ${{ vars.QWEN_EXECUTOR_HOST }}
+          QWEN_EXECUTOR_PORT_START: ${{ vars.QWEN_EXECUTOR_PORT_START }}
+          QWEN_EXECUTOR_PORT_END: ${{ vars.QWEN_EXECUTOR_PORT_END }}
+          QWEN_EXECUTOR_COMMAND: ${{ vars.QWEN_EXECUTOR_COMMAND }}
+          QWEN_EXECUTOR_STARTUP_TIMEOUT: ${{ vars.QWEN_EXECUTOR_STARTUP_TIMEOUT }}
+          QWEN_EXECUTOR_STOP_TIMEOUT: ${{ vars.QWEN_EXECUTOR_STOP_TIMEOUT }}
+          QWEN_CONTAINER_COMMAND: ${{ vars.QWEN_CONTAINER_COMMAND }}
+          DISPATCH_QWEN_CONTAINER_IMAGE: ${{ inputs.qwen_container_image }}
+          VAR_QWEN_CONTAINER_IMAGE: ${{ vars.QWEN_CONTAINER_IMAGE }}
+          DISPATCH_QWEN_CONTAINER_BUILD: ${{ inputs.qwen_container_build }}
+          VAR_QWEN_CONTAINER_BUILD: ${{ vars.QWEN_CONTAINER_BUILD }}
+          DISPATCH_QWEN_CONTAINER_BASE_IMAGE: ${{ inputs.qwen_container_base_image }}
+          VAR_QWEN_CONTAINER_BASE_IMAGE: ${{ vars.QWEN_CONTAINER_BASE_IMAGE }}
+          QWEN_CONTAINER_NODE_PACKAGE: ${{ vars.QWEN_CONTAINER_NODE_PACKAGE }}
+          QWEN_CONTAINER_NETWORK: ${{ vars.QWEN_CONTAINER_NETWORK }}
+          DISPATCH_QWEN_CONTAINER_CPUS: ${{ inputs.qwen_container_cpus }}
+          VAR_QWEN_CONTAINER_CPUS: ${{ vars.QWEN_CONTAINER_CPUS }}
+          DISPATCH_QWEN_CONTAINER_MEMORY_MB: ${{ inputs.qwen_container_memory_mb }}
+          VAR_QWEN_CONTAINER_MEMORY_MB: ${{ vars.QWEN_CONTAINER_MEMORY_MB }}
+          DISPATCH_QWEN_CONTAINER_PIDS: ${{ inputs.qwen_container_pids }}
+          VAR_QWEN_CONTAINER_PIDS: ${{ vars.QWEN_CONTAINER_PIDS }}
+          QWEN_CONTAINER_EXTRA_ARGS: ${{ vars.QWEN_CONTAINER_EXTRA_ARGS }}
         run: |
           set -euo pipefail
           export PUBLIC_HOST="${PUBLIC_HOST:-_}"
@@ -135,6 +216,30 @@ jobs:
           export RUN_MANAGER_ARTIFACT_RETENTION_SECONDS="$ARTIFACT_RETENTION_SECONDS"
           export RUN_MANAGER_CLEANUP_INTERVAL_SECONDS="$CLEANUP_INTERVAL_SECONDS"
           export DEPLOY_RUNTIME_PRINT_SECRETS=0
+          export QWEN_EXECUTOR_STRATEGY="${VAR_QWEN_EXECUTOR_STRATEGY:-}"
+          export QWEN_CONTAINER_IMAGE="${VAR_QWEN_CONTAINER_IMAGE:-}"
+          export QWEN_CONTAINER_CPUS="${VAR_QWEN_CONTAINER_CPUS:-}"
+          export QWEN_CONTAINER_MEMORY_MB="${VAR_QWEN_CONTAINER_MEMORY_MB:-}"
+          export QWEN_CONTAINER_PIDS="${VAR_QWEN_CONTAINER_PIDS:-}"
+          export QWEN_CONTAINER_BUILD="${VAR_QWEN_CONTAINER_BUILD:-}"
+          export QWEN_CONTAINER_BASE_IMAGE="${VAR_QWEN_CONTAINER_BASE_IMAGE:-}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            export QWEN_EXECUTOR_STRATEGY="${DISPATCH_QWEN_EXECUTOR_STRATEGY:-shared}"
+            if [[ -n "${DISPATCH_QWEN_CONTAINER_IMAGE:-}" ]]; then
+              export QWEN_CONTAINER_IMAGE="$DISPATCH_QWEN_CONTAINER_IMAGE"
+            fi
+            export QWEN_CONTAINER_BUILD="$DISPATCH_QWEN_CONTAINER_BUILD"
+            export QWEN_CONTAINER_BASE_IMAGE="$DISPATCH_QWEN_CONTAINER_BASE_IMAGE"
+            if [[ -n "${DISPATCH_QWEN_CONTAINER_CPUS:-}" ]]; then
+              export QWEN_CONTAINER_CPUS="$DISPATCH_QWEN_CONTAINER_CPUS"
+            fi
+            if [[ -n "${DISPATCH_QWEN_CONTAINER_MEMORY_MB:-}" ]]; then
+              export QWEN_CONTAINER_MEMORY_MB="$DISPATCH_QWEN_CONTAINER_MEMORY_MB"
+            fi
+            if [[ -n "${DISPATCH_QWEN_CONTAINER_PIDS:-}" ]]; then
+              export QWEN_CONTAINER_PIDS="$DISPATCH_QWEN_CONTAINER_PIDS"
+            fi
+          fi
           if [[ -f "$RUNNER_TEMP/runtime-deploy/qwen-settings.json" ]]; then
             export QWEN_SETTINGS_FILE="$RUNNER_TEMP/runtime-deploy/qwen-settings.json"
           fi
@@ -163,6 +268,48 @@ jobs:
             --token "$RUN_MANAGER_TOKEN" \
             --adapter fake \
             --timeout 30
+          REMOTE
+
+      - name: Qwen deep acceptance on VPS
+        if: github.event_name == 'workflow_dispatch' && inputs.validate_qwen
+        env:
+          RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
+          QWEN_ACCEPTANCE_TIMEOUT: ${{ inputs.qwen_validation_timeout }}
+          QWEN_EXPECT_EXECUTOR_STRATEGY: ${{ inputs.expect_executor_strategy }}
+          QWEN_DEPLOY_EXECUTOR_STRATEGY: ${{ inputs.executor_strategy }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/agent-research}"
+          REMOTE_ENV=(
+            "APP_DIR='$APP_DIR'"
+            "QWEN_ACCEPTANCE_TIMEOUT='$QWEN_ACCEPTANCE_TIMEOUT'"
+            "QWEN_EXPECT_EXECUTOR_STRATEGY='$QWEN_EXPECT_EXECUTOR_STRATEGY'"
+            "QWEN_DEPLOY_EXECUTOR_STRATEGY='$QWEN_DEPLOY_EXECUTOR_STRATEGY'"
+          )
+          ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
+            -o StrictHostKeyChecking=accept-new \
+            "$RUNTIME_SSH_TARGET" \
+            "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
+          set -euo pipefail
+          RUN_MANAGER_TOKEN="$(
+            awk -F= '$1 == "RUN_MANAGER_TOKEN" {print $2}' /etc/cloud-agents-runtime.env
+          )"
+          EXPECT="$QWEN_EXPECT_EXECUTOR_STRATEGY"
+          if [[ -z "$EXPECT" ]]; then
+            EXPECT="$QWEN_DEPLOY_EXECUTOR_STRATEGY"
+          fi
+          cd "$APP_DIR"
+          args=(
+            --base-url http://127.0.0.1:8765
+            --token "$RUN_MANAGER_TOKEN"
+            --timeout "$QWEN_ACCEPTANCE_TIMEOUT"
+            --validate-single-run
+          )
+          if [[ -n "$EXPECT" ]]; then
+            args+=(--expect-executor-strategy "$EXPECT")
+          fi
+          python3 scripts/validate_qwen_mission.py "${args[@]}"
           REMOTE
 
       - name: Verify deployed revision
