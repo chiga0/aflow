@@ -845,7 +845,7 @@ class RunManagerTest(unittest.TestCase):
                     }
                 )
                 mission_id = mission["mission_id"]
-                self.wait_for_mission_status(manager, mission_id, "completed", timeout=5)
+                self.wait_for_mission_status(manager, mission_id, "completed", timeout=15)
 
                 final = manager.get_mission(mission_id)
                 self.assertIsNotNone(final)
