@@ -9,11 +9,11 @@ test("signs in from the responsive login page", async ({ page, isMobile }) => {
   await mockRuntime(page, { authenticated: false });
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Sign In" })).toBeVisible();
-  await page.getByLabel("Username").fill("cloudagents");
-  await page.getByLabel("Password").fill("secret");
-  await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登录" })).toBeVisible();
+  await page.getByLabel("用户名").fill("cloudagents");
+  await page.getByLabel("密码").fill("secret");
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
 });
 
 test("manages runs, permissions, profiles, and operations", async ({
@@ -21,6 +21,8 @@ test("manages runs, permissions, profiles, and operations", async ({
 }) => {
   await page.goto("/");
 
+  await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
+  await page.getByLabel("切换语言").click();
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   await navigate(page, /Runs/);
   await page.getByLabel("Prompt").fill("Browser smoke run");
@@ -42,7 +44,9 @@ test("manages runs, permissions, profiles, and operations", async ({
   await navigate(page, /Missions/);
   await page.getByRole("link", { name: /Open detail/ }).click();
   await expect(page.getByText("Task DAG")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Mission Events" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Mission Events" }),
+  ).toBeVisible();
 
   await navigate(page, /Profiles/);
   await expect(page.getByRole("heading", { name: "Planner" })).toBeVisible();
@@ -56,11 +60,17 @@ test("manages runs, permissions, profiles, and operations", async ({
   await expect(page.getByText("runs:*").first()).toBeVisible();
 
   await navigate(page, /Units/);
-  await expect(page.getByRole("heading", { name: "Execution Units" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Execution Units" }),
+  ).toBeVisible();
   await page.getByLabel("Unit ID").fill("hk-2c2g-b");
-  await page.getByLabel("Worker control URL").fill("https://doubaofans.site/cloud-agents-worker");
+  await page
+    .getByLabel("Worker control URL")
+    .fill("https://doubaofans.site/cloud-agents-worker");
   await page.getByRole("button", { name: "Generate" }).click();
-  await expect(page.getByRole("heading", { name: "Deployment Command" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Deployment Command" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Copy" }).click();
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.getByRole("button", { name: "Drain" }).first().click();
@@ -75,9 +85,9 @@ test("manages runs, permissions, profiles, and operations", async ({
 test("keeps navigation usable on mobile", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile project only");
   await page.goto("/");
-  await page.getByLabel("Open navigation").click();
-  await page.getByRole("link", { name: /Missions/ }).click();
-  await expect(page.getByRole("heading", { name: "Missions" })).toBeVisible();
+  await page.getByLabel("打开导航").click();
+  await page.getByRole("link", { name: /任务编排/ }).click();
+  await expect(page.getByRole("heading", { name: "任务编排" })).toBeVisible();
 });
 
 async function mockRuntime(
@@ -307,7 +317,11 @@ async function mockRuntime(
       fixtures["auth/session"] = {
         authenticated: true,
         login_enabled: true,
-        principal: { id: "cloudagents", display_name: "cloudagents", roles: ["owner"] },
+        principal: {
+          id: "cloudagents",
+          display_name: "cloudagents",
+          roles: ["owner"],
+        },
       };
       await route.fulfill({ json: fixtures["auth/session"] });
       return;

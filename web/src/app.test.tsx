@@ -376,6 +376,7 @@ describe("Cloud Agents console", () => {
   beforeEach(async () => {
     queryClient.clear();
     authSessionAuthenticated = true;
+    localStorage.clear();
     window.location.hash = "";
     document.documentElement.classList.remove("dark");
     vi.stubGlobal("fetch", vi.fn(fetchMock));
@@ -391,14 +392,21 @@ describe("Cloud Agents console", () => {
   });
 
   it("renders the runtime overview", async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     expect(
+      await screen.findByRole("heading", { name: "概览" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("健康")).toBeInTheDocument();
+    expect(screen.getByText("最近运行")).toBeInTheDocument();
+    expect(screen.getByText("最近任务")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("切换语言"));
+    expect(
       await screen.findByRole("heading", { name: "Overview" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByText("Recent Runs")).toBeInTheDocument();
-    expect(screen.getByText("Recent Missions")).toBeInTheDocument();
+    expect(localStorage.getItem("cloud-agents-locale")).toBe("en");
   });
 
   it("shows login page and signs in with session credentials", async () => {
@@ -406,18 +414,20 @@ describe("Cloud Agents console", () => {
     authSessionAuthenticated = false;
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Sign In" })).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Username"));
-    await user.type(screen.getByLabelText("Username"), "cloudagents");
-    await user.type(screen.getByLabelText("Password"), "wrong");
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText("Invalid username or password.")).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Password"));
-    await user.type(screen.getByLabelText("Password"), "secret");
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(
+      await screen.findByRole("heading", { name: "登录" }),
+    ).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("用户名"));
+    await user.type(screen.getByLabelText("用户名"), "cloudagents");
+    await user.type(screen.getByLabelText("密码"), "wrong");
+    await user.click(screen.getByRole("button", { name: "登录" }));
+    expect(await screen.findByText("用户名或密码无效。")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("密码"));
+    await user.type(screen.getByLabelText("密码"), "secret");
+    await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Overview" }),
+      await screen.findByRole("heading", { name: "概览" }),
     ).toBeInTheDocument();
   });
 
@@ -427,8 +437,11 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/runs" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
-    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Runs" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /refresh/i }));
     await user.selectOptions(screen.getByLabelText("Adapter"), "fake");
     await user.clear(await screen.findByLabelText("Prompt"));
@@ -470,6 +483,7 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/runs/$runId", params: { runId: "run_1" } });
     });
     render(<App />);
+    await switchToEnglish(user);
 
     expect(await screen.findByText("Permission Requests")).toBeInTheDocument();
     expect(await screen.findByText("Live Runner Chat")).toBeInTheDocument();
@@ -504,6 +518,7 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/missions" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
     expect(await screen.findByText("Ship beta")).toBeInTheDocument();
     expect(screen.getByText("Plan mission")).toBeInTheDocument();
@@ -576,6 +591,7 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/access" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
     expect(await screen.findByText("Current Principal")).toBeInTheDocument();
     expect(screen.getByText("Role Matrix")).toBeInTheDocument();
@@ -608,6 +624,7 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/executors" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
     expect(await screen.findByText("Executor Leases")).toBeInTheDocument();
     expect(screen.getByText("Registry")).toBeInTheDocument();
@@ -627,8 +644,11 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/units" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
-    expect(await screen.findByRole("heading", { name: "Units" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Units" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("hk-2c2g-a")).toBeInTheDocument();
     expect(screen.getByText("adapter:qwen")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Unit ID"));
@@ -670,6 +690,7 @@ describe("Cloud Agents console", () => {
       await router.navigate({ to: "/operations" });
     });
     render(<App />);
+    await switchToEnglish(user);
 
     expect(await screen.findByText("Failure Drills")).toBeInTheDocument();
     expect(await screen.findByText("Cost Budget")).toBeInTheDocument();
@@ -689,22 +710,24 @@ describe("Cloud Agents console", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByLabelText("Open navigation"));
-    expect(screen.getByText("Navigation")).toBeInTheDocument();
-    await user.click(screen.getAllByRole("link", { name: /Missions/ }).at(-1)!);
+    await user.click(await screen.findByLabelText("打开导航"));
+    expect(screen.getByText("导航")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("link", { name: /任务编排/ }).at(-1)!);
     expect(
-      await screen.findByRole("heading", { name: "Missions" }),
+      await screen.findByRole("heading", { name: "任务编排" }),
     ).toBeInTheDocument();
-    await user.click(screen.getByLabelText("Open navigation"));
-    await user.click(screen.getByLabelText("Close navigation"));
+    await user.click(screen.getByLabelText("打开导航"));
+    await user.click(screen.getByLabelText("关闭导航"));
     await waitFor(() =>
-      expect(screen.queryByText("Navigation")).not.toBeInTheDocument(),
+      expect(screen.queryByText("导航")).not.toBeInTheDocument(),
     );
 
-    await user.click(screen.getByLabelText("Toggle theme"));
+    await user.click(screen.getByLabelText("切换主题"));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
-    await user.click(screen.getByLabelText("Sign out"));
-    expect(await screen.findByRole("heading", { name: "Sign In" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("退出登录"));
+    expect(
+      await screen.findByRole("heading", { name: "登录" }),
+    ).toBeInTheDocument();
   });
 
   it("summarizes runner events for the live chat timeline", () => {
@@ -862,15 +885,17 @@ describe("Cloud Agents console", () => {
         event("adapter.event", 35, { name: "named-tool" }, now),
       ),
     ).toContain("named-tool");
-    expect(
-      __testUtils.toolEventBody(event("adapter.event", 36, {}, now)),
-    ).toBe("adapter event");
+    expect(__testUtils.toolEventBody(event("adapter.event", 36, {}, now))).toBe(
+      "adapter event",
+    );
     expect(__testUtils.statusLine({ running: 2 })).toBe("running 2");
     expect(__testUtils.stringValue(123)).toBe("123");
     expect(__testUtils.timeAgo(undefined)).toBe("-");
     expect(__testUtils.money(1.25)).toBe("$1.25");
     expect(__testUtils.money(null)).toBe("$0.00");
-    expect(__testUtils.registryValue({ config: { ok: true } }, "config")).toEqual({
+    expect(
+      __testUtils.registryValue({ config: { ok: true } }, "config"),
+    ).toEqual({
       ok: true,
     });
     expect(__testUtils.registryValue({ config: [] }, "config")).toEqual({});
@@ -967,6 +992,10 @@ function event(
   };
 }
 
+async function switchToEnglish(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByLabelText("切换语言"));
+}
+
 async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   const url = typeof input === "string" ? input : input.toString();
   const path = url.replace(/^https?:\/\/[^/]+\//, "").replace(/^\//, "");
@@ -987,7 +1016,11 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
     authSessionAuthenticated = true;
     return jsonResponse({
       authenticated: true,
-      principal: { id: "cloudagents", display_name: "cloudagents", roles: ["owner"] },
+      principal: {
+        id: "cloudagents",
+        display_name: "cloudagents",
+        roles: ["owner"],
+      },
     });
   }
   if (init?.method === "POST" && path === "auth/logout") {

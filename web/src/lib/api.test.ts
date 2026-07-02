@@ -46,7 +46,9 @@ describe("api helpers", () => {
       options: [{ id: "approve" }],
     });
     expect(extractPermissionRequest(event("run.running", {}))).toBeNull();
-    expect(extractPermissionRequest(event("permission.requested", {}))).toBeNull();
+    expect(
+      extractPermissionRequest(event("permission.requested", {})),
+    ).toBeNull();
   });
 
   it("collects resolved permission ids", () => {

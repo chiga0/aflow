@@ -320,13 +320,14 @@ export const runtimeApi = {
       },
     ),
   retryWorkerRuns: (workerId: string) =>
-    api<{ worker_id: string; requeued_run_ids: string[]; control: WorkerControl }>(
-      `workers/${encodeURIComponent(workerId)}/retry`,
-      {
-        method: "POST",
-        body: JSON.stringify({ reason: "retry from console" }),
-      },
-    ),
+    api<{
+      worker_id: string;
+      requeued_run_ids: string[];
+      control: WorkerControl;
+    }>(`workers/${encodeURIComponent(workerId)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "retry from console" }),
+    }),
   executors: () =>
     api<{
       executor_registry: Record<string, unknown>;

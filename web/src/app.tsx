@@ -45,7 +45,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { Shell } from "./components/shell";
+import { LanguageToggle, Shell } from "./components/shell";
 import {
   Badge,
   Button,
@@ -85,6 +85,7 @@ import {
   type WorkerInfo,
   type WorkerRegistration,
 } from "./lib/api";
+import { LanguageProvider, useI18n } from "./lib/i18n";
 import { downloadJson } from "./lib/utils";
 
 export const queryClient = new QueryClient({
@@ -172,7 +173,9 @@ declare module "@tanstack/react-router" {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGate />
+      <LanguageProvider>
+        <AuthGate />
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }
@@ -201,6 +204,7 @@ function AuthGate() {
 }
 
 function LoginPage() {
+  const { t } = useI18n();
   const client = useQueryClient();
   const [username, setUsername] = useState("cloudagents");
   const [password, setPassword] = useState("");
@@ -218,6 +222,9 @@ function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-5xl justify-end">
+        <LanguageToggle />
+      </div>
       <div className="mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-5xl items-center gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
         <section className="grid gap-6">
           <div className="flex items-center gap-3">
@@ -226,17 +233,29 @@ function LoginPage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-semibold tracking-normal sm:text-3xl">
-                Cloud Agents Runtime
+                {t("nav.title")}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                SAEU Control Plane
+                {t("nav.subtitle")}
               </p>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Metric label="Ingress" value="Session" detail="HttpOnly cookie" />
-            <Metric label="Scope" value="Owner" detail="single tenant" />
-            <Metric label="Workers" value="Bearer" detail="separate route" />
+            <Metric
+              label={t("login.ingress")}
+              value={t("login.ingressValue")}
+              detail={t("login.ingressDetail")}
+            />
+            <Metric
+              label={t("login.scope")}
+              value={t("login.scopeValue")}
+              detail={t("login.scopeDetail")}
+            />
+            <Metric
+              label={t("login.workers")}
+              value={t("login.workersValue")}
+              detail={t("login.workersDetail")}
+            />
           </div>
         </section>
 
@@ -244,22 +263,22 @@ function LoginPage() {
           <CardHeader className="grid gap-1">
             <div className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-primary" />
-              <CardTitle>Sign In</CardTitle>
+              <CardTitle>{t("login.title")}</CardTitle>
             </div>
             <p className="text-sm text-muted-foreground">
-              Enter the runtime console credentials.
+              {t("login.subtitle")}
             </p>
           </CardHeader>
           <CardBody>
             <form className="grid gap-4" onSubmit={submit}>
-              <Field label="Username">
+              <Field label={t("login.username")}>
                 <Input
                   autoComplete="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                 />
               </Field>
-              <Field label="Password">
+              <Field label={t("login.password")}>
                 <Input
                   autoComplete="current-password"
                   type="password"
@@ -269,7 +288,7 @@ function LoginPage() {
               </Field>
               {login.isError ? (
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  Invalid username or password.
+                  {t("login.error")}
                 </div>
               ) : null}
               <Button
@@ -279,7 +298,7 @@ function LoginPage() {
                 variant="primary"
               >
                 <KeyRound className="h-4 w-4" />
-                {login.isPending ? "Signing in" : "Sign in"}
+                {login.isPending ? t("login.signingIn") : t("login.signIn")}
               </Button>
             </form>
           </CardBody>
@@ -290,6 +309,7 @@ function LoginPage() {
 }
 
 function OverviewPage() {
+  const { t } = useI18n();
   const health = useQuery({ queryKey: ["health"], queryFn: runtimeApi.health });
   const metrics = useQuery({
     queryKey: ["metrics"],
@@ -306,59 +326,57 @@ function OverviewPage() {
   });
 
   return (
-    <Page
-      title="Overview"
-      subtitle="Runtime health, queue pressure, and latest work."
-    >
+    <Page title={t("overview.title")} subtitle={t("overview.subtitle")}>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Runtime"
-          value={health.data?.ok ? "Healthy" : "Checking"}
+          label={t("overview.runtime")}
+          value={health.data?.ok ? t("common.healthy") : t("common.checking")}
           detail={health.data?.version}
         />
         <Metric
-          label="Runs"
+          label={t("overview.runs")}
           value={metrics.data?.runs.total ?? "-"}
           detail={statusLine(metrics.data?.runs.by_status)}
         />
         <Metric
-          label="Missions"
+          label={t("overview.missions")}
           value={metrics.data?.missions.total ?? "-"}
           detail={statusLine(metrics.data?.missions.by_status)}
         />
         <Metric
-          label="Permissions"
+          label={t("overview.permissions")}
           value={metrics.data?.permissions.pending ?? "-"}
-          detail={`${metrics.data?.permissions.stalled ?? 0} stalled`}
+          detail={`${metrics.data?.permissions.stalled ?? 0} ${t("overview.stalledSuffix")}`}
         />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <Card>
           <CardHeader>
-            <CardTitle>Queue</CardTitle>
+            <CardTitle>{t("overview.queue")}</CardTitle>
             <Badge tone={metrics.data?.queue.stale_workers ? "warn" : "ok"}>
-              {metrics.data?.queue.active_workers ?? 0} active
+              {metrics.data?.queue.active_workers ?? 0}{" "}
+              {t("overview.activeSuffix")}
             </Badge>
           </CardHeader>
           <CardBody className="grid gap-3 md:grid-cols-3">
             <Metric
-              label="Queued"
+              label={t("overview.queued")}
               value={metrics.data?.queue.counts.queued ?? 0}
             />
             <Metric
-              label="Running"
+              label={t("overview.running")}
               value={metrics.data?.queue.counts.running ?? 0}
             />
             <Metric
-              label="Stale workers"
+              label={t("overview.staleWorkers")}
               value={metrics.data?.queue.stale_workers ?? 0}
             />
           </CardBody>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Adapters</CardTitle>
+            <CardTitle>{t("overview.adapters")}</CardTitle>
             <Badge tone="info">
               {Object.keys(capabilities.data?.adapters ?? {}).length}
             </Badge>
@@ -388,26 +406,24 @@ function OverviewPage() {
 }
 
 function RunsPage() {
+  const { t } = useI18n();
   const runs = useQuery({ queryKey: ["runs"], queryFn: runtimeApi.runs });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: runtimeApi.capabilities,
   });
   return (
-    <Page
-      title="Runs"
-      subtitle="Create and inspect isolated Agent execution units."
-    >
+    <Page title={t("runs.title")} subtitle={t("runs.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <CreateRunForm
           adapters={Object.keys(capabilities.data?.adapters ?? { fake: {} })}
         />
         <Card>
           <CardHeader>
-            <CardTitle>Run History</CardTitle>
+            <CardTitle>{t("runs.history")}</CardTitle>
             <Button size="sm" variant="ghost" onClick={() => runs.refetch()}>
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              {t("common.refresh")}
             </Button>
           </CardHeader>
           <CardBody>
@@ -420,16 +436,24 @@ function RunsPage() {
 }
 
 function UnitsPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
-  const workers = useQuery({ queryKey: ["workers"], queryFn: runtimeApi.workers });
-  const [registration, setRegistration] = useState<WorkerRegistration | null>(null);
+  const workers = useQuery({
+    queryKey: ["workers"],
+    queryFn: runtimeApi.workers,
+  });
+  const [registration, setRegistration] = useState<WorkerRegistration | null>(
+    null,
+  );
   const drain = useMutation({
     mutationFn: (workerId: string) => runtimeApi.drainWorker(workerId),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["workers"] }),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ["workers"] }),
   });
   const resume = useMutation({
     mutationFn: runtimeApi.resumeWorker,
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["workers"] }),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ["workers"] }),
   });
   const retry = useMutation({
     mutationFn: runtimeApi.retryWorkerRuns,
@@ -439,19 +463,36 @@ function UnitsPage() {
     },
   });
   const workerList = workers.data?.workers ?? [];
-  const active = workerList.filter((worker) => worker.status === "active").length;
-  const draining = workerList.filter((worker) => worker.status === "draining").length;
+  const active = workerList.filter(
+    (worker) => worker.status === "active",
+  ).length;
+  const draining = workerList.filter(
+    (worker) => worker.status === "draining",
+  ).length;
   const stale = workerList.filter((worker) => worker.status === "stale").length;
   return (
-    <Page
-      title="Units"
-      subtitle="Register, drain, and operate remote stable execution units."
-    >
+    <Page title={t("units.title")} subtitle={t("units.subtitle")}>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Units" value={workerList.length} detail="local and remote" />
-        <Metric label="Active" value={active} detail="eligible for claims" />
-        <Metric label="Draining" value={draining} detail="no new runs" />
-        <Metric label="Stale" value={stale} detail="heartbeat overdue" />
+        <Metric
+          label={t("units.title")}
+          value={workerList.length}
+          detail={t("units.localRemote")}
+        />
+        <Metric
+          label={t("common.active")}
+          value={active}
+          detail={t("units.activeDetail")}
+        />
+        <Metric
+          label={t("units.draining")}
+          value={draining}
+          detail={t("units.drainingDetail")}
+        />
+        <Metric
+          label={t("common.stale")}
+          value={stale}
+          detail={t("units.staleDetail")}
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
@@ -460,11 +501,11 @@ function UnitsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
-              <CardTitle>Execution Units</CardTitle>
+              <CardTitle>{t("units.executionUnits")}</CardTitle>
             </div>
             <Button size="sm" variant="ghost" onClick={() => workers.refetch()}>
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              {t("common.refresh")}
             </Button>
           </CardHeader>
           <CardBody>
@@ -477,7 +518,9 @@ function UnitsPage() {
           </CardBody>
         </Card>
       </div>
-      {registration ? <WorkerRegistrationResult registration={registration} /> : null}
+      {registration ? (
+        <WorkerRegistrationResult registration={registration} />
+      ) : null}
     </Page>
   );
 }
@@ -487,6 +530,7 @@ function WorkerRegistrationForm({
 }: {
   onCreated: (registration: WorkerRegistration) => void;
 }) {
+  const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const createRegistration = useMutation({
     mutationFn: runtimeApi.createWorkerRegistration,
@@ -521,8 +565,8 @@ function WorkerRegistrationForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Register Unit</CardTitle>
-        <Badge tone="info">one-time token</Badge>
+        <CardTitle>{t("units.register")}</CardTitle>
+        <Badge tone="info">{t("units.oneTimeToken")}</Badge>
       </CardHeader>
       <CardBody>
         <form
@@ -535,7 +579,7 @@ function WorkerRegistrationForm({
         >
           <form.Field name="worker_id">
             {(field) => (
-              <Field label="Unit ID">
+              <Field label={t("units.unitId")}>
                 <Input
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -545,7 +589,7 @@ function WorkerRegistrationForm({
           </form.Field>
           <form.Field name="control_url">
             {(field) => (
-              <Field label="Worker control URL">
+              <Field label={t("units.workerControlUrl")}>
                 <Input
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -556,7 +600,7 @@ function WorkerRegistrationForm({
           <div className="grid gap-3 md:grid-cols-3">
             <form.Field name="capacity">
               {(field) => (
-                <Field label="Capacity">
+                <Field label={t("common.capacity")}>
                   <Input
                     min={1}
                     type="number"
@@ -570,7 +614,7 @@ function WorkerRegistrationForm({
             </form.Field>
             <form.Field name="cpus">
               {(field) => (
-                <Field label="CPUs">
+                <Field label={t("units.cpUs")}>
                   <Input
                     min={1}
                     type="number"
@@ -584,7 +628,7 @@ function WorkerRegistrationForm({
             </form.Field>
             <form.Field name="memory_gb">
               {(field) => (
-                <Field label="Memory GB">
+                <Field label={t("units.memoryGb")}>
                   <Input
                     min={1}
                     type="number"
@@ -599,7 +643,7 @@ function WorkerRegistrationForm({
           </div>
           <form.Field name="region">
             {(field) => (
-              <Field label="Region label">
+              <Field label={t("units.region")}>
                 <Input
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -618,7 +662,7 @@ function WorkerRegistrationForm({
             variant="primary"
           >
             <KeyRound className="h-4 w-4" />
-            Generate
+            {t("common.generate")}
           </Button>
         </form>
       </CardBody>
@@ -637,8 +681,14 @@ function WorkerList({
   onResume: (workerId: string) => void;
   onRetry: (workerId: string) => void;
 }) {
+  const { t } = useI18n();
   if (!workers.length) {
-    return <EmptyState title="No units" detail="Register a VPS worker or wait for local heartbeat." />;
+    return (
+      <EmptyState
+        title={t("units.noUnits")}
+        detail={t("units.noUnitsDetail")}
+      />
+    );
   }
   return (
     <div className="grid gap-2">
@@ -649,13 +699,21 @@ function WorkerList({
         >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate font-mono text-sm">{worker.worker_id}</span>
+              <span className="truncate font-mono text-sm">
+                {worker.worker_id}
+              </span>
               <StatusBadge status={worker.status} />
-              <Badge tone="neutral">{stringValue(worker.metadata?.kind ?? "local")}</Badge>
+              <Badge tone="neutral">
+                {stringValue(worker.metadata?.kind ?? "local")}
+              </Badge>
             </div>
             <div className="mt-2 grid gap-1 text-xs text-muted-foreground md:grid-cols-2">
-              <span>heartbeat {timeAgo(worker.heartbeat_at)}</span>
-              <span>lease ttl {worker.lease_ttl_seconds}s</span>
+              <span>
+                {t("units.heartbeat")} {timeAgo(worker.heartbeat_at)}
+              </span>
+              <span>
+                {t("units.leaseTtl")} {worker.lease_ttl_seconds}s
+              </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {workerBadges(worker).map((badge) => (
@@ -666,7 +724,10 @@ function WorkerList({
             </div>
           </div>
           <div className="grid content-start gap-2">
-            <Metric label="Capacity" value={`${worker.active_count}/${worker.capacity}`} />
+            <Metric
+              label={t("common.capacity")}
+              value={`${worker.active_count}/${worker.capacity}`}
+            />
           </div>
           <div className="flex flex-wrap content-start justify-start gap-2 xl:justify-end">
             <Button
@@ -675,7 +736,7 @@ function WorkerList({
               onClick={() => onDrain(worker.worker_id)}
             >
               <PauseCircle className="h-4 w-4" />
-              Drain
+              {t("units.drain")}
             </Button>
             <Button
               disabled={worker.status === "active"}
@@ -683,7 +744,7 @@ function WorkerList({
               onClick={() => onResume(worker.worker_id)}
             >
               <Play className="h-4 w-4" />
-              Resume
+              {t("units.resume")}
             </Button>
             <Button
               disabled={worker.active_count === 0}
@@ -692,7 +753,7 @@ function WorkerList({
               onClick={() => onRetry(worker.worker_id)}
             >
               <RefreshCw className="h-4 w-4" />
-              Retry
+              {t("units.retry")}
             </Button>
           </div>
         </div>
@@ -706,28 +767,29 @@ function WorkerRegistrationResult({
 }: {
   registration: WorkerRegistration;
 }) {
+  const { t } = useI18n();
   return (
     <Card className="border-warning/40">
       <CardHeader>
         <div>
-          <CardTitle>Deployment Command</CardTitle>
+          <CardTitle>{t("units.deploymentCommand")}</CardTitle>
           <div className="mt-1 text-xs text-muted-foreground">
-            Token is shown once. Replace worker IP and key path before running.
+            {t("units.tokenDetail")}
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => copyText(registration.deploy_command)}
-        >
+        <Button size="sm" onClick={() => copyText(registration.deploy_command)}>
           <Copy className="h-4 w-4" />
-          Copy
+          {t("common.copy")}
         </Button>
       </CardHeader>
       <CardBody className="grid gap-3">
         <div className="grid gap-3 md:grid-cols-3">
-          <Metric label="Unit" value={registration.worker_id} />
-          <Metric label="Capacity" value={registration.capacity} />
-          <Metric label="Token" value={registration.token.token_prefix} />
+          <Metric label={t("units.unit")} value={registration.worker_id} />
+          <Metric label={t("common.capacity")} value={registration.capacity} />
+          <Metric
+            label={t("common.token")}
+            value={registration.token.token_prefix}
+          />
         </div>
         <pre className="max-h-[320px] overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
           {registration.deploy_command}
@@ -738,6 +800,7 @@ function WorkerRegistrationResult({
 }
 
 function ExecutorsPage() {
+  const { t } = useI18n();
   const executors = useQuery({
     queryKey: ["executors"],
     queryFn: runtimeApi.executors,
@@ -758,20 +821,29 @@ function ExecutorsPage() {
   ).length;
 
   return (
-    <Page
-      title="Executors"
-      subtitle="Per-run qwen executor leases, isolation state, and worker registry."
-    >
+    <Page title={t("executors.title")} subtitle={t("executors.subtitle")}>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Strategy"
+          label={t("common.strategy")}
           value={stringValue(config.strategy ?? "shared")}
-          detail={config.enabled ? "registry enabled" : "shared endpoint"}
+          detail={
+            config.enabled
+              ? t("executors.registryEnabled")
+              : t("executors.sharedEndpoint")
+          }
         />
-        <Metric label="Active" value={activeCount} detail="starting/running" />
-        <Metric label="Failed" value={failedCount} detail="failed/orphaned" />
         <Metric
-          label="Container"
+          label={t("common.active")}
+          value={activeCount}
+          detail={t("executors.activeDetail")}
+        />
+        <Metric
+          label={t("common.failed")}
+          value={failedCount}
+          detail={t("executors.failedDetail")}
+        />
+        <Metric
+          label={t("executors.container")}
           value={stringValue(config.container_image ?? "-")}
           detail={stringValue(config.container_network ?? "bridge")}
         />
@@ -782,7 +854,7 @@ function ExecutorsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
-              <CardTitle>Executor Leases</CardTitle>
+              <CardTitle>{t("executors.leases")}</CardTitle>
             </div>
             <Button
               size="sm"
@@ -790,7 +862,7 @@ function ExecutorsPage() {
               onClick={() => executors.refetch()}
             >
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              {t("common.refresh")}
             </Button>
           </CardHeader>
           <CardBody>
@@ -801,15 +873,21 @@ function ExecutorsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Cpu className="h-4 w-4 text-primary" />
-              <CardTitle>Registry</CardTitle>
+              <CardTitle>{t("executors.registry")}</CardTitle>
             </div>
-            <Badge tone={capabilities.data?.features.includes("executor_registry") ? "ok" : "neutral"}>
+            <Badge
+              tone={
+                capabilities.data?.features.includes("executor_registry")
+                  ? "ok"
+                  : "neutral"
+              }
+            >
               {stringValue(config.strategy ?? "shared")}
             </Badge>
           </CardHeader>
           <CardBody className="grid gap-3">
-            <ProfileJson label="Config" value={config} />
-            <ProfileJson label="Counts" value={counts} />
+            <ProfileJson label={t("common.config")} value={config} />
+            <ProfileJson label={t("common.counts")} value={counts} />
           </CardBody>
         </Card>
       </div>
@@ -818,8 +896,9 @@ function ExecutorsPage() {
 }
 
 function ExecutorLeaseList({ leases }: { leases: ExecutorLease[] }) {
+  const { t } = useI18n();
   if (!leases.length) {
-    return <EmptyState title="No executor leases" />;
+    return <EmptyState title={t("executors.noLeases")} />;
   }
   return (
     <div className="grid gap-2">
@@ -863,6 +942,7 @@ function ExecutorLeaseList({ leases }: { leases: ExecutorLease[] }) {
 }
 
 function CreateRunForm({ adapters }: { adapters: string[] }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const createRun = useMutation({
@@ -896,7 +976,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create Run</CardTitle>
+        <CardTitle>{t("runs.create")}</CardTitle>
         <Badge tone="info">SAEU</Badge>
       </CardHeader>
       <CardBody>
@@ -910,7 +990,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
         >
           <form.Field name="adapter">
             {(field) => (
-              <Field label="Adapter">
+              <Field label={t("common.adapter")}>
                 <Select
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -926,7 +1006,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
           </form.Field>
           <form.Field name="prompt">
             {(field) => (
-              <Field label="Prompt">
+              <Field label={t("common.prompt")}>
                 <Textarea
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -937,7 +1017,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
           <div className="grid gap-3 md:grid-cols-2">
             <form.Field name="repo">
               {(field) => (
-                <Field label="Repo">
+                <Field label={t("common.repo")}>
                   <Input
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -947,7 +1027,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
             </form.Field>
             <form.Field name="workspace">
               {(field) => (
-                <Field label="Workspace">
+                <Field label={t("common.workspace")}>
                   <Input
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -958,7 +1038,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
           </div>
           <form.Field name="timeout_seconds">
             {(field) => (
-              <Field label="Timeout seconds">
+              <Field label={t("runs.timeout")}>
                 <Input
                   min={60}
                   type="number"
@@ -981,7 +1061,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
             variant="primary"
           >
             <Play className="h-4 w-4" />
-            Start
+            {t("common.start")}
           </Button>
         </form>
       </CardBody>
@@ -990,6 +1070,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
 }
 
 function RunDetailPage() {
+  const { t } = useI18n();
   const { runId } = useParams({ from: "/runs/$runId" });
   const queryClient = useQueryClient();
   const run = useQuery({
@@ -1017,12 +1098,12 @@ function RunDetailPage() {
     },
   });
   return (
-    <Page title="Run Detail" subtitle={runId}>
+    <Page title={t("runs.detail")} subtitle={runId}>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>State</CardTitle>
+              <CardTitle>{t("runs.state")}</CardTitle>
               <div className="flex gap-2">
                 {run.data ? <StatusBadge status={run.data.status} /> : null}
                 <Button
@@ -1031,15 +1112,27 @@ function RunDetailPage() {
                   onClick={() => cancel.mutate()}
                 >
                   <PauseCircle className="h-4 w-4" />
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </CardHeader>
             <CardBody className="grid gap-3 md:grid-cols-4">
-              <Metric label="Adapter" value={run.data?.spec.adapter ?? "-"} />
-              <Metric label="Events" value={run.data?.event_count ?? "-"} />
-              <Metric label="Inputs" value={run.data?.prompt_count ?? "-"} />
-              <Metric label="Updated" value={timeAgo(run.data?.updated_at)} />
+              <Metric
+                label={t("common.adapter")}
+                value={run.data?.spec.adapter ?? "-"}
+              />
+              <Metric
+                label={t("common.events")}
+                value={run.data?.event_count ?? "-"}
+              />
+              <Metric
+                label={t("runs.inputs")}
+                value={run.data?.prompt_count ?? "-"}
+              />
+              <Metric
+                label={t("common.updated")}
+                value={timeAgo(run.data?.updated_at)}
+              />
             </CardBody>
           </Card>
           <PermissionPanel runId={runId} events={live.events} />
@@ -1057,20 +1150,20 @@ function RunDetailPage() {
           />
           <Card>
             <CardHeader>
-              <CardTitle>Downloads</CardTitle>
+              <CardTitle>{t("common.downloads")}</CardTitle>
             </CardHeader>
             <CardBody className="grid gap-2">
               <LinkButton href={artifactHref(runId, "events.jsonl")}>
                 <Download className="h-4 w-4" />
-                Events JSONL
+                {t("common.eventsJsonl")}
               </LinkButton>
               <LinkButton href={artifactHref(runId, "diagnostics.json")}>
                 <Download className="h-4 w-4" />
-                Diagnostics
+                {t("common.diagnostics")}
               </LinkButton>
               <LinkButton href={auditHref(runId)}>
                 <Download className="h-4 w-4" />
-                Audit Bundle
+                {t("common.auditBundle")}
               </LinkButton>
             </CardBody>
           </Card>
@@ -1173,6 +1266,7 @@ function LiveRunnerPanel({
   events: RuntimeEvent[];
   runStatus?: string;
 }) {
+  const { t } = useI18n();
   const transcript = useMemo(() => runnerTranscript(events), [events]);
   const [filter, setFilter] = useState<RunnerFilter>("all");
   const filteredTranscript = useMemo(
@@ -1202,7 +1296,7 @@ function LiveRunnerPanel({
       <CardHeader>
         <div className="flex min-w-0 items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
-          <CardTitle>Live Runner Chat</CardTitle>
+          <CardTitle>{t("live.title")}</CardTitle>
         </div>
         <Badge tone={connectionTone(connectionStatus)}>
           <Radio className="h-4 w-4" />
@@ -1211,10 +1305,13 @@ function LiveRunnerPanel({
       </CardHeader>
       <CardBody className="grid gap-4">
         <div className="grid gap-3 md:grid-cols-3">
-          <Metric label="Run status" value={runStatus ?? "loading"} />
-          <Metric label="Last event" value={latest?.type ?? "-"} />
           <Metric
-            label="Runner signal"
+            label={t("live.runStatus")}
+            value={runStatus ?? t("common.loading")}
+          />
+          <Metric label={t("live.lastEvent")} value={latest?.type ?? "-"} />
+          <Metric
+            label={t("live.runnerSignal")}
             value={signal.label}
             detail={latest ? `seq ${latest.sequence}` : undefined}
           />
@@ -1230,7 +1327,7 @@ function LiveRunnerPanel({
                   onClick={() => setFilter(item)}
                 >
                   <Filter className="h-4 w-4" />
-                  {filterLabel(item)}
+                  {filterLabel(item, t)}
                 </Button>
               ),
             )}
@@ -1250,8 +1347,7 @@ function LiveRunnerPanel({
         </div>
         {signal.tone === "warn" ? (
           <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-amber-800 dark:text-warning">
-            No runner event has arrived recently. You can inspect raw events,
-            download the audit bundle, or cancel/retry the run.
+            {t("live.noRecentEvent")}
           </div>
         ) : null}
         <div
@@ -1262,10 +1358,7 @@ function LiveRunnerPanel({
             <RunnerBubble key={item.id} item={item} />
           ))}
           {!filteredTranscript.length ? (
-            <EmptyState
-              title="Waiting for runner output"
-              detail="The live stream will append steps, messages, permission requests, and terminal state here."
-            />
+            <EmptyState title={t("live.waiting")} detail={t("live.subtitle")} />
           ) : null}
         </div>
       </CardBody>
@@ -1317,6 +1410,7 @@ function PermissionPanel({
   runId: string;
   events: RuntimeEvent[];
 }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const resolved = resolvedPermissionIds(events);
   const pending = events
@@ -1341,8 +1435,10 @@ function PermissionPanel({
   return (
     <Card className="border-warning/40">
       <CardHeader>
-        <CardTitle>Permission Requests</CardTitle>
-        <Badge tone="warn">{pending.length} pending</Badge>
+        <CardTitle>{t("runs.permissionRequests")}</CardTitle>
+        <Badge tone="warn">
+          {pending.length} {t("runs.permissionPending")}
+        </Badge>
       </CardHeader>
       <CardBody className="grid gap-3">
         {pending.map((request) => (
@@ -1381,6 +1477,7 @@ function PermissionPanel({
 }
 
 function MissionsPage() {
+  const { t } = useI18n();
   const missions = useQuery({
     queryKey: ["missions"],
     queryFn: runtimeApi.missions,
@@ -1390,17 +1487,14 @@ function MissionsPage() {
     queryFn: runtimeApi.capabilities,
   });
   return (
-    <Page
-      title="Missions"
-      subtitle="Profile-based multi-agent task orchestration."
-    >
+    <Page title={t("missions.title")} subtitle={t("missions.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <CreateMissionForm
           adapters={Object.keys(capabilities.data?.adapters ?? { fake: {} })}
         />
         <Card>
           <CardHeader>
-            <CardTitle>Mission History</CardTitle>
+            <CardTitle>{t("missions.history")}</CardTitle>
           </CardHeader>
           <CardBody>
             <MissionList missions={missions.data?.missions ?? []} />
@@ -1412,6 +1506,7 @@ function MissionsPage() {
 }
 
 function MissionDetailPage() {
+  const { t } = useI18n();
   const { missionId } = useParams({ from: "/missions/$missionId" });
   const queryClient = useQueryClient();
   const mission = useQuery({
@@ -1454,15 +1549,15 @@ function MissionDetailPage() {
   const state = mission.data;
   const missionEvents = events.data?.events ?? [];
   return (
-    <Page title="Mission Detail" subtitle={missionId}>
+    <Page title={t("missions.detail")} subtitle={missionId}>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-4">
           <Card>
             <CardHeader>
               <div className="min-w-0">
-                <CardTitle>Mission State</CardTitle>
+                <CardTitle>{t("missions.state")}</CardTitle>
                 <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                  {state?.spec.goal ?? "Loading mission goal"}
+                  {state?.spec.goal ?? t("missions.loadingGoal")}
                 </p>
               </div>
               <div className="flex flex-wrap justify-end gap-2">
@@ -1473,18 +1568,27 @@ function MissionDetailPage() {
                   onClick={() => cancel.mutate()}
                 >
                   <PauseCircle className="h-4 w-4" />
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </CardHeader>
             <CardBody className="grid gap-3 md:grid-cols-4">
-              <Metric label="Strategy" value={state?.spec.strategy ?? "-"} />
-              <Metric label="Adapter" value={state?.spec.adapter ?? "-"} />
               <Metric
-                label="Progress"
+                label={t("common.strategy")}
+                value={state?.spec.strategy ?? "-"}
+              />
+              <Metric
+                label={t("common.adapter")}
+                value={state?.spec.adapter ?? "-"}
+              />
+              <Metric
+                label={t("common.progress")}
                 value={`${state?.completed_task_count ?? 0}/${state?.task_count ?? 0}`}
               />
-              <Metric label="Events" value={state?.event_count ?? "-"} />
+              <Metric
+                label={t("common.events")}
+                value={state?.event_count ?? "-"}
+              />
             </CardBody>
           </Card>
           {state?.status === "blocked" ? (
@@ -1492,9 +1596,9 @@ function MissionDetailPage() {
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-warning" />
-                  <CardTitle>Review Gate Blocked</CardTitle>
+                  <CardTitle>{t("missions.reviewBlocked")}</CardTitle>
                 </div>
-                <Badge tone="warn">human decision</Badge>
+                <Badge tone="warn">{t("missions.reviewDecision")}</Badge>
               </CardHeader>
               <CardBody className="flex flex-wrap gap-2">
                 <Button
@@ -1503,7 +1607,7 @@ function MissionDetailPage() {
                   variant="primary"
                   onClick={() => override.mutate("approve")}
                 >
-                  Approve Gate
+                  {t("missions.approveGate")}
                 </Button>
                 <Button
                   disabled={override.isPending}
@@ -1511,7 +1615,7 @@ function MissionDetailPage() {
                   variant="danger"
                   onClick={() => override.mutate("deny")}
                 >
-                  Deny Gate
+                  {t("missions.denyGate")}
                 </Button>
               </CardBody>
             </Card>
@@ -1526,24 +1630,24 @@ function MissionDetailPage() {
           />
           <Card>
             <CardHeader>
-              <CardTitle>Downloads</CardTitle>
+              <CardTitle>{t("common.downloads")}</CardTitle>
             </CardHeader>
             <CardBody className="grid gap-2">
               <LinkButton
                 href={missionArtifactHref(missionId, "manifest.json")}
               >
                 <Download className="h-4 w-4" />
-                Manifest
+                {t("common.manifest")}
               </LinkButton>
               <LinkButton href={missionArtifactHref(missionId, "events.jsonl")}>
                 <Download className="h-4 w-4" />
-                Events JSONL
+                {t("common.eventsJsonl")}
               </LinkButton>
               <LinkButton
                 href={missionArtifactHref(missionId, "final-report.md")}
               >
                 <Download className="h-4 w-4" />
-                Final Report
+                {t("common.finalReport")}
               </LinkButton>
             </CardBody>
           </Card>
@@ -1554,6 +1658,7 @@ function MissionDetailPage() {
 }
 
 function CreateMissionForm({ adapters }: { adapters: string[] }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const createMission = useMutation({
@@ -1575,7 +1680,7 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create Mission</CardTitle>
+        <CardTitle>{t("missions.create")}</CardTitle>
         <Badge tone="info">DAG</Badge>
       </CardHeader>
       <CardBody>
@@ -1589,7 +1694,7 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
         >
           <form.Field name="goal">
             {(field) => (
-              <Field label="Goal">
+              <Field label={t("common.goal")}>
                 <Textarea
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
@@ -1600,7 +1705,7 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
           <div className="grid gap-3 md:grid-cols-2">
             <form.Field name="strategy">
               {(field) => (
-                <Field label="Strategy">
+                <Field label={t("common.strategy")}>
                   <Select
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -1613,7 +1718,7 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
             </form.Field>
             <form.Field name="adapter">
               {(field) => (
-                <Field label="Adapter">
+                <Field label={t("common.adapter")}>
                   <Select
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -1639,7 +1744,7 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
             variant="primary"
           >
             <Play className="h-4 w-4" />
-            Start
+            {t("common.start")}
           </Button>
         </form>
       </CardBody>
@@ -1648,16 +1753,14 @@ function CreateMissionForm({ adapters }: { adapters: string[] }) {
 }
 
 function ProfilesPage() {
+  const { t } = useI18n();
   const profiles = useQuery({
     queryKey: ["profiles"],
     queryFn: runtimeApi.profiles,
   });
   const [draft, setDraft] = useState<AgentProfile | null>(null);
   return (
-    <Page
-      title="Profiles"
-      subtitle="Reusable Agent roles and execution policies."
-    >
+    <Page title={t("profiles.title")} subtitle={t("profiles.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <ProfileEditor
           key={
@@ -1690,19 +1793,37 @@ function ProfilesPage() {
                     onClick={() => setDraft(copyProfile(profile))}
                   >
                     <Copy className="h-4 w-4" />
-                    Copy
+                    {t("common.copy")}
                   </Button>
                   <Button size="sm" onClick={() => setDraft(profile)}>
                     <UserCog className="h-4 w-4" />
-                    Edit
+                    {t("common.edit")}
                   </Button>
                 </div>
-                <ProfileJson label="Runtime" value={profile.runtime} />
-                <ProfileJson label="Tools" value={profile.tools} />
-                <ProfileJson label="Approval" value={profile.approval} />
-                <ProfileJson label="Limits" value={profile.limits} />
-                <ProfileJson label="Workspace" value={profile.workspace} />
-                <ProfileJson label="Artifacts" value={profile.artifacts} />
+                <ProfileJson
+                  label={t("profiles.runtime")}
+                  value={profile.runtime}
+                />
+                <ProfileJson
+                  label={t("profiles.tools")}
+                  value={profile.tools}
+                />
+                <ProfileJson
+                  label={t("profiles.approval")}
+                  value={profile.approval}
+                />
+                <ProfileJson
+                  label={t("profiles.limits")}
+                  value={profile.limits}
+                />
+                <ProfileJson
+                  label={t("profiles.workspace")}
+                  value={profile.workspace}
+                />
+                <ProfileJson
+                  label={t("profiles.artifacts")}
+                  value={profile.artifacts}
+                />
               </CardBody>
             </Card>
           ))}
@@ -1713,6 +1834,7 @@ function ProfilesPage() {
 }
 
 function AccessPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [projectId, setProjectId] = useState("default");
   const [projectName, setProjectName] = useState("Default");
@@ -1751,16 +1873,13 @@ function AccessPage() {
   });
   const principal = policy.data?.current_principal;
   return (
-    <Page
-      title="Access"
-      subtitle="Single-tenant beta access posture and RBAC migration plan."
-    >
+    <Page title={t("access.title")} subtitle={t("access.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              <CardTitle>Current Principal</CardTitle>
+              <CardTitle>{t("access.currentPrincipal")}</CardTitle>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge tone="info">{policy.data?.mode ?? "loading"}</Badge>
@@ -1770,22 +1889,28 @@ function AccessPage() {
                 onClick={() => downloadJson("access-policy.json", policy.data)}
               >
                 <Download className="h-4 w-4" />
-                Export
+                {t("access.export")}
               </Button>
             </div>
           </CardHeader>
           <CardBody className="grid gap-3">
-            <Metric label="Identity" value={principal?.display_name ?? "-"} />
-            <Metric label="Roles" value={principal?.roles.join(", ") || "-"} />
+            <Metric
+              label={t("access.identity")}
+              value={principal?.display_name ?? "-"}
+            />
+            <Metric
+              label={t("access.roles")}
+              value={principal?.roles.join(", ") || "-"}
+            />
             <ProfileJson
-              label="Audit Posture"
+              label={t("access.auditPosture")}
               value={policy.data?.audit ?? {}}
             />
           </CardBody>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Role Matrix</CardTitle>
+            <CardTitle>{t("access.roleMatrix")}</CardTitle>
             <Badge tone="neutral">{policy.data?.roles.length ?? 0}</Badge>
           </CardHeader>
           <CardBody className="grid gap-3">
@@ -1817,7 +1942,7 @@ function AccessPage() {
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Scopes</CardTitle>
+          <CardTitle>{t("access.scopes")}</CardTitle>
           <Badge tone="info">P7 foundation</Badge>
         </CardHeader>
         <CardBody className="flex flex-wrap gap-2">
@@ -1833,19 +1958,19 @@ function AccessPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              <CardTitle>Projects</CardTitle>
+              <CardTitle>{t("access.projects")}</CardTitle>
             </div>
             <Badge tone="neutral">{projects.data?.projects.length ?? 0}</Badge>
           </CardHeader>
           <CardBody className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-              <Field label="Project ID">
+              <Field label={t("access.projectId")}>
                 <Input
                   value={projectId}
                   onChange={(event) => setProjectId(event.target.value)}
                 />
               </Field>
-              <Field label="Display name">
+              <Field label={t("profiles.displayName")}>
                 <Input
                   value={projectName}
                   onChange={(event) => setProjectName(event.target.value)}
@@ -1862,29 +1987,31 @@ function AccessPage() {
                 }
               >
                 <Save className="h-4 w-4" />
-                Create
+                {t("common.create")}
               </Button>
             </div>
-            <AccessProjectList projects={projects.data?.projects ?? policy.data?.projects ?? []} />
+            <AccessProjectList
+              projects={projects.data?.projects ?? policy.data?.projects ?? []}
+            />
           </CardBody>
         </Card>
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-primary" />
-              <CardTitle>API Tokens</CardTitle>
+              <CardTitle>{t("access.apiTokens")}</CardTitle>
             </div>
             <Badge tone="neutral">{tokens.data?.tokens.length ?? 0}</Badge>
           </CardHeader>
           <CardBody className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-              <Field label="Token name">
+              <Field label={t("access.tokenName")}>
                 <Input
                   value={tokenName}
                   onChange={(event) => setTokenName(event.target.value)}
                 />
               </Field>
-              <Field label="Project ID">
+              <Field label={t("access.projectId")}>
                 <Input
                   value={projectId}
                   onChange={(event) => setProjectId(event.target.value)}
@@ -1901,12 +2028,14 @@ function AccessPage() {
                 }
               >
                 <KeyRound className="h-4 w-4" />
-                Create
+                {t("common.create")}
               </Button>
             </div>
             {createdToken ? (
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
-                <div className="text-sm font-medium">New token</div>
+                <div className="text-sm font-medium">
+                  {t("access.newToken")}
+                </div>
                 <div className="mt-2 break-words font-mono text-xs">
                   {createdToken}
                 </div>
@@ -1924,8 +2053,9 @@ function AccessPage() {
 }
 
 function AccessProjectList({ projects }: { projects: AccessProject[] }) {
+  const { t } = useI18n();
   if (!projects.length) {
-    return <EmptyState title="No projects" />;
+    return <EmptyState title={t("access.noProjects")} />;
   }
   return (
     <div className="grid gap-2">
@@ -1956,8 +2086,9 @@ function ApiTokenList({
   tokens: ApiToken[];
   onRevoke: (tokenId: string) => void;
 }) {
+  const { t } = useI18n();
   if (!tokens.length) {
-    return <EmptyState title="No API tokens" />;
+    return <EmptyState title={t("access.noApiTokens")} />;
   }
   return (
     <div className="grid gap-2">
@@ -1988,7 +2119,7 @@ function ApiTokenList({
             variant="danger"
             onClick={() => onRevoke(token.token_id)}
           >
-            Revoke
+            {t("access.revoke")}
           </Button>
         </div>
       ))}
@@ -2003,6 +2134,7 @@ function ProfileEditor({
   draft: AgentProfile | null;
   onSaved: () => void;
 }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const createProfile = useMutation({
@@ -2050,8 +2182,8 @@ function ProfileEditor({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Profile Editor</CardTitle>
-        <Badge tone="info">versioned</Badge>
+        <CardTitle>{t("profiles.editor")}</CardTitle>
+        <Badge tone="info">{t("profiles.versioned")}</Badge>
       </CardHeader>
       <CardBody>
         <form
@@ -2065,7 +2197,7 @@ function ProfileEditor({
           <div className="grid gap-3 md:grid-cols-2">
             <form.Field name="id">
               {(field) => (
-                <Field label="Profile ID">
+                <Field label={t("profiles.id")}>
                   <Input
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -2075,7 +2207,7 @@ function ProfileEditor({
             </form.Field>
             <form.Field name="display_name">
               {(field) => (
-                <Field label="Display name">
+                <Field label={t("profiles.displayName")}>
                   <Input
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -2086,7 +2218,7 @@ function ProfileEditor({
           </div>
           <form.Field name="description">
             {(field) => (
-              <Field label="Description">
+              <Field label={t("profiles.description")}>
                 <Textarea
                   className="min-h-20"
                   value={field.state.value}
@@ -2128,7 +2260,7 @@ function ProfileEditor({
             variant="primary"
           >
             <Save className="h-4 w-4" />
-            Save Profile
+            {t("profiles.save")}
           </Button>
         </form>
       </CardBody>
@@ -2137,6 +2269,7 @@ function ProfileEditor({
 }
 
 function OperationsPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["ops", "status"],
@@ -2167,21 +2300,18 @@ function OperationsPage() {
   });
   const checks = (drills.data?.checks ?? []) as DrillCheck[];
   return (
-    <Page
-      title="Operations"
-      subtitle="P5 protocol decisions and P6 beta readiness controls."
-    >
+    <Page title={t("operations.title")} subtitle={t("operations.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <Card>
           <CardHeader>
-            <CardTitle>Failure Drills</CardTitle>
+            <CardTitle>{t("operations.drills")}</CardTitle>
             <Button
               size="sm"
               variant="primary"
               onClick={() => runDrills.mutate()}
             >
               <ShieldCheck className="h-4 w-4" />
-              Run
+              {t("operations.runDrills")}
             </Button>
           </CardHeader>
           <CardBody className="grid gap-2">
@@ -2201,14 +2331,14 @@ function OperationsPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Backups</CardTitle>
+            <CardTitle>{t("operations.backups")}</CardTitle>
             <Button
               disabled={createBackup.isPending}
               size="sm"
               onClick={() => createBackup.mutate()}
             >
               <Download className="h-4 w-4" />
-              Create
+              {t("operations.createBackup")}
             </Button>
           </CardHeader>
           <CardBody className="grid gap-2">
@@ -2225,7 +2355,7 @@ function OperationsPage() {
               </a>
             ))}
             {!backups.data?.backups.length ? (
-              <EmptyState title="No backups yet" />
+              <EmptyState title={t("operations.noBackups")} />
             ) : null}
           </CardBody>
         </Card>
@@ -2234,7 +2364,7 @@ function OperationsPage() {
         <CostBudgetPanel cost={cost.data} />
         <Card>
           <CardHeader>
-            <CardTitle>P5 Evaluations</CardTitle>
+            <CardTitle>{t("operations.p5Evaluations")}</CardTitle>
           </CardHeader>
           <CardBody className="grid gap-2">
             {(p5.data?.components ?? []).map((component) => (
@@ -2255,7 +2385,7 @@ function OperationsPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Runtime Status</CardTitle>
+            <CardTitle>{t("operations.runtimeStatus")}</CardTitle>
           </CardHeader>
           <CardBody>
             <pre className="max-h-[420px] overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
@@ -2269,28 +2399,29 @@ function OperationsPage() {
 }
 
 function CostBudgetPanel({ cost }: { cost?: CostStatus }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <WalletCards className="h-4 w-4 text-primary" />
-          <CardTitle>Cost Budget</CardTitle>
+          <CardTitle>{t("operations.costBudget")}</CardTitle>
         </div>
         <StatusBadge status={cost?.status ?? "loading"} />
       </CardHeader>
       <CardBody className="grid gap-3 md:grid-cols-3">
         <Metric
-          label="Month"
+          label={t("common.month")}
           value={cost?.month ?? "-"}
           detail="UTC"
         />
         <Metric
-          label="Estimated"
+          label={t("common.estimated")}
           value={money(cost?.monthly_estimated_cost_usd)}
           detail={`${cost?.runs.length ?? 0} runs`}
         />
         <Metric
-          label="Budget"
+          label={t("common.budget")}
           value={money(cost?.monthly_budget_usd)}
           detail={
             cost?.warning_threshold_usd == null
@@ -2304,12 +2435,10 @@ function CostBudgetPanel({ cost }: { cost?: CostStatus }) {
 }
 
 function RunList({ runs }: { runs: RunState[] }) {
+  const { t } = useI18n();
   if (!runs.length) {
     return (
-      <EmptyState
-        title="No runs"
-        detail="Create the first SAEU run from the form."
-      />
+      <EmptyState title={t("runs.noRuns")} detail={t("runs.noRunsDetail")} />
     );
   }
   return (
@@ -2335,12 +2464,13 @@ function RunList({ runs }: { runs: RunState[] }) {
 }
 
 function RecentRuns({ runs }: { runs: RunState[] }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent Runs</CardTitle>
+        <CardTitle>{t("overview.recentRuns")}</CardTitle>
         <Link className="text-sm text-primary" to="/runs">
-          View all
+          {t("overview.viewAll")}
         </Link>
       </CardHeader>
       <CardBody>
@@ -2351,11 +2481,12 @@ function RecentRuns({ runs }: { runs: RunState[] }) {
 }
 
 function MissionList({ missions }: { missions: MissionState[] }) {
+  const { t } = useI18n();
   if (!missions.length) {
     return (
       <EmptyState
-        title="No missions"
-        detail="Create a mission to fan out work across profiles."
+        title={t("missions.noMissions")}
+        detail={t("missions.noMissionsDetail")}
       />
     );
   }
@@ -2405,21 +2536,21 @@ function MissionList({ missions }: { missions: MissionState[] }) {
               params={{ missionId: mission.mission_id }}
             >
               <GitBranch className="h-4 w-4" />
-              Open detail
+              {t("missions.openDetail")}
             </Link>
             <LinkButton
               href={missionArtifactHref(mission.mission_id, "manifest.json")}
               size="sm"
             >
               <Download className="h-4 w-4" />
-              Manifest
+              {t("common.manifest")}
             </LinkButton>
             <LinkButton
               href={missionArtifactHref(mission.mission_id, "final-report.md")}
               size="sm"
             >
               <Download className="h-4 w-4" />
-              Report
+              {t("missions.report")}
             </LinkButton>
           </div>
         </div>
@@ -2429,13 +2560,14 @@ function MissionList({ missions }: { missions: MissionState[] }) {
 }
 
 function MissionDagPanel({ mission }: { mission?: MissionState }) {
+  const { t } = useI18n();
   const tasks = mission?.tasks ?? [];
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <GitBranch className="h-4 w-4 text-primary" />
-          <CardTitle>Task DAG</CardTitle>
+          <CardTitle>{t("missions.taskDag")}</CardTitle>
         </div>
         <Badge tone="neutral">{tasks.length}</Badge>
       </CardHeader>
@@ -2456,7 +2588,9 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
             </div>
             <div className="grid gap-2 text-sm">
               <div>
-                <span className="text-muted-foreground">Profile </span>
+                <span className="text-muted-foreground">
+                  {t("common.profile")}{" "}
+                </span>
                 <span className="font-medium">{task.profile_id}</span>
               </div>
               <div className="flex flex-wrap gap-1">
@@ -2477,7 +2611,7 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
                   params={{ runId: task.run_id }}
                 >
                   <MessageSquare className="h-4 w-4" />
-                  Open run
+                  {t("missions.openRun")}
                 </Link>
               ) : (
                 <span className="text-sm text-muted-foreground">
@@ -2487,7 +2621,7 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
               {task.result ? (
                 <details className="text-xs">
                   <summary className="cursor-pointer text-muted-foreground">
-                    Result
+                    {t("common.result")}
                   </summary>
                   <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-slate-950 p-2 text-slate-100">
                     {JSON.stringify(task.result, null, 2)}
@@ -2497,17 +2631,18 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
             </div>
           </div>
         ))}
-        {!tasks.length ? <EmptyState title="No tasks" /> : null}
+        {!tasks.length ? <EmptyState title={t("missions.noTasks")} /> : null}
       </CardBody>
     </Card>
   );
 }
 
 function MissionEventList({ events }: { events: MissionEvent[] }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mission Events</CardTitle>
+        <CardTitle>{t("missions.events")}</CardTitle>
         <Badge tone="neutral">{events.length}</Badge>
       </CardHeader>
       <CardBody className="grid max-h-[560px] gap-2 overflow-auto">
@@ -2526,7 +2661,7 @@ function MissionEventList({ events }: { events: MissionEvent[] }) {
             </pre>
           </div>
         ))}
-        {!events.length ? <EmptyState title="No mission events" /> : null}
+        {!events.length ? <EmptyState title={t("missions.noEvents")} /> : null}
       </CardBody>
     </Card>
   );
@@ -2539,10 +2674,11 @@ function MissionArtifactPanel({
   missionId: string;
   artifacts: ArtifactInfo[];
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mission Artifacts</CardTitle>
+        <CardTitle>{t("common.artifacts")}</CardTitle>
         <Badge tone="neutral">{artifacts.length}</Badge>
       </CardHeader>
       <CardBody className="grid gap-2">
@@ -2559,7 +2695,7 @@ function MissionArtifactPanel({
           </a>
         ))}
         {!artifacts.length ? (
-          <EmptyState title="No mission artifacts yet" />
+          <EmptyState title={t("missions.noArtifacts")} />
         ) : null}
       </CardBody>
     </Card>
@@ -2567,12 +2703,13 @@ function MissionArtifactPanel({
 }
 
 function RecentMissions({ missions }: { missions: MissionState[] }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent Missions</CardTitle>
+        <CardTitle>{t("overview.recentMissions")}</CardTitle>
         <Link className="text-sm text-primary" to="/missions">
-          View all
+          {t("overview.viewAll")}
         </Link>
       </CardHeader>
       <CardBody>
@@ -2583,10 +2720,11 @@ function RecentMissions({ missions }: { missions: MissionState[] }) {
 }
 
 function EventList({ events }: { events: RuntimeEvent[] }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Event Stream</CardTitle>
+        <CardTitle>{t("common.eventStream")}</CardTitle>
         <Badge tone="neutral">{events.length}</Badge>
       </CardHeader>
       <CardBody className="grid max-h-[560px] gap-2 overflow-auto">
@@ -2605,7 +2743,7 @@ function EventList({ events }: { events: RuntimeEvent[] }) {
             </pre>
           </div>
         ))}
-        {!events.length ? <EmptyState title="No events" /> : null}
+        {!events.length ? <EmptyState title={t("runs.noEvents")} /> : null}
       </CardBody>
     </Card>
   );
@@ -2618,10 +2756,11 @@ function ArtifactPanel({
   runId: string;
   artifacts: ArtifactInfo[];
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Artifacts</CardTitle>
+        <CardTitle>{t("common.artifacts")}</CardTitle>
         <Badge tone="neutral">{artifacts.length}</Badge>
       </CardHeader>
       <CardBody className="grid gap-2">
@@ -2637,7 +2776,9 @@ function ArtifactPanel({
             </div>
           </a>
         ))}
-        {!artifacts.length ? <EmptyState title="No artifacts yet" /> : null}
+        {!artifacts.length ? (
+          <EmptyState title={t("runs.noArtifacts")} />
+        ) : null}
       </CardBody>
     </Card>
   );
@@ -3047,13 +3188,16 @@ function filterTranscript(
   return transcript.filter((item) => item.role === "agent");
 }
 
-function filterLabel(filter: RunnerFilter) {
+function filterLabel(
+  filter: RunnerFilter,
+  t?: (key: Parameters<ReturnType<typeof useI18n>["t"]>[0]) => string,
+) {
   const labels: Record<RunnerFilter, string> = {
-    agent: "Agent",
-    all: "All",
-    error: "Errors",
-    permission: "Permissions",
-    warning: "Warnings",
+    agent: t?.("live.agent") ?? "Agent",
+    all: t?.("live.all") ?? "All",
+    error: t?.("live.errors") ?? "Errors",
+    permission: t?.("live.permissions") ?? "Permissions",
+    warning: t?.("live.warnings") ?? "Warnings",
   };
   return labels[filter];
 }
@@ -3152,7 +3296,9 @@ function workerBadges(worker: WorkerInfo) {
     : [];
   return [
     ...Object.entries(labels).map(([key, value]) => `${key}:${String(value)}`),
-    ...Object.entries(resources).map(([key, value]) => `${key}:${String(value)}`),
+    ...Object.entries(resources).map(
+      ([key, value]) => `${key}:${String(value)}`,
+    ),
     ...adapters.map((adapter) => `adapter:${adapter}`),
   ].slice(0, 8);
 }

@@ -4,6 +4,7 @@ import {
   Activity,
   Boxes,
   ClipboardList,
+  Languages,
   LogOut,
   Menu,
   Moon,
@@ -19,28 +20,30 @@ import { useEffect, useState } from "react";
 
 import { Button } from "./ui";
 import { runtimeApi } from "../lib/api";
+import { useI18n, type I18nKey } from "../lib/i18n";
 import { cn } from "../lib/utils";
 
 const navItems = [
-  { to: "/", label: "Overview", icon: Activity },
-  { to: "/runs", label: "Runs", icon: ClipboardList },
-  { to: "/units", label: "Units", icon: Network },
-  { to: "/executors", label: "Executors", icon: Server },
-  { to: "/missions", label: "Missions", icon: Boxes },
-  { to: "/profiles", label: "Profiles", icon: UserCog },
-  { to: "/access", label: "Access", icon: Users },
-  { to: "/operations", label: "Operations", icon: ShieldCheck },
+  { to: "/", labelKey: "nav.overview", icon: Activity },
+  { to: "/runs", labelKey: "nav.runs", icon: ClipboardList },
+  { to: "/units", labelKey: "nav.units", icon: Network },
+  { to: "/executors", labelKey: "nav.executors", icon: Server },
+  { to: "/missions", labelKey: "nav.missions", icon: Boxes },
+  { to: "/profiles", labelKey: "nav.profiles", icon: UserCog },
+  { to: "/access", labelKey: "nav.access", icon: Users },
+  { to: "/operations", labelKey: "nav.operations", icon: ShieldCheck },
 ] as const;
 
 export function Shell() {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur">
         <div className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Button
-              aria-label="Open navigation"
+              aria-label={t("nav.open")}
               className="lg:hidden"
               size="icon"
               variant="ghost"
@@ -50,14 +53,15 @@ export function Shell() {
             </Button>
             <div className="grid min-w-0">
               <div className="truncate text-sm font-semibold">
-                Cloud Agents Runtime
+                {t("nav.title")}
               </div>
               <div className="truncate text-xs text-muted-foreground">
-                SAEU Control Plane
+                {t("nav.subtitle")}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <LanguageToggle />
             <ThemeToggle />
             <SignOutButton />
           </div>
@@ -72,9 +76,9 @@ export function Shell() {
           <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur lg:hidden">
             <div className="h-full w-72 border-r border-border bg-card">
               <div className="flex h-14 items-center justify-between border-b border-border px-4">
-                <span className="text-sm font-semibold">Navigation</span>
+                <span className="text-sm font-semibold">{t("navLabel")}</span>
                 <Button
-                  aria-label="Close navigation"
+                  aria-label={t("nav.close")}
                   size="icon"
                   variant="ghost"
                   onClick={() => setOpen(false)}
@@ -95,6 +99,7 @@ export function Shell() {
 }
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useI18n();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -115,7 +120,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             onClick={onNavigate}
           >
             <Icon className="h-4 w-4" />
-            {item.label}
+            {t(item.labelKey as I18nKey)}
           </Link>
         );
       })}
@@ -126,9 +131,10 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 function SignOutButton() {
   const client = useQueryClient();
   const [pending, setPending] = useState(false);
+  const { t } = useI18n();
   return (
     <Button
-      aria-label="Sign out"
+      aria-label={t("nav.signOut")}
       disabled={pending}
       size="icon"
       variant="ghost"
@@ -147,6 +153,7 @@ function SignOutButton() {
 }
 
 function ThemeToggle() {
+  const { t } = useI18n();
   const [dark, setDark] = useState(() =>
     document.documentElement.classList.contains("dark"),
   );
@@ -156,12 +163,29 @@ function ThemeToggle() {
   }, [dark]);
   return (
     <Button
-      aria-label="Toggle theme"
+      aria-label={t("nav.theme")}
       size="icon"
       variant="ghost"
       onClick={() => setDark((value) => !value)}
     >
       {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </Button>
+  );
+}
+
+export function LanguageToggle() {
+  const { locale, t, toggleLocale } = useI18n();
+  return (
+    <Button
+      aria-label={t("language.toggle")}
+      size="sm"
+      variant="ghost"
+      onClick={toggleLocale}
+    >
+      <Languages className="h-4 w-4" />
+      {locale === "zh"
+        ? t("language.switchToEnglish")
+        : t("language.switchToChinese")}
     </Button>
   );
 }
