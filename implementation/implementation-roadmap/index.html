@@ -1488,7 +1488,7 @@
 <tr>
 <td>多 SAEU executor isolation</td>
 <td><code>foundation_done</code></td>
-<td>backend Executor Registry、per-run qwen serve process、默认 Docker container command builder、executor artifacts/events/API/UI 已落地；仍需 VPS Docker 实机验收</td>
+<td>backend Executor Registry、per-run qwen serve process、默认 Docker container command builder、executor artifacts/events/API/UI、VPS deploy 参数透传和手动 qwen deep acceptance 已落地；仍需带真实 Docker image 的实机验收</td>
 </tr>
 <tr>
 <td>Executor 管理台</td>
@@ -1524,24 +1524,25 @@
   <code>qwen serve</code>、分配端口、写入 <code>executor.json</code> 和 executor lifecycle 事件。</li>
 <li><code>container</code> 已支持两种启动方式：</li>
 <li><code>QWEN_CONTAINER_COMMAND</code> 自定义命令模板。</li>
-<li><code>QWEN_CONTAINER_IMAGE</code> 默认 Docker foreground worker，自动注入 <code>--cpus</code>、<code>--memory</code>、<code>--pids-limit</code>、端口映射、workspace mount 和 qwen token。</li>
-<li>下一步仍必须在 VPS 上做真实 Docker/cgroup/network 验收；当前 CI 只覆盖命令生成和 runtime registry 行为，不拉取镜像。</li>
+<li><code>QWEN_CONTAINER_IMAGE</code> 默认 Docker foreground worker，自动注入 <code>--cpus</code>、<code>--memory</code>、<code>--pids-limit</code>、端口映射、workspace mount、qwen token，并在 VPS deploy 时把宿主 <code>.qwen/settings.json</code> 凭据只读挂进容器。</li>
+<li><code>Deploy Runtime</code> workflow_dispatch 已支持选择 executor strategy、container image/local build、container resource limit，并可打开真实 qwen single-run + mission acceptance。</li>
+<li>下一步仍必须在 VPS 上用真实镜像或 <code>qwen_container_build=true</code> 做 Docker/cgroup/network 验收；当前自动 push 部署仍保持 shared strategy 以降低生产风险。</li>
 </ul>
 <p>P7 当前判断：</p>
 <ul>
 <li>
 <ol>
-<li>CI 状态：本地已提供 runtime/web/docs 门禁；GitHub Actions API 当前受 403 rate limit 影响，CI 结果需从仓库 Actions 页面确认。</li>
+<li>CI 状态：<code>Runtime CI</code>、<code>Deploy MkDocs</code>、<code>Deploy Runtime</code> 和部署后 <code>Runtime Monitor</code> 已可通过 <code>gh</code> 查询；最新 push 全绿。</li>
 </ol>
 </li>
 <li>
 <ol>
-<li>真实 VPS/qwen 验收：<code>scripts/validate_qwen_mission.py</code> 已支持 <code>--validate-single-run</code> 和 <code>--expect-executor-strategy</code>。</li>
+<li>真实 VPS/qwen 验收：<code>scripts/validate_qwen_mission.py</code> 已支持 <code>--validate-single-run</code> 和 <code>--expect-executor-strategy</code>，并已接入 <code>Deploy Runtime</code> 手动触发。</li>
 </ol>
 </li>
 <li>
 <ol>
-<li>Container worker：默认 Docker 命令生成和审计 metadata 已落地；实机部署需要 <code>QWEN_CONTAINER_IMAGE</code>。</li>
+<li>Container worker：默认 Docker 命令生成、可选本地镜像构建、VPS Docker 安装/启动、<code>cloudagents</code> docker group、<code>.qwen/settings.json</code> 只读挂载和审计 metadata 已落地；实机部署需要真实镜像或 <code>QWEN_CONTAINER_BUILD=1</code>。</li>
 </ol>
 </li>
 <li>

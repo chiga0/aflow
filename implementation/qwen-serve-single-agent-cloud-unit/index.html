@@ -1247,7 +1247,7 @@ POST /permissions/{permission_id}/resolve</code></pre>
 <ul>
 <li><code>shared</code>：连接已有 <code>QWEN_SERVE_URL</code>，成本最低，适合单租户 beta。</li>
 <li><code>per_run_process</code>：每个 qwen run 独立启动 <code>qwen serve</code>，独立端口、workspace、stdout/stderr、<code>executor.json</code> 和 lifecycle event。</li>
-<li><code>container</code>：支持 <code>QWEN_CONTAINER_COMMAND</code> 自定义模板；也支持配置 <code>QWEN_CONTAINER_IMAGE</code> 后自动生成 Docker foreground worker 命令，并注入 CPU、memory、pids、端口映射、workspace mount 和 token。</li>
+<li><code>container</code>：支持 <code>QWEN_CONTAINER_COMMAND</code> 自定义模板；也支持配置 <code>QWEN_CONTAINER_IMAGE</code> 后自动生成 Docker foreground worker 命令，并注入 CPU、memory、pids、端口映射、workspace mount、token 和宿主 <code>.qwen/settings.json</code> 只读凭据挂载。</li>
 </ul>
 <p>关键环境变量：</p>
 <pre class="highlight"><code class="language-bash">QWEN_EXECUTOR_STRATEGY=per_run_process
@@ -1259,13 +1259,39 @@ QWEN_EXECUTOR_STRATEGY=container
 QWEN_CONTAINER_IMAGE='your-qwen-code-image:latest'
 QWEN_CONTAINER_CPUS=1
 QWEN_CONTAINER_MEMORY_MB=1024
-QWEN_CONTAINER_PIDS=256</code></pre>
-<p>验收入口：</p>
+QWEN_CONTAINER_PIDS=256
+QWEN_CONTAINER_BUILD=0
+QWEN_CONTAINER_BASE_IMAGE=node:22-bookworm-slim</code></pre>
+<p>本地/VPS 验收入口：</p>
 <pre class="highlight"><code class="language-bash">python3 scripts/validate_qwen_mission.py \
   --base-url http://127.0.0.1:8765 \
   --token "$RUN_MANAGER_TOKEN" \
   --validate-single-run \
   --expect-executor-strategy per_run_process</code></pre>
+<p>GitHub Actions 手动验收入口：</p>
+<pre class="highlight"><code class="language-bash">gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=per_run_process \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=per_run_process \
+  -f qwen_validation_timeout=600
+
+gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=container \
+  -f qwen_container_image='your-qwen-code-image:latest' \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=container \
+  -f qwen_validation_timeout=900
+
+gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=container \
+  -f qwen_container_build=true \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=container \
+  -f qwen_validation_timeout=900</code></pre>
+<p>注意：push 部署默认仍使用 shared strategy；container 验收必须提供包含 <code>qwen</code> CLI 的镜像、打开 <code>qwen_container_build=true</code> 在 VPS 本地构建镜像，或者在仓库/环境变量中配置 <code>QWEN_CONTAINER_COMMAND</code>。</p>
 <p>排障入口：</p>
 <ul>
 <li><code>/executors</code>：查看 executor registry、lease、pid、port、workspace、失败原因。</li>

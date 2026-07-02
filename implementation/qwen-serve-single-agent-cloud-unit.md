@@ -372,7 +372,7 @@ artifacts/run-123/
 
 - `shared`：连接已有 `QWEN_SERVE_URL`，成本最低，适合单租户 beta。
 - `per_run_process`：每个 qwen run 独立启动 `qwen serve`，独立端口、workspace、stdout/stderr、`executor.json` 和 lifecycle event。
-- `container`：支持 `QWEN_CONTAINER_COMMAND` 自定义模板；也支持配置 `QWEN_CONTAINER_IMAGE` 后自动生成 Docker foreground worker 命令，并注入 CPU、memory、pids、端口映射、workspace mount 和 token。
+- `container`：支持 `QWEN_CONTAINER_COMMAND` 自定义模板；也支持配置 `QWEN_CONTAINER_IMAGE` 后自动生成 Docker foreground worker 命令，并注入 CPU、memory、pids、端口映射、workspace mount、token 和宿主 `.qwen/settings.json` 只读凭据挂载。
 
 关键环境变量：
 
@@ -387,9 +387,11 @@ QWEN_CONTAINER_IMAGE='your-qwen-code-image:latest'
 QWEN_CONTAINER_CPUS=1
 QWEN_CONTAINER_MEMORY_MB=1024
 QWEN_CONTAINER_PIDS=256
+QWEN_CONTAINER_BUILD=0
+QWEN_CONTAINER_BASE_IMAGE=node:22-bookworm-slim
 ```
 
-验收入口：
+本地/VPS 验收入口：
 
 ```bash
 python3 scripts/validate_qwen_mission.py \
@@ -398,6 +400,35 @@ python3 scripts/validate_qwen_mission.py \
   --validate-single-run \
   --expect-executor-strategy per_run_process
 ```
+
+GitHub Actions 手动验收入口：
+
+```bash
+gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=per_run_process \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=per_run_process \
+  -f qwen_validation_timeout=600
+
+gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=container \
+  -f qwen_container_image='your-qwen-code-image:latest' \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=container \
+  -f qwen_validation_timeout=900
+
+gh workflow run deploy-runtime.yml \
+  --repo chiga0/agent-research \
+  -f executor_strategy=container \
+  -f qwen_container_build=true \
+  -f validate_qwen=true \
+  -f expect_executor_strategy=container \
+  -f qwen_validation_timeout=900
+```
+
+注意：push 部署默认仍使用 shared strategy；container 验收必须提供包含 `qwen` CLI 的镜像、打开 `qwen_container_build=true` 在 VPS 本地构建镜像，或者在仓库/环境变量中配置 `QWEN_CONTAINER_COMMAND`。
 
 排障入口：
 
