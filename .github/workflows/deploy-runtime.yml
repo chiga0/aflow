@@ -289,6 +289,8 @@ jobs:
           )
           ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
             -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
             "$RUNTIME_SSH_TARGET" \
             "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
           set -euo pipefail
@@ -309,7 +311,30 @@ jobs:
           if [[ -n "$EXPECT" ]]; then
             args+=(--expect-executor-strategy "$EXPECT")
           fi
-          python3 scripts/validate_qwen_mission.py "${args[@]}"
+          echo "starting qwen deep acceptance with timeout=${QWEN_ACCEPTANCE_TIMEOUT}s"
+          python3 scripts/validate_qwen_mission.py "${args[@]}" &
+          acceptance_pid="$!"
+          (
+            while kill -0 "$acceptance_pid" 2>/dev/null; do
+              sleep 30
+              if kill -0 "$acceptance_pid" 2>/dev/null; then
+                date -u +"qwen deep acceptance still running at %Y-%m-%dT%H:%M:%SZ"
+              fi
+            done
+          ) &
+          heartbeat_pid="$!"
+          cleanup() {
+            kill "$heartbeat_pid" 2>/dev/null || true
+            kill "$acceptance_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          set +e
+          wait "$acceptance_pid"
+          acceptance_status="$?"
+          set -e
+          kill "$heartbeat_pid" 2>/dev/null || true
+          wait "$heartbeat_pid" 2>/dev/null || true
+          exit "$acceptance_status"
           REMOTE
 
       - name: Verify deployed revision
