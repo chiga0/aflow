@@ -1473,7 +1473,7 @@
 <tr>
 <td>qwen mission 验收脚本</td>
 <td><code>done</code></td>
-<td><code>scripts/validate_qwen_mission.py</code> 可创建 qwen-backed mission 并校验 events/artifacts/final report</td>
+<td><code>scripts/validate_qwen_mission.py</code> 可创建 qwen-backed single-run 和轻量 mission，并校验 events/artifacts/final report</td>
 </tr>
 <tr>
 <td>Access/RBAC foundation</td>
@@ -1530,7 +1530,7 @@
 <li><code>container</code> 已支持两种启动方式：</li>
 <li><code>QWEN_CONTAINER_COMMAND</code> 自定义命令模板。</li>
 <li><code>QWEN_CONTAINER_IMAGE</code> 默认 Docker foreground worker，自动注入 <code>--cpus</code>、<code>--memory</code>、<code>--pids-limit</code>、端口映射、workspace mount、qwen token，并在 VPS deploy 时把宿主 <code>.qwen/settings.json</code> 凭据只读挂进容器。</li>
-<li><code>Deploy Runtime</code> workflow_dispatch 已支持选择 executor strategy、container image/local build、container resource limit，并可打开真实 qwen single-run + mission acceptance。</li>
+<li><code>Deploy Runtime</code> workflow_dispatch 已支持选择 executor strategy、container image/local build、container resource limit，并可打开真实 qwen single-run + bounded mission acceptance。</li>
 <li>下一步仍必须在 VPS 上用真实镜像或 <code>qwen_container_build=true</code> 做 Docker/cgroup/network 验收；当前自动 push 部署仍保持 shared strategy 以降低生产风险。</li>
 </ul>
 <p>P7 当前判断：</p>
@@ -1542,7 +1542,7 @@
 </li>
 <li>
 <ol>
-<li>真实 VPS/qwen 验收：<code>scripts/validate_qwen_mission.py</code> 已支持 <code>--validate-single-run</code> 和 <code>--expect-executor-strategy</code>，并已接入 <code>Deploy Runtime</code> 手动触发。</li>
+<li>真实 VPS/qwen 验收：<code>scripts/validate_qwen_mission.py</code> 已支持 <code>--validate-single-run</code>、<code>--expect-executor-strategy</code> 和 <code>--mission-task-count</code>；默认手动验收优先验证单 SAEU，mission 验收可用 1-2 个轻量任务控制小 VPS 成本。</li>
 </ol>
 </li>
 <li>
