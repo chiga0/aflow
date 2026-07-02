@@ -16,6 +16,7 @@ from typing import Any
 
 
 ASSET_RE = re.compile(r'(?:src|href)="\.(/assets/[^"]+)"')
+USER_AGENT = "cloud-agents-runtime-monitor/0.1 (+https://github.com/chiga0/agent-research)"
 TERMINAL_RUN_EVENTS = {"run.completed", "run.failed", "run.cancelled"}
 
 
@@ -276,6 +277,7 @@ class PublicRuntimeMonitor:
         url = f"{self.base_url}{path if path.startswith('/') else f'/{path}'}"
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(url, data=body, method=method)
+        request.add_header("User-Agent", USER_AGENT)
         if auth:
             token = f"{self.basic_user}:{self.basic_password}".encode("utf-8")
             encoded = base64.b64encode(token).decode("ascii")
