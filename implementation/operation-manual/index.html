@@ -796,13 +796,13 @@
 <pre class="highlight"><code class="language-text">http://47.243.94.91/cloud-agents/</code></pre>
 <p>浏览器入口经过 Nginx：</p>
 <ul>
-<li><code>/cloud-agents/</code>：给人使用的 Web 管理台，默认 Basic Auth。</li>
+<li><code>/cloud-agents/</code>：给人使用的 Web 管理台，默认应用登录页和签名 session cookie。</li>
 <li><code>/cloud-agents-worker/</code>：给远程 worker 使用的 API 入口，透传 worker Bearer token，不给人直接操作。</li>
 </ul>
 <h3 id="_1">登录信息<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h3>
-<p>默认 Basic Auth 用户名通常是：</p>
+<p>默认登录用户名通常是：</p>
 <pre class="highlight"><code class="language-text">cloudagents</code></pre>
-<p>密码来自部署脚本输出、GitHub Actions secret，或服务器上的 Nginx htpasswd 文件。不要把密码写入仓库或聊天记录。</p>
+<p>密码来自部署脚本输出、GitHub Actions secret，或服务器上的 <code>/etc/cloud-agents-runtime.env</code>。不要把密码写入仓库或聊天记录。</p>
 <h3 id="_2">服务器常用路径<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-text">/opt/agent-research
 /etc/cloud-agents-runtime.env
@@ -846,6 +846,23 @@
 </tr>
 </tbody>
 </table></div>
+<h3 id="units">Units<a class="headerlink" href="#units" title="Permanent link">&para;</a></h3>
+<p>用于管理长期运行的稳定执行单元，也就是本地或远程 worker。</p>
+<p>可以做：</p>
+<ul>
+<li>查看 worker 心跳、容量、状态、资源标签和 adapter 能力。</li>
+<li>生成远程 worker 注册 token 和部署命令。</li>
+<li>Drain 单元，让它不再认领新任务。</li>
+<li>Resume 单元，让它重新接收任务。</li>
+<li>Retry 单元上的 running run，把租约重排回队列。</li>
+</ul>
+<p>对 2C2G VPS 的建议：</p>
+<ul>
+<li>每台先设置 <code>capacity=1</code>。</li>
+<li>标签建议设置 <code>region=hk</code>、<code>tier=2c2g</code>。</li>
+<li>资源建议声明 <code>cpus=2</code>、<code>memory_gb=2</code>。</li>
+<li>真实 qwen 任务先用 1 台主控 + 2 台 remote worker 的形态跑 smoke，再逐步提高并发。</li>
+</ul>
 <h3 id="run-detail">Run Detail<a class="headerlink" href="#run-detail" title="Permanent link">&para;</a></h3>
 <p>这是最重要的排障页面。</p>
 <p>你可以查看：</p>
@@ -1042,9 +1059,15 @@
 <li>打开 Run Detail 查看实时进展。</li>
 </ol>
 <h3 id="api">API 操作<a class="headerlink" href="#api" title="Permanent link">&para;</a></h3>
-<p>通过公网 Nginx 管理入口时，使用 Basic Auth 即可：</p>
-<pre class="highlight"><code class="language-bash">curl -s https://doubaofans.site/cloud-agents/runs \
-  -u cloudagents:&lt;basic-password&gt; \
+<p>通过公网 Nginx 管理入口时，先登录保存 cookie，再调用 API：</p>
+<pre class="highlight"><code class="language-bash">cookie_jar=/tmp/cloud-agents.cookies
+curl -s -c "$cookie_jar" \
+  -H 'content-type: application/json' \
+  -d '{"username":"cloudagents","password":"&lt;password&gt;"}' \
+  https://doubaofans.site/cloud-agents/auth/login
+
+curl -s https://doubaofans.site/cloud-agents/runs \
+  -b "$cookie_jar" \
   -H 'content-type: application/json' \
   -d '{"prompt":"hello runtime","adapter":"fake"}'</code></pre>
 <p>直连 runtime 本地端口时，使用 master token：</p>
@@ -1070,7 +1093,7 @@ curl -s http://127.0.0.1:8765/runs \
 </ol>
 <h3 id="api_1">API 示例<a class="headerlink" href="#api_1" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">curl -s https://doubaofans.site/cloud-agents/missions \
-  -u cloudagents:&lt;basic-password&gt; \
+  -b "$cookie_jar" \
   -H 'content-type: application/json' \
   -d '{
     "goal": "验证一个两阶段任务",
@@ -1146,7 +1169,7 @@ RUN_MANAGER_PERMISSION_STALL_ACTION=audit</code></pre>
 </table></div>
 <p>API 下载示例：</p>
 <pre class="highlight"><code class="language-bash">curl -s https://doubaofans.site/cloud-agents/runs/&lt;run_id&gt;/audit.json \
-  -u cloudagents:&lt;basic-password&gt; \
+  -b "$cookie_jar" \
   -o run-audit.json</code></pre>
 <p>Mission 常用下载：</p>
 <div class="table-wrapper"><table>
@@ -1205,12 +1228,12 @@ curl -s http://127.0.0.1:8765/workers \
 </ol>
 <p>API：</p>
 <pre class="highlight"><code class="language-bash">curl -s -X POST https://doubaofans.site/cloud-agents/ops/backups \
-  -u cloudagents:&lt;basic-password&gt; \
+  -b "$cookie_jar" \
   -H 'content-type: application/json' \
   -d '{}'</code></pre>
 <h3 id="_7">运行故障演练<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">curl -s -X POST https://doubaofans.site/cloud-agents/ops/drills \
-  -u cloudagents:&lt;basic-password&gt; \
+  -b "$cookie_jar" \
   -H 'content-type: application/json' \
   -d '{}'</code></pre>
 <h2 id="8">8. 部署和更新<a class="headerlink" href="#8" title="Permanent link">&para;</a></h2>
@@ -1218,7 +1241,7 @@ curl -s http://127.0.0.1:8765/workers \
 <pre class="highlight"><code class="language-bash">QWEN_SETTINGS_FILE=/Users/chigao/Documents/works/settings.json \
 PUBLIC_DOMAIN=doubaofans.site \
 BASIC_AUTH_USER=cloudagents \
-BASIC_AUTH_PASSWORD=&lt;basic-password&gt; \
+BASIC_AUTH_PASSWORD=&lt;password&gt; \
   bash scripts/deploy_runtime_vps.sh \
   root@47.243.94.91 \
   /Users/chigao/Documents/works/ecs/aliyun-hongkong.pem</code></pre>
@@ -1233,9 +1256,20 @@ BASIC_AUTH_PASSWORD=&lt;basic-password&gt; \
 <li>重启 runtime。</li>
 </ul>
 <h3 id="worker-vps">远程 Worker VPS 部署<a class="headerlink" href="#worker-vps" title="Permanent link">&para;</a></h3>
-<p>先在 Access 页面或 API 创建 worker token：</p>
+<p>推荐从 Web 管理台生成注册命令：</p>
+<ol>
+<li>打开 Units。</li>
+<li>填写 Unit ID，例如 <code>hk-2c2g-a</code>。</li>
+<li>Worker control URL 使用 <code>https://doubaofans.site/cloud-agents-worker</code>。</li>
+<li>Capacity 填 <code>1</code>。</li>
+<li>CPUs 填 <code>2</code>，Memory GB 填 <code>2</code>。</li>
+<li>Region label 填 <code>hk</code>。</li>
+<li>点击 Generate。</li>
+<li>复制生成的部署命令，把 <code>root@&lt;worker-ip&gt;</code> 和 <code>/path/to/key.pem</code> 替换成目标 VPS。</li>
+</ol>
+<p>也可以在 Access 页面或 API 创建 worker token：</p>
 <pre class="highlight"><code class="language-bash">curl -s https://doubaofans.site/cloud-agents/access/tokens \
-  -u cloudagents:&lt;basic-password&gt; \
+  -b "$cookie_jar" \
   -H 'content-type: application/json' \
   -d '{"name":"worker-vps-a","scopes":["workers:*"]}'</code></pre>
 <p>然后部署 worker：</p>
@@ -1250,34 +1284,40 @@ QWEN_SETTINGS_FILE=/Users/chigao/Documents/works/settings.json \
 <p>Worker VPS 服务状态：</p>
 <pre class="highlight"><code class="language-bash">systemctl status cloud-agents-worker --no-pager --full
 journalctl -u cloud-agents-worker -n 120 --no-pager</code></pre>
+<p>远程 worker 控制说明：</p>
+<ul>
+<li><code>POST /workers/&lt;worker_id&gt;/drain</code>：进入排空状态，不再认领新任务。</li>
+<li><code>POST /workers/&lt;worker_id&gt;/resume</code>：恢复认领任务。</li>
+<li><code>POST /workers/&lt;worker_id&gt;/retry</code>：将该 worker 上的 running lease 重新放回队列。</li>
+<li><code>GET /workers/&lt;worker_id&gt;/control</code>：worker 下行控制面，包含 cancel 和 permission resolution。</li>
+<li><code>POST /runs/&lt;run_id&gt;/cancel</code>：远程 run 会记录 <code>run.cancel_requested</code>，由 worker 拉取后执行。</li>
+<li><code>POST /runs/&lt;run_id&gt;/permissions/&lt;permission_id&gt;</code>：远程 run 会记录 <code>permission.resolve_requested</code>，由 worker 拉取后转发给 adapter。</li>
+</ul>
 <h2 id="9">9. 验收流程<a class="headerlink" href="#9" title="Permanent link">&para;</a></h2>
 <h3 id="smoke">快速 smoke<a class="headerlink" href="#smoke" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">python3 scripts/monitor_runtime.py \
   --base-url https://doubaofans.site/cloud-agents \
-  --basic-auth-user cloudagents \
-  --basic-auth-password &lt;basic-password&gt; \
+  --basic-user cloudagents \
+  --basic-password &lt;password&gt; \
   --json</code></pre>
 <h3 id="fake-run">fake run 验收<a class="headerlink" href="#fake-run" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">python3 scripts/validate_runtime.py \
-  --base-url https://doubaofans.site/cloud-agents \
-  --basic-auth-user cloudagents \
-  --basic-auth-password &lt;basic-password&gt; \
+  --base-url http://127.0.0.1:8765 \
+  --token "$RUN_MANAGER_TOKEN" \
   --adapter fake</code></pre>
 <h3 id="qwen-run">qwen 单 run 验收<a class="headerlink" href="#qwen-run" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">python3 scripts/validate_qwen_mission.py \
-  --base-url https://doubaofans.site/cloud-agents \
-  --basic-auth-user cloudagents \
-  --basic-auth-password &lt;basic-password&gt; \
+  --base-url http://127.0.0.1:8765 \
+  --token "$RUN_MANAGER_TOKEN" \
   --validate-single-run \
   --expect-executor-strategy per_run_process \
   --timeout 600</code></pre>
 <h3 id="qwen-mission">qwen 轻量 mission 验收<a class="headerlink" href="#qwen-mission" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-bash">python3 scripts/validate_qwen_mission.py \
-  --base-url https://doubaofans.site/cloud-agents \
-  --basic-auth-user cloudagents \
-  --basic-auth-password &lt;basic-password&gt; \
+  --base-url http://127.0.0.1:8765 \
+  --token "$RUN_MANAGER_TOKEN" \
   --validate-single-run \
-  --qwen-validate-mission \
+  --validate-mission \
   --mission-task-count 1 \
   --expect-executor-strategy per_run_process \
   --timeout 900</code></pre>
@@ -1304,7 +1344,7 @@ journalctl -u cloud-agents-runtime -n 120 --no-pager</code></pre>
 <h3 id="run-permission">Run 卡在 permission<a class="headerlink" href="#run-permission" title="Permanent link">&para;</a></h3>
 <p>打开 Run Detail，处理 permission request。也可以检查 event：</p>
 <pre class="highlight"><code class="language-bash">curl -s https://doubaofans.site/cloud-agents/runs/&lt;run_id&gt;/events.json \
-  -u cloudagents:&lt;basic-password&gt;</code></pre>
+  -b "$cookie_jar"</code></pre>
 <h3 id="qwen-run-failed">qwen run failed<a class="headerlink" href="#qwen-run-failed" title="Permanent link">&para;</a></h3>
 <p>优先下载：</p>
 <ul>
@@ -1351,7 +1391,7 @@ journalctl -u cloud-agents-runtime -n 120 --no-pager</code></pre>
   第二台 VPS remote worker</code></pre>
 <p>暂不建议作为默认生产形态：</p>
 <pre class="highlight"><code class="language-text">多租户公开服务
-无 Basic Auth 直接暴露 runtime
+无登录保护直接暴露 runtime
 未验收的 qwen container strategy
 高并发多控制面
 大文件/二进制 artifact 密集任务</code></pre>
@@ -1628,6 +1668,12 @@ journalctl -u cloud-agents-runtime -n 120 --no-pager</code></pre>
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#runs');">
             Runs
+        </a>
+        
+        <a href="#units"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#units');">
+            Units
         </a>
         
         <a href="#run-detail"
