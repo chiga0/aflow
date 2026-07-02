@@ -69,6 +69,8 @@ fi
 RUNTIME_CPU_QUOTA="${RUNTIME_CPU_QUOTA:-100%}"
 RUNTIME_MEMORY_MAX="${RUNTIME_MEMORY_MAX:-1G}"
 RUNTIME_TASKS_MAX="${RUNTIME_TASKS_MAX:-512}"
+DEPLOY_SSH_SERVER_ALIVE_INTERVAL="${DEPLOY_SSH_SERVER_ALIVE_INTERVAL:-30}"
+DEPLOY_SSH_SERVER_ALIVE_COUNT_MAX="${DEPLOY_SSH_SERVER_ALIVE_COUNT_MAX:-60}"
 DEPLOY_RUNTIME_PRINT_SECRETS="${DEPLOY_RUNTIME_PRINT_SECRETS:-1}"
 
 case "$PUBLIC_HOST" in
@@ -100,13 +102,20 @@ append_remote_env() {
   REMOTE_ENV+=("$1=$(shell_quote "$2")")
 }
 
+SSH_OPTIONS=(
+  -i "$SSH_KEY"
+  -o StrictHostKeyChecking=accept-new
+  -o ServerAliveInterval="$DEPLOY_SSH_SERVER_ALIVE_INTERVAL"
+  -o ServerAliveCountMax="$DEPLOY_SSH_SERVER_ALIVE_COUNT_MAX"
+  -o TCPKeepAlive=yes
+)
+
 ssh_cmd() {
-  ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "$@"
+  ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" "$@"
 }
 
 if [[ -n "$QWEN_SETTINGS_FILE" ]]; then
-  scp -i "$SSH_KEY" \
-    -o StrictHostKeyChecking=accept-new \
+  scp "${SSH_OPTIONS[@]}" \
     "$QWEN_SETTINGS_FILE" \
     "$SSH_TARGET:/tmp/qwen-settings.json"
 fi
