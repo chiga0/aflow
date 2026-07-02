@@ -1496,6 +1496,11 @@
 <td><code>/executors</code> 页面展示 strategy、active/failed、container config、lease、pid/port/workspace/run 关联</td>
 </tr>
 <tr>
+<td>重启孤儿 run 恢复</td>
+<td><code>done</code></td>
+<td>同一 worker 重启时自动将无法继续执行的 running job 标记为 <code>lease.orphaned</code> + <code>run.failed</code>，释放 capacity，避免部署 smoke 被旧 qwen run 卡住</td>
+</tr>
+<tr>
 <td>团队/项目/IAM</td>
 <td><code>foundation_done</code></td>
 <td>SQLite project registry、API token hash 存储、token revoke、token bearer 鉴权、Access 页面管理基础可用；真实 SSO/org/role assignment 后续替换</td>
