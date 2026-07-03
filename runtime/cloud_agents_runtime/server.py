@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from . import __version__
+from .access import roles_allow, scopes_allow
 from .auth import AuthConfig, hash_password, is_authorized, verify_password
 from .executors import ExecutorConfig
 from .interop import (
@@ -132,6 +133,7 @@ def make_handler(
                     manager.access_policy(
                         self.headers,
                         principal=self.principal_id(),
+                        roles=self.current_roles(),
                     )
                 )
                 return
@@ -575,7 +577,20 @@ def make_handler(
             session_identity = self.session_identity()
             if session_identity:
                 self.current_identity = session_identity
-                return True
+                required_scope = required_scope_for(self.command, path)
+                if required_scope is None or roles_allow(
+                    session_identity.get("roles"),
+                    required_scope,
+                ):
+                    return True
+                self.write_json(
+                    {
+                        "error": "forbidden",
+                        "required_scope": required_scope,
+                    },
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return False
             if is_authorized(auth_config, path, self.headers.get("authorization")):
                 return True
             identity = None
@@ -685,6 +700,14 @@ def make_handler(
                 principal = self.current_identity.get("principal_id")
                 return str(principal) if principal else None
             return None
+
+        def current_roles(self) -> list[str] | None:
+            if not self.current_identity:
+                return None
+            roles = self.current_identity.get("roles")
+            if not isinstance(roles, list):
+                return None
+            return [role for role in roles if isinstance(role, str)]
 
         def cookie_path(self) -> str:
             prefix = self.headers.get("x-forwarded-prefix", "").strip().rstrip("/")
@@ -919,18 +942,6 @@ def required_scope_for(method: str, path: str) -> str | None:
     if parts[0] == "p5":
         return "ops:read"
     return None
-
-
-def scopes_allow(scopes: Any, required_scope: str) -> bool:
-    if not isinstance(scopes, list):
-        return False
-    required_domain = required_scope.split(":", 1)[0]
-    for scope in scopes:
-        if not isinstance(scope, str):
-            continue
-        if scope in {"*", "*:*", required_scope, f"{required_domain}:*"}:
-            return True
-    return False
 
 
 def load_index_html() -> str:

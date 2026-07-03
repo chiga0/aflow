@@ -265,6 +265,18 @@ export interface ApiToken {
   token?: string;
 }
 
+export interface AuthUser {
+  email: string;
+  display_name: string;
+  roles: string[];
+  status: string;
+  email_verified_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface BackupInfo {
   name: string;
   size_bytes: number;
@@ -455,6 +467,18 @@ export const runtimeApi = {
     api<ApiToken>(`access/tokens/${tokenId}/revoke`, {
       method: "POST",
       body: JSON.stringify({}),
+    }),
+  authUsers: () => api<{ users: AuthUser[] }>("auth/users"),
+  createAuthUser: (payload: {
+    email: string;
+    password: string;
+    display_name?: string;
+    roles?: string[];
+    email_verified?: boolean;
+  }) =>
+    api<AuthUser>("auth/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
   opsStatus: () => api<Record<string, unknown>>("ops/status"),
   drills: () => api<Record<string, unknown>>("ops/drills"),

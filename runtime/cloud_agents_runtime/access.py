@@ -59,6 +59,33 @@ ROLE_DEFINITIONS = [
     },
 ]
 
+ROLE_PERMISSIONS = {
+    str(role["id"]): list(role["permissions"])
+    for role in ROLE_DEFINITIONS
+}
+
+
+def scopes_allow(scopes: Any, required_scope: str) -> bool:
+    if not isinstance(scopes, list):
+        return False
+    required_domain = required_scope.split(":", 1)[0]
+    for scope in scopes:
+        if not isinstance(scope, str):
+            continue
+        if scope in {"*", "*:*", required_scope, f"{required_domain}:*"}:
+            return True
+    return False
+
+
+def roles_allow(roles: Any, required_scope: str) -> bool:
+    if not isinstance(roles, list):
+        return False
+    scopes: list[str] = []
+    for role in roles:
+        if isinstance(role, str):
+            scopes.extend(ROLE_PERMISSIONS.get(role, []))
+    return scopes_allow(scopes, required_scope)
+
 
 class AccessManager:
     def __init__(self, store: RunStore, default_principal: str = "single-tenant-operator"):

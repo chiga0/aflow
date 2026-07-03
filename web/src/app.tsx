@@ -76,6 +76,7 @@ import {
   type AccessProject,
   type ArtifactInfo,
   type ApiToken,
+  type AuthUser,
   type CostStatus,
   type DrillCheck,
   type AgentProfile,
@@ -1212,7 +1213,12 @@ function RunDetailPage() {
           />
           <Card>
             <CardHeader>
-              <CardTitle>{t("common.downloads")}</CardTitle>
+              <div>
+                <CardTitle>{t("runs.auditDownloads")}</CardTitle>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t("runs.auditDownloadsDetail")}
+                </div>
+              </div>
             </CardHeader>
             <CardBody className="grid gap-2">
               <LinkButton href={artifactHref(runId, "events.jsonl")}>
@@ -1346,6 +1352,10 @@ function LiveRunnerPanel({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const transcript = useMemo(() => runnerTranscript(events), [events]);
+  const processSummary = useMemo(
+    () => runnerProcessSummary(events, transcript),
+    [events, transcript],
+  );
   const [filter, setFilter] = useState<RunnerFilter>("all");
   const [prompt, setPrompt] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
@@ -1358,7 +1368,10 @@ function LiveRunnerPanel({
   const workers = useQuery({
     queryKey: ["workers"],
     queryFn: runtimeApi.workers,
-    enabled: signal.tone === "warn",
+    enabled:
+      signal.tone === "warn" ||
+      runStatus === "queued" ||
+      latest?.type === "run.queued",
   });
   const stallReason = runnerStallExplanation(
     events,
@@ -1366,8 +1379,14 @@ function LiveRunnerPanel({
     workers.data?.workers ?? [],
   );
   const resolvedPermissions = resolvedPermissionIds(events);
+  const submittedPermissions = permissionResolveRequestedIds(events);
   const pendingPermissions = pendingPermissionRequests(events);
-  const taskProgress = runTaskProgress(run, events, artifacts);
+  const taskProgress = runTaskProgress(
+    run,
+    events,
+    artifacts,
+    workers.data?.workers ?? [],
+  );
   const ended = isTerminal(runStatus);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const submitInput = useMutation({
@@ -1423,6 +1442,7 @@ function LiveRunnerPanel({
       <CardBody className="grid gap-4">
         <TaskProgressPanel progress={taskProgress} />
         <InlinePermissionPanel pending={pendingPermissions} runId={runId} />
+        <RunnerProcessSummaryPanel summary={processSummary} />
         <div className="grid gap-3 md:grid-cols-4">
           <Metric
             label={t("live.runStatus")}
@@ -1438,32 +1458,49 @@ function LiveRunnerPanel({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
-            {(["all", "agent", "permission", "warning", "error"] as const).map(
-              (item) => (
-                <Button
-                  key={item}
-                  size="sm"
-                  variant={filter === item ? "primary" : "secondary"}
-                  onClick={() => setFilter(item)}
-                >
-                  <Filter className="h-4 w-4" />
-                  {filterLabel(item, t)}
-                </Button>
-              ),
-            )}
+            {(
+              [
+                "all",
+                "agent",
+                "process",
+                "tools",
+                "permission",
+                "warning",
+                "error",
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item}
+                size="sm"
+                variant={filter === item ? "primary" : "secondary"}
+                onClick={() => setFilter(item)}
+              >
+                <Filter className="h-4 w-4" />
+                {filterLabel(item, t)}
+              </Button>
+            ))}
           </div>
-          <Button
-            size="sm"
-            onClick={() =>
-              downloadText(
-                `run-${latest?.run_id ?? "runner"}-report.md`,
-                runnerReadableReport(transcript, events),
-              )
-            }
-          >
-            <FileText className="h-4 w-4" />
-            {t("live.downloadReport")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <LinkButton
+              href={artifactHref(runId, "raw_events.jsonl")}
+              size="sm"
+            >
+              <Download className="h-4 w-4" />
+              {t("live.rawEvents")}
+            </LinkButton>
+            <Button
+              size="sm"
+              onClick={() =>
+                downloadText(
+                  `run-${latest?.run_id ?? "runner"}-report.md`,
+                  runnerReadableReport(transcript, events),
+                )
+              }
+            >
+              <FileText className="h-4 w-4" />
+              {t("live.downloadReport")}
+            </Button>
+          </div>
         </div>
         {signal.tone === "warn" ? (
           <div className="grid gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-amber-800 dark:text-warning">
@@ -1480,6 +1517,7 @@ function LiveRunnerPanel({
               key={item.id}
               item={item}
               resolvedPermissions={resolvedPermissions}
+              submittedPermissions={submittedPermissions}
               runId={runId}
             />
           ))}
@@ -1543,7 +1581,8 @@ type RunnerTranscriptItem = {
   permissionRequest?: PermissionRequest;
 };
 
-type RunnerFilter = "all" | "agent" | "permission" | "warning" | "error";
+type RunnerFilter =
+  "all" | "agent" | "process" | "tools" | "permission" | "warning" | "error";
 
 type PermissionDecisionPayload = {
   decision: "approve" | "deny" | "cancel";
@@ -1558,6 +1597,15 @@ type TaskProgress = {
   nextAction: string;
   tone: "neutral" | "ok" | "warn" | "bad" | "info";
   evidence: string;
+};
+
+type RunnerProcessSummary = {
+  messageChunks: number;
+  progressSignals: number;
+  toolCalls: number;
+  permissionRequests: number;
+  rawAdapterEvents: number;
+  lastTool?: RunnerTranscriptItem;
 };
 
 function TaskProgressPanel({ progress }: { progress: TaskProgress }) {
@@ -1599,13 +1647,60 @@ function TaskProgressPanel({ progress }: { progress: TaskProgress }) {
   );
 }
 
+function RunnerProcessSummaryPanel({
+  summary,
+}: {
+  summary: RunnerProcessSummary;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium">{t("live.processTitle")}</div>
+          <div className="text-xs text-muted-foreground">
+            {t("live.processDetail")}
+          </div>
+        </div>
+        <Badge tone={summary.toolCalls ? "info" : "neutral"}>
+          {summary.toolCalls} {t("live.toolCalls")}
+        </Badge>
+      </div>
+      <div className="grid gap-2 md:grid-cols-4">
+        <Metric label={t("live.messageChunks")} value={summary.messageChunks} />
+        <Metric
+          label={t("live.progressSignals")}
+          value={summary.progressSignals}
+        />
+        <Metric label={t("live.toolCalls")} value={summary.toolCalls} />
+        <Metric
+          label={t("live.permissionRequests")}
+          value={summary.permissionRequests}
+        />
+      </div>
+      {summary.lastTool ? (
+        <div className="rounded-md border border-border bg-background p-3 text-sm">
+          <div className="mb-1 font-medium">{t("live.lastToolCall")}</div>
+          <div className="whitespace-pre-wrap break-words text-muted-foreground">
+            {summary.lastTool.body.length > 700
+              ? `${summary.lastTool.body.slice(0, 700)}...`
+              : summary.lastTool.body}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function RunnerBubble({
   item,
   resolvedPermissions,
+  submittedPermissions,
   runId,
 }: {
   item: RunnerTranscriptItem;
   resolvedPermissions?: Set<string>;
+  submittedPermissions?: Set<string>;
   runId?: string;
 }) {
   const { t } = useI18n();
@@ -1617,7 +1712,12 @@ function RunnerBubble({
   const isPendingPermission =
     permission &&
     !resolvedPermissions?.has(permission.permission_id) &&
+    !submittedPermissions?.has(permission.permission_id) &&
     submittedPermissionId !== permission.permission_id;
+  const isSubmittedPermission =
+    permission &&
+    submittedPermissions?.has(permission.permission_id) &&
+    !resolvedPermissions?.has(permission.permission_id);
   const permissionContext = permission ? permissionContextRows(permission) : [];
   const resolve = useMutation({
     mutationFn: ({
@@ -1736,6 +1836,11 @@ function RunnerBubble({
                 {String(resolve.error)}
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {isSubmittedPermission ? (
+          <div className="mt-3 rounded-md border border-sky-500/30 bg-sky-500/10 p-2 text-xs text-sky-700 dark:text-sky-300">
+            {t("live.permissionSubmitted")}
           </div>
         ) : null}
         <div className="mt-2 font-mono text-xs opacity-60">
@@ -2323,6 +2428,11 @@ function AccessPage() {
   const [projectName, setProjectName] = useState("Default");
   const [tokenName, setTokenName] = useState("operator-token");
   const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState("");
+  const [userDisplayName, setUserDisplayName] = useState("");
+  const [userPassword, setUserPassword] = useState("");
+  const [userRole, setUserRole] = useState("operator");
+  const [userVerified, setUserVerified] = useState(true);
   const policy = useQuery({
     queryKey: ["access", "policy"],
     queryFn: runtimeApi.accessPolicy,
@@ -2334,6 +2444,11 @@ function AccessPage() {
   const tokens = useQuery({
     queryKey: ["access", "tokens"],
     queryFn: runtimeApi.apiTokens,
+  });
+  const users = useQuery({
+    queryKey: ["auth", "users"],
+    queryFn: runtimeApi.authUsers,
+    retry: false,
   });
   const createProject = useMutation({
     mutationFn: runtimeApi.createAccessProject,
@@ -2354,7 +2469,19 @@ function AccessPage() {
       await queryClient.invalidateQueries({ queryKey: ["access"] });
     },
   });
+  const createUser = useMutation({
+    mutationFn: runtimeApi.createAuthUser,
+    onSuccess: async () => {
+      setUserEmail("");
+      setUserDisplayName("");
+      setUserPassword("");
+      setUserRole("operator");
+      setUserVerified(true);
+      await queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
+    },
+  });
   const principal = policy.data?.current_principal;
+  const isOwner = Boolean(principal?.roles.includes("owner"));
   return (
     <Page title={t("access.title")} subtitle={t("access.subtitle")}>
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -2436,6 +2563,98 @@ function AccessPage() {
           ))}
         </CardBody>
       </Card>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <UserCog className="h-4 w-4 text-primary" />
+            <CardTitle>{t("access.users")}</CardTitle>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge tone={isOwner ? "ok" : "warn"}>
+              {isOwner ? t("access.ownerControls") : t("access.ownerOnly")}
+            </Badge>
+            <Badge tone="neutral">{users.data?.users.length ?? 0}</Badge>
+          </div>
+        </CardHeader>
+        <CardBody className="grid gap-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_160px_auto]">
+            <Field label={t("access.userEmail")}>
+              <Input
+                autoComplete="email"
+                inputMode="email"
+                type="email"
+                value={userEmail}
+                onChange={(event) => setUserEmail(event.target.value)}
+              />
+            </Field>
+            <Field label={t("access.displayName")}>
+              <Input
+                value={userDisplayName}
+                onChange={(event) => setUserDisplayName(event.target.value)}
+              />
+            </Field>
+            <Field label={t("access.initialPassword")}>
+              <Input
+                autoComplete="new-password"
+                type="password"
+                value={userPassword}
+                onChange={(event) => setUserPassword(event.target.value)}
+              />
+            </Field>
+            <Field label={t("access.userRole")}>
+              <Select
+                value={userRole}
+                onChange={(event) => setUserRole(event.target.value)}
+              >
+                <option value="operator">operator</option>
+                <option value="auditor">auditor</option>
+                <option value="owner">owner</option>
+              </Select>
+            </Field>
+            <Button
+              className="self-end"
+              disabled={
+                !isOwner ||
+                createUser.isPending ||
+                !userEmail.trim() ||
+                !userPassword
+              }
+              onClick={() =>
+                createUser.mutate({
+                  email: userEmail,
+                  display_name: userDisplayName || userEmail,
+                  password: userPassword,
+                  roles: [userRole],
+                  email_verified: userVerified,
+                })
+              }
+            >
+              <UserCog className="h-4 w-4" />
+              {t("common.create")}
+            </Button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              checked={userVerified}
+              disabled={!isOwner}
+              type="checkbox"
+              onChange={(event) => setUserVerified(event.target.checked)}
+            />
+            {t("access.markEmailVerified")}
+          </label>
+          {!isOwner ? (
+            <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-amber-800 dark:text-warning">
+              {t("access.ownerOnlyDetail")}
+            </div>
+          ) : null}
+          {createUser.isError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {String(createUser.error)}
+            </div>
+          ) : null}
+          <AccessUserList users={users.data?.users ?? []} />
+        </CardBody>
+      </Card>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
@@ -2461,7 +2680,7 @@ function AccessPage() {
               </Field>
               <Button
                 className="self-end"
-                disabled={createProject.isPending}
+                disabled={!isOwner || createProject.isPending}
                 onClick={() =>
                   createProject.mutate({
                     project_id: projectId,
@@ -2502,7 +2721,7 @@ function AccessPage() {
               </Field>
               <Button
                 className="self-end"
-                disabled={createToken.isPending}
+                disabled={!isOwner || createToken.isPending}
                 onClick={() =>
                   createToken.mutate({
                     name: tokenName,
@@ -2525,6 +2744,7 @@ function AccessPage() {
               </div>
             ) : null}
             <ApiTokenList
+              canManage={isOwner}
               tokens={tokens.data?.tokens ?? policy.data?.tokens ?? []}
               onRevoke={(tokenId) => revokeToken.mutate(tokenId)}
             />
@@ -2532,6 +2752,56 @@ function AccessPage() {
         </Card>
       </div>
     </Page>
+  );
+}
+
+function AccessUserList({ users }: { users: AuthUser[] }) {
+  const { t } = useI18n();
+  if (!users.length) {
+    return <EmptyState title={t("access.noUsers")} />;
+  }
+  return (
+    <div className="grid gap-2">
+      {users.map((user) => (
+        <div
+          key={user.email}
+          className="grid gap-3 rounded-md border border-border p-3 md:grid-cols-[minmax(0,1fr)_auto]"
+        >
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate font-medium">
+                {user.display_name || user.email}
+              </span>
+              <StatusBadge status={user.status} />
+              <Badge tone={user.email_verified_at ? "ok" : "warn"}>
+                {user.email_verified_at
+                  ? t("access.emailVerified")
+                  : t("access.emailUnverified")}
+              </Badge>
+            </div>
+            <div className="mt-1 break-words font-mono text-xs text-muted-foreground">
+              {user.email}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {user.roles.map((role) => (
+                <Badge key={role} tone="neutral">
+                  {role}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-1 text-right text-xs text-muted-foreground">
+            <span>
+              {t("access.createdAt")}: {timeAgo(user.created_at)}
+            </span>
+            <span>
+              {t("access.lastLogin")}:{" "}
+              {user.last_login_at ? timeAgo(user.last_login_at) : "-"}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2563,9 +2833,11 @@ function AccessProjectList({ projects }: { projects: AccessProject[] }) {
 }
 
 function ApiTokenList({
+  canManage,
   tokens,
   onRevoke,
 }: {
+  canManage: boolean;
   tokens: ApiToken[];
   onRevoke: (tokenId: string) => void;
 }) {
@@ -2597,7 +2869,7 @@ function ApiTokenList({
             </div>
           </div>
           <Button
-            disabled={token.status !== "active"}
+            disabled={!canManage || token.status !== "active"}
             size="sm"
             variant="danger"
             onClick={() => onRevoke(token.token_id)}
@@ -3342,6 +3614,16 @@ function ArtifactPanel({
   artifacts: ArtifactInfo[];
 }) {
   const { t } = useI18n();
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const selectedArtifact = artifacts.find(
+    (artifact) => artifact.name === previewName,
+  );
+  const preview = useQuery({
+    queryKey: ["runs", runId, "artifact-preview", previewName],
+    queryFn: () => fetchTextArtifact(artifactHref(runId, previewName ?? "")),
+    enabled: Boolean(previewName && selectedArtifact),
+    retry: 1,
+  });
   return (
     <Card>
       <CardHeader>
@@ -3350,23 +3632,81 @@ function ArtifactPanel({
       </CardHeader>
       <CardBody className="grid gap-2">
         {artifacts.map((artifact) => (
-          <a
+          <div
             key={artifact.name}
-            className="rounded-md border border-border p-3 text-sm hover:bg-muted"
-            href={artifactHref(runId, artifact.name)}
+            className="grid gap-3 rounded-md border border-border p-3 text-sm"
           >
-            <div className="font-medium">{artifact.name}</div>
-            <div className="text-xs text-muted-foreground">
-              {formatBytes(artifact.size_bytes)}
+            <div className="min-w-0">
+              <div className="break-words font-medium">{artifact.name}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatBytes(artifact.size_bytes)}
+              </div>
             </div>
-          </a>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={!canPreviewArtifact(artifact)}
+                size="sm"
+                onClick={() => setPreviewName(artifact.name)}
+              >
+                <FileText className="h-4 w-4" />
+                {t("common.preview")}
+              </Button>
+              <LinkButton
+                href={artifactHref(runId, artifact.name)}
+                size="sm"
+              >
+                <Download className="h-4 w-4" />
+                {t("common.download")}
+              </LinkButton>
+            </div>
+          </div>
         ))}
         {!artifacts.length ? (
           <EmptyState title={t("runs.noArtifacts")} />
         ) : null}
+        {selectedArtifact ? (
+          <div className="mt-2 grid gap-2 rounded-md border border-border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-medium">{t("runs.artifactPreview")}</div>
+                <div className="break-words text-xs text-muted-foreground">
+                  {selectedArtifact.name} ·{" "}
+                  {formatBytes(selectedArtifact.size_bytes)}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPreviewName(null)}
+              >
+                {t("common.close")}
+              </Button>
+            </div>
+            {preview.isLoading ? (
+              <div className="text-sm text-muted-foreground">
+                {t("common.loading")}
+              </div>
+            ) : preview.isError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {String(preview.error)}
+              </div>
+            ) : (
+              <pre className="max-h-[520px] overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                {preview.data}
+              </pre>
+            )}
+          </div>
+        ) : null}
       </CardBody>
     </Card>
   );
+}
+
+function canPreviewArtifact(artifact: ArtifactInfo) {
+  if (artifact.size_bytes > 256 * 1024) {
+    return false;
+  }
+  return /\.(json|jsonl|md|txt|log|csv|yaml|yml)$/i.test(artifact.name);
 }
 
 function ProfileJson({
@@ -3610,6 +3950,7 @@ function runTaskProgress(
   run: RunState | undefined,
   events: RuntimeEvent[],
   artifacts: ArtifactInfo[],
+  workers: WorkerInfo[] = [],
 ): TaskProgress {
   const latest = events.at(-1);
   const pending = pendingPermissionRequests(events);
@@ -3648,12 +3989,20 @@ function runTaskProgress(
     };
   }
   if (run?.status === "queued" || latest?.type === "run.queued") {
+    const activeWorkers = workers.filter((worker) => worker.status === "active");
+    const hasCapacity = activeWorkers.some(
+      (worker) => worker.active_count < worker.capacity,
+    );
     return {
       goal,
       phase: "排队中",
-      status: "Run 已进入队列，正在等待可用执行单元。",
-      nextAction: "查看执行单元容量，或注册/恢复 worker。",
-      tone: "neutral",
+      status: activeWorkers.length
+        ? "Run 已进入队列，正在等待执行单元释放容量或认领租约。"
+        : "Run 已进入队列，但当前没有 active 执行单元。",
+      nextAction: hasCapacity
+        ? "等待 worker 下一次轮询；如果长时间不动，请检查 worker 日志和控制地址。"
+        : "到执行单元页面注册/恢复 worker，或排空高负载机器后重试。",
+      tone: activeWorkers.length ? "info" : "warn",
       evidence,
     };
   }
@@ -3909,7 +4258,7 @@ function transcriptItemForEvent(
       return {
         ...base,
         role: toolEventRole(event),
-        title: "Tool event",
+        title: qwenAdapterEventTitle(event) ?? "Tool event",
         body: toolEventBody(event),
       };
     case "stream.warning":
@@ -4077,6 +4426,25 @@ function toolEventBody(event: RuntimeEvent) {
     .join("\n");
 }
 
+function qwenAdapterEventTitle(event: RuntimeEvent) {
+  const update = qwenSessionUpdate(event);
+  if (!update) {
+    return null;
+  }
+  const sessionUpdate = stringValue(update.sessionUpdate);
+  if (sessionUpdate === "tool_call" || sessionUpdate === "tool_call_update") {
+    const status = stringValue(update.status);
+    const meta = recordValue(update._meta);
+    const title =
+      stringValue(update.title) ?? stringValue(meta?.toolName) ?? "Tool call";
+    return status ? `${title} · ${status}` : title;
+  }
+  if (sessionUpdate === "user_message_chunk") {
+    return "User input streamed";
+  }
+  return sessionUpdate ? `Adapter event: ${sessionUpdate}` : null;
+}
+
 function qwenMessageDeltaFromAdapterEvent(event: RuntimeEvent) {
   if (event.type !== "adapter.event") {
     return null;
@@ -4190,6 +4558,20 @@ function filterTranscript(
       item.event_type.startsWith("permission."),
     );
   }
+  if (filter === "process") {
+    return transcript.filter(
+      (item) => item.role !== "agent" && item.role !== "operator",
+    );
+  }
+  if (filter === "tools") {
+    return transcript.filter(
+      (item) =>
+        item.event_type === "adapter.event" &&
+        (item.title.toLowerCase().includes("tool") ||
+          item.body.toLowerCase().includes("command:") ||
+          item.body.toLowerCase().includes("exit code")),
+    );
+  }
   if (filter === "warning") {
     return transcript.filter((item) => item.role === "warning");
   }
@@ -4208,9 +4590,39 @@ function filterLabel(
     all: t?.("live.all") ?? "All",
     error: t?.("live.errors") ?? "Errors",
     permission: t?.("live.permissions") ?? "Permissions",
+    process: t?.("live.process") ?? "Process",
+    tools: t?.("live.tools") ?? "Tools",
     warning: t?.("live.warnings") ?? "Warnings",
   };
   return labels[filter];
+}
+
+function runnerProcessSummary(
+  events: RuntimeEvent[],
+  transcript: RunnerTranscriptItem[],
+): RunnerProcessSummary {
+  const messageChunks = events.filter(
+    (event) => event.type === "message.delta" && stringValue(event.data.text),
+  ).length;
+  const progressSignals = events.filter(isQwenThoughtEvent).length;
+  const toolItems = transcript.filter(
+    (item) =>
+      item.event_type === "adapter.event" &&
+      (item.title.toLowerCase().includes("tool") ||
+        item.body.toLowerCase().includes("command:") ||
+        item.body.toLowerCase().includes("exit code")),
+  );
+  return {
+    messageChunks,
+    progressSignals,
+    toolCalls: toolItems.length,
+    permissionRequests: events.filter(
+      (event) => event.type === "permission.requested",
+    ).length,
+    rawAdapterEvents: events.filter((event) => event.type === "adapter.event")
+      .length,
+    lastTool: toolItems.at(-1),
+  };
 }
 
 function runnerSignal(latest?: RuntimeEvent, runStatus?: string) {
@@ -4382,6 +4794,14 @@ function downloadText(filename: string, content: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+async function fetchTextArtifact(href: string) {
+  const response = await fetch(href, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error((await response.text()) || response.statusText);
+  }
+  return response.text();
 }
 
 function compactJson(value: unknown) {
@@ -4670,6 +5090,7 @@ export const __testUtils = {
   registryValue,
   runnerStallExplanation,
   runnerReadableReport,
+  runnerProcessSummary,
   runnerSignal,
   runnerTranscript,
   runTaskProgress,

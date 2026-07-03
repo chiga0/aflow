@@ -124,6 +124,12 @@ describe("api helpers", () => {
     await runtimeApi.apiTokens();
     await runtimeApi.createApiToken({ name: "operator" });
     await runtimeApi.revokeApiToken("token_1");
+    await runtimeApi.authUsers();
+    await runtimeApi.createAuthUser({
+      email: "new@example.com",
+      password: "secret-12345",
+      roles: ["operator"],
+    });
     await runtimeApi.createMission({ goal: "ship", strategy: "sequential" });
 
     expect(calls.map(([path]) => path)).toEqual([
@@ -154,6 +160,8 @@ describe("api helpers", () => {
       "/access/tokens",
       "/access/tokens",
       "/access/tokens/token_1/revoke",
+      "/auth/users",
+      "/auth/users",
       "/missions",
     ]);
     const methods = new Map(calls.map(([path, init]) => [path, init?.method]));
@@ -174,6 +182,7 @@ describe("api helpers", () => {
     expect(methods.get("/access/projects")).toBe("POST");
     expect(methods.get("/access/tokens")).toBe("POST");
     expect(methods.get("/access/tokens/token_1/revoke")).toBe("POST");
+    expect(methods.get("/auth/users")).toBe("POST");
     expect(methods.get("/missions")).toBe("POST");
   });
 

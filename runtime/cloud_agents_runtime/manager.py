@@ -581,8 +581,12 @@ class RunManager:
         self,
         headers: Any | None = None,
         principal: str | None = None,
+        roles: list[str] | None = None,
     ) -> dict[str, Any]:
-        return self.access.policy(headers, principal=principal)
+        policy = self.access.policy(headers, principal=principal)
+        if roles is not None:
+            policy["current_principal"]["roles"] = roles
+        return policy
 
     def create_access_project(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.access.create_project(payload)

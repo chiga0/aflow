@@ -417,6 +417,32 @@ const fixtures: Record<string, unknown> = {
       },
     ],
   },
+  "auth/users": {
+    users: [
+      {
+        email: "owner@example.com",
+        display_name: "Owner",
+        roles: ["owner"],
+        status: "active",
+        email_verified_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_login_at: null,
+        metadata: {},
+      },
+      {
+        email: "auditor@example.com",
+        display_name: "",
+        roles: ["auditor"],
+        status: "active",
+        email_verified_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+        metadata: {},
+      },
+    ],
+  },
 };
 
 describe("AgentFlow console", () => {
@@ -686,6 +712,7 @@ describe("AgentFlow console", () => {
 
     expect(await screen.findByText("Current Principal")).toBeInTheDocument();
     expect(screen.getByText("Role Matrix")).toBeInTheDocument();
+    expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Projects")).toBeInTheDocument();
     expect(screen.getByText("API Tokens")).toBeInTheDocument();
     expect((await screen.findAllByText("runs:*")).length).toBeGreaterThan(0);
@@ -693,12 +720,18 @@ describe("AgentFlow console", () => {
     expect(click).toHaveBeenCalled();
     await user.clear(screen.getAllByLabelText("Project ID")[0]);
     await user.type(screen.getAllByLabelText("Project ID")[0], "team1");
-    await user.clear(screen.getByLabelText("Display name"));
-    await user.type(screen.getByLabelText("Display name"), "Team One");
+    await user.clear(screen.getAllByLabelText("Display name")[1]);
+    await user.type(screen.getAllByLabelText("Display name")[1], "Team One");
+    await user.type(screen.getByLabelText("User email"), "new@example.com");
+    await user.type(screen.getByLabelText("Initial password"), "secret-12345");
     await user.clear(screen.getByLabelText("Token name"));
     await user.type(screen.getByLabelText("Token name"), "team-token");
-    await user.click(screen.getAllByRole("button", { name: "Create" })[0]);
     await user.click(screen.getAllByRole("button", { name: "Create" })[1]);
+    await user.click(screen.getAllByRole("button", { name: "Create" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Create" })[2]);
+    expect((await screen.findAllByText("new@example.com")).length).toBeGreaterThan(
+      0,
+    );
     expect(await screen.findByText("cat_created_secret")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() =>
@@ -707,6 +740,44 @@ describe("AgentFlow console", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/auth/users",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("new@example.com"),
+        }),
+      ),
+    );
+  });
+
+  it("disables access write controls for non-owner roles", async () => {
+    const policy = fixtures["access/policy"] as {
+      current_principal: { roles: string[]; display_name: string; id: string };
+    };
+    policy.current_principal = {
+      id: "auditor@example.com",
+      display_name: "Auditor",
+      roles: ["auditor"],
+    };
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({ to: "/access" });
+    });
+    render(<App />);
+    await switchToEnglish(user);
+
+    expect(await screen.findByText("Owner only")).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", { name: "Create" })) {
+      expect(button).toBeDisabled();
+    }
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeDisabled();
+
+    policy.current_principal = {
+      id: "operator",
+      display_name: "operator",
+      roles: ["owner"],
+    };
   });
 
   it("shows executor isolation registry", async () => {
@@ -879,12 +950,25 @@ describe("AgentFlow console", () => {
       ),
       event("permission.stalled", 14, { permission_id: "perm_3" }, now),
       event("permission.notification.sent", 14.5, { channel: "log" }, now),
+      event(
+        "permission.notification.failed",
+        14.55,
+        { channel: "webhook" },
+        now,
+      ),
+      event(
+        "permission.resolve_failed",
+        14.56,
+        { reason: "worker stale" },
+        now,
+      ),
       event("cost.quoted", 14.6, { estimated_cost_usd: 0.01 }, now),
       event("event.gap_detected", 14.7, { missed: 2 }, now),
       event("stream.warning", 15, { reason: "reconnect" }, now),
       event("step.completed", 16, { prompt_number: 1 }, now),
       event("run.completed", 17, { final_artifact: "final_1.json" }, now),
       event("run.failed", 18, { reason: "boom" }, now),
+      event("run.cancel_requested", 18.5, { reason: "user" }, now),
       event("run.cancelled", 19, { reason: "user" }, now),
       event("executor.failed", 19.5, { reason: "executor boom" }, now),
       event("turn_error", 20, { raw: true }, now),
@@ -987,11 +1071,18 @@ describe("AgentFlow console", () => {
     expect(transcript.map((item) => item.title)).toContain(
       "Permission decision submitted",
     );
+    expect(transcript.map((item) => item.title)).toContain(
+      "Permission decision failed",
+    );
+    expect(transcript.map((item) => item.title)).toContain(
+      "Permission notification",
+    );
     expect(transcript.map((item) => item.title)).toContain("Agent progress");
     expect(transcript.map((item) => item.body).join("\n")).not.toContain(
       "hidden internal text",
     );
     expect(transcript.map((item) => item.title)).toContain("Run failed");
+    expect(transcript.map((item) => item.title)).toContain("Cancel requested");
     expect(transcript.map((item) => item.title)).toContain("Executor failed");
     expect(transcript.map((item) => item.title)).toContain(
       "Cost budget checked",
@@ -1014,6 +1105,12 @@ describe("AgentFlow console", () => {
     expect(__testUtils.filterLabel("warning")).toBe("Warnings");
     expect(__testUtils.filterTranscript(transcript, "all")).toBe(transcript);
     expect(__testUtils.filterTranscript(transcript, "agent")).toHaveLength(2);
+    expect(
+      __testUtils.filterTranscript(transcript, "process").length,
+    ).toBeGreaterThan(5);
+    expect(
+      __testUtils.filterTranscript(transcript, "tools").length,
+    ).toBeGreaterThan(0);
     expect(
       __testUtils.filterTranscript(transcript, "permission").length,
     ).toBeGreaterThan(1);
@@ -1045,6 +1142,15 @@ describe("AgentFlow console", () => {
     ).toBe("stalled");
     expect(__testUtils.runnerReadableReport(transcript, liveEvents)).toContain(
       "Runner Execution Report",
+    );
+    expect(__testUtils.runnerProcessSummary(liveEvents, transcript)).toEqual(
+      expect.objectContaining({
+        messageChunks: 2,
+        permissionRequests: 1,
+        progressSignals: 1,
+        rawAdapterEvents: 5,
+        toolCalls: 2,
+      }),
     );
     expect(__testUtils.copyProfile(plannerProfile).id).toBe("planner-copy");
     expect(
@@ -1237,6 +1343,27 @@ describe("AgentFlow console", () => {
         ),
       ),
     ).toContain("No input tool");
+    expect(
+      __testUtils.runnerTranscript([
+        event(
+          "adapter.event",
+          35.5,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "user_message_chunk",
+                  content: { text: "hello" },
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ])[0].title,
+    ).toBe("User input streamed");
     expect(__testUtils.toolEventBody(event("adapter.event", 36, {}, now))).toBe(
       "adapter event",
     );
@@ -1857,6 +1984,24 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
       revoked_at: new Date().toISOString(),
       metadata: {},
     });
+  }
+  if (init?.method === "POST" && path === "auth/users") {
+    const created = {
+      email: "new@example.com",
+      display_name: "new@example.com",
+      roles: ["operator"],
+      status: "active",
+      email_verified_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      last_login_at: null,
+      metadata: {},
+    };
+    (
+      (fixtures["auth/users"] as { users: Array<Record<string, unknown>> })
+        .users
+    ).push(created);
+    return jsonResponse(created);
   }
   if (init?.method === "POST" && path === "auth/login") {
     return jsonResponse(fixtures["auth/session"]);

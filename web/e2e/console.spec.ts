@@ -35,7 +35,10 @@ test("manages runs, permissions, profiles, and operations", async ({
     .locator("main")
     .getByRole("link", { name: "run_1 running Inspect runtime", exact: true })
     .click();
-  await expect(page.getByText("Permission Requests")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Permission Requests" }),
+  ).toBeVisible();
+  await expect(page.getByText("Execution process")).toBeVisible();
   await expect(page.getByText("log:sent")).toBeVisible();
   await expect(page.getByText("webhook:failed")).toBeVisible();
   await expect(page.getByText("Agent Chat")).toBeVisible();

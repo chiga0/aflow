@@ -248,6 +248,33 @@ class RuntimeServerTest(unittest.TestCase):
                 },
             )
             self.assertIn("HttpOnly", operator_login.headers["set-cookie"])
+            operator_cookie = operator_login.headers["set-cookie"]
+            operator_run = request_json(
+                f"{base_url}/runs",
+                method="POST",
+                payload={"prompt": "operator can create runs", "adapter": "fake"},
+                headers={"cookie": operator_cookie},
+            )
+            self.assertTrue(operator_run["run_id"].startswith("run_"))
+            with self.assertRaises(urllib.error.HTTPError) as operator_user_create:
+                request_json(
+                    f"{base_url}/auth/users",
+                    method="POST",
+                    payload={
+                        "email": "blocked@example.com",
+                        "password": "operator-password",
+                    },
+                    headers={"cookie": operator_cookie},
+                )
+            self.assertEqual(operator_user_create.exception.code, HTTPStatus.FORBIDDEN)
+            with self.assertRaises(urllib.error.HTTPError) as operator_token_create:
+                request_json(
+                    f"{base_url}/access/tokens",
+                    method="POST",
+                    payload={"name": "blocked"},
+                    headers={"cookie": operator_cookie},
+                )
+            self.assertEqual(operator_token_create.exception.code, HTTPStatus.FORBIDDEN)
 
             logout_response = request_raw(
                 f"{base_url}/auth/logout",

@@ -117,10 +117,15 @@ Access 用来管理 API token 和基础访问能力。
 
 建议：
 
+- 只有 `owner` 可以在页面内创建登录用户、项目和 API token。
+- `operator` 用于日常创建/取消 run、mission 和处理权限请求。
+- `auditor` 用于只读查看事件、artifact、审计材料和状态。
 - worker token 使用 `workers:*` scope。
 - 自动化脚本按需创建最小 scope token。
 - token 明文只显示一次，创建后立即妥善保存。
 - 泄露或不用的 token 及时 revoke。
+
+创建登录用户时，进入 `Access -> Users`，填写邮箱、初始密码和角色。当前仍是本地邮箱账户体系；管理员可以把邮箱标记为已验证，但还没有 SMTP 邮件验证、邀请邮件和忘记密码流程。
 
 ## Operations
 
