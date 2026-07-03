@@ -122,7 +122,7 @@ P1 cloud-ready 最小验收：
 | --- | --- | --- |
 | SQLite `run_events` append-only 表 | `done` | 任意 run 可从事件表和 JSONL 重建状态 |
 | Postgres `run_events` append-only 表 | `deferred` | 多控制面/高并发阶段替换 SQLite |
-| Permission Service | `done` | permission request/resolution 全量入库和 artifact |
+| Permission Service | `done` | permission request/resolution 全量入库和 artifact；permission notification 记录、审计事件、Web 状态展示和失败重试可用 |
 | qwen SSE adapter | `done` | raw event -> canonical event 映射稳定，并保存 raw events |
 | Last-Event-ID reconnect | `done` | 客户端重连可按 sequence 追事件 |
 | event gap detection | `done` | gap 写入 `event.gap_detected` |
@@ -133,7 +133,7 @@ P2 当前判断：
 
 - 当前实现满足单实例云端 MVP 的审计、恢复和回放要求。
 - SQLite 是 MVP 的 durable event store；迁移到 Postgres 的条件是多控制面实例、跨机器 worker lease 或高并发写入。
-- Permission Service 当前完成“决策入库/入 artifact/入 SSE audit trail”；超时自动 deny/cancel 会放入 P3/P6 的任务生命周期治理。
+- Permission Service 当前完成“决策入库/入 artifact/入 SSE audit trail”，并支持 `log`/`webhook` 通知记录与重试；专用飞书/邮件/企业微信 adapter 属于后续 channel 扩展。
 - Artifact Collector 当前覆盖 run_spec、input、canonical events、raw events、diagnostics、final；stdout/stderr 类 worker 日志将在独立 sandbox worker 引入后扩展。
 
 硬性规则：

@@ -22,6 +22,7 @@ from .models import (
     MissionState,
     MissionTask,
     ExecutorLease,
+    PermissionNotification,
     RunJob,
     RunSpec,
     RunState,
@@ -45,6 +46,7 @@ class RunStore:
         self._access_projects: dict[str, AccessProject] = {}
         self._api_tokens: dict[str, ApiToken] = {}
         self._auth_users: dict[str, AuthUser] = {}
+        self._permission_notifications: dict[str, PermissionNotification] = {}
         self._missions: dict[str, MissionState] = {}
         self._mission_tasks: dict[str, list[MissionTask]] = {}
         self._mission_events: dict[str, list[MissionEvent]] = {}
@@ -874,6 +876,61 @@ class RunStore:
             self._db.commit()
             return cursor.rowcount > 0
 
+    def create_permission_notification(
+        self,
+        notification: PermissionNotification,
+    ) -> PermissionNotification:
+        with self._lock:
+            self._require_run(notification.run_id)
+            self._permission_notifications[notification.notification_id] = notification
+            self._persist_permission_notification(notification)
+            return notification
+
+    def update_permission_notification(
+        self,
+        notification: PermissionNotification,
+    ) -> PermissionNotification:
+        with self._lock:
+            if notification.notification_id not in self._permission_notifications:
+                raise KeyError(notification.notification_id)
+            self._permission_notifications[notification.notification_id] = notification
+            self._persist_permission_notification(notification)
+            return notification
+
+    def list_permission_notifications(
+        self,
+        run_id: str | None = None,
+        permission_id: str | None = None,
+        status: str | None = None,
+    ) -> list[PermissionNotification]:
+        with self._lock:
+            notifications = list(self._permission_notifications.values())
+            if run_id is not None:
+                notifications = [
+                    notification
+                    for notification in notifications
+                    if notification.run_id == run_id
+                ]
+            if permission_id is not None:
+                notifications = [
+                    notification
+                    for notification in notifications
+                    if notification.permission_id == permission_id
+                ]
+            if status is not None:
+                notifications = [
+                    notification
+                    for notification in notifications
+                    if notification.status == status
+                ]
+            return sorted(
+                notifications,
+                key=lambda notification: (
+                    notification.created_at,
+                    notification.notification_id,
+                ),
+            )
+
     def update_status(self, run_id: str, status: str) -> None:
         with self._lock:
             run = self._require_run(run_id)
@@ -1237,6 +1294,23 @@ class RunStore:
               user_agent text,
               ip_address text
             );
+            create table if not exists permission_notifications (
+              notification_id text primary key,
+              run_id text not null,
+              permission_id text not null,
+              channel text not null,
+              target text not null,
+              status text not null,
+              attempts integer not null,
+              message text not null,
+              action_url text not null,
+              delivery_ref text,
+              error text,
+              metadata_json text not null,
+              created_at text not null,
+              updated_at text not null,
+              sent_at text
+            );
             create table if not exists agent_profiles (
               profile_id text not null,
               version integer not null,
@@ -1419,6 +1493,28 @@ class RunStore:
                     updated_at=row["updated_at"],
                     last_login_at=row["last_login_at"],
                     metadata=json.loads(row["metadata_json"]),
+                )
+            for row in self._db.execute(
+                "select * from permission_notifications order by created_at"
+            ):
+                self._permission_notifications[row["notification_id"]] = (
+                    PermissionNotification(
+                        notification_id=row["notification_id"],
+                        run_id=row["run_id"],
+                        permission_id=row["permission_id"],
+                        channel=row["channel"],
+                        target=row["target"],
+                        status=row["status"],
+                        attempts=row["attempts"],
+                        message=row["message"],
+                        action_url=row["action_url"],
+                        delivery_ref=row["delivery_ref"],
+                        error=row["error"],
+                        metadata=json.loads(row["metadata_json"]),
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        sent_at=row["sent_at"],
+                    )
                 )
             for row in self._db.execute("select * from missions order by created_at"):
                 spec = MissionSpec.from_payload(json.loads(row["spec_json"]))
@@ -1729,6 +1825,48 @@ class RunStore:
                 session.last_seen_at,
                 session.user_agent,
                 session.ip_address,
+            ),
+        )
+        self._db.commit()
+
+    def _persist_permission_notification(
+        self,
+        notification: PermissionNotification,
+    ) -> None:
+        self._db.execute(
+            """
+            insert into permission_notifications(
+              notification_id, run_id, permission_id, channel, target, status,
+              attempts, message, action_url, delivery_ref, error, metadata_json,
+              created_at, updated_at, sent_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(notification_id) do update set
+              status=excluded.status,
+              attempts=excluded.attempts,
+              message=excluded.message,
+              action_url=excluded.action_url,
+              delivery_ref=excluded.delivery_ref,
+              error=excluded.error,
+              metadata_json=excluded.metadata_json,
+              updated_at=excluded.updated_at,
+              sent_at=excluded.sent_at
+            """,
+            (
+                notification.notification_id,
+                notification.run_id,
+                notification.permission_id,
+                notification.channel,
+                notification.target,
+                notification.status,
+                notification.attempts,
+                notification.message,
+                notification.action_url,
+                notification.delivery_ref,
+                notification.error,
+                json.dumps(notification.metadata, ensure_ascii=False, sort_keys=True),
+                notification.created_at,
+                notification.updated_at,
+                notification.sent_at,
             ),
         )
         self._db.commit()

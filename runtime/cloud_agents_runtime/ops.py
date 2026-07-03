@@ -56,6 +56,10 @@ class OperationsManager:
         mission_statuses = count_by(mission.status for mission in missions)
         pending_permissions = 0
         stalled_permissions = 0
+        permission_notifications = count_by(
+            notification.status
+            for notification in self.store.list_permission_notifications()
+        )
         failure_kinds: dict[str, int] = {}
         terminal_latencies: list[float] = []
         for run in runs:
@@ -86,6 +90,7 @@ class OperationsManager:
             "permissions": {
                 "pending": pending_permissions,
                 "stalled": stalled_permissions,
+                "notifications": permission_notifications,
             },
             "failures": {"by_reason": failure_kinds},
             "latency_seconds": latency_summary(terminal_latencies),

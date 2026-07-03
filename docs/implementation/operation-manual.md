@@ -338,10 +338,35 @@ curl -s https://doubaofans.site/cloud-agents/missions \
 处理方式：
 
 1. 打开 Run Detail。
-2. 在 Runner Chat 或 Permission 区域查看请求内容。
+2. 在 Agent Chat 或 Permission 区域查看请求内容。
 3. 选择 approve 或 deny。
 4. 填写 reason。
 5. 提交后会产生 `permission.resolved` 事件。
+
+Permission 区域会同时展示通知状态：
+
+- `log:sent`：已写入 AgentFlow 事件流，说明中心控制面已经感知到权限请求。
+- `webhook:sent`：已投递到配置的外部 webhook。
+- `webhook:failed`：外部通知失败，可点击“重试通知”。
+- 暂无通知记录：通常表示旧 run、通知功能未启用或该 permission request 还没被 manager 处理。
+
+通知 channel 通过环境变量配置：
+
+```text
+RUN_MANAGER_PUBLIC_BASE_URL=https://doubaofans.site/cloud-agents
+RUN_MANAGER_PERMISSION_NOTIFY_CHANNELS=log,webhook
+RUN_MANAGER_PERMISSION_NOTIFY_TARGETS=operator
+RUN_MANAGER_PERMISSION_WEBHOOK_URL=https://example.com/agentflow/permission
+RUN_MANAGER_PERMISSION_WEBHOOK_TOKEN=replace-with-channel-token
+RUN_MANAGER_PERMISSION_WEBHOOK_TIMEOUT_SECONDS=5
+```
+
+当前内置 channel：
+
+| Channel | 说明 |
+| --- | --- |
+| `log` | 默认启用，写事件和审计，不依赖外部网络 |
+| `webhook` | POST 标准 JSON 到外部系统，可接飞书/企业微信/邮件服务的中转层 |
 
 如果长时间未处理：
 
@@ -352,6 +377,27 @@ curl -s https://doubaofans.site/cloud-agents/missions \
 ```text
 RUN_MANAGER_PERMISSION_STALL_SECONDS=300
 RUN_MANAGER_PERMISSION_STALL_ACTION=audit
+```
+
+API 排查通知状态：
+
+```bash
+RUN_MANAGER_TOKEN="$(awk -F= '$1=="RUN_MANAGER_TOKEN"{print substr($0,index($0,"=")+1)}' \
+  /etc/cloud-agents-runtime.env)"
+
+curl -sS \
+  -H "authorization: Bearer $RUN_MANAGER_TOKEN" \
+  https://doubaofans.site/cloud-agents/runs/<run_id>/permission-notifications | jq
+```
+
+API 重试某个 permission 的失败通知：
+
+```bash
+curl -sS -X POST \
+  -H "authorization: Bearer $RUN_MANAGER_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"reason":"manual retry"}' \
+  https://doubaofans.site/cloud-agents/runs/<run_id>/permissions/<permission_id>/notifications/retry | jq
 ```
 
 ## 6. 下载日志和审计材料
@@ -524,6 +570,8 @@ journalctl -u cloud-agents-worker -n 120 --no-pager
 - `GET /workers/<worker_id>/control`：worker 下行控制面，包含 cancel 和 permission resolution。
 - `POST /runs/<run_id>/cancel`：远程 run 会记录 `run.cancel_requested`，由 worker 拉取后执行。
 - `POST /runs/<run_id>/permissions/<permission_id>`：远程 run 会记录 `permission.resolve_requested`，由 worker 拉取后转发给 adapter。
+- `GET /runs/<run_id>/permission-notifications`：查看权限通知投递记录。
+- `POST /runs/<run_id>/permissions/<permission_id>/notifications/retry`：重试失败的权限通知。
 
 ## 9. 验收流程
 

@@ -81,6 +81,7 @@ import {
   type ExecutorLease,
   type MissionEvent,
   type MissionState,
+  type PermissionNotification,
   type RuntimeEvent,
   type RunState,
   type WorkerInfo,
@@ -1514,12 +1515,39 @@ function PermissionPanel({
         option_id: decision,
         reason: "resolved from web console",
       }),
-    onSuccess: async () =>
-      queryClient.invalidateQueries({ queryKey: ["runs", runId, "events"] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["runs", runId, "events"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["runs", runId, "permission-notifications"],
+      });
+    },
+  });
+  const notifications = useQuery({
+    queryKey: ["runs", runId, "permission-notifications"],
+    queryFn: () => runtimeApi.permissionNotifications(runId),
+    enabled: pending.length > 0,
+    refetchInterval: pending.length > 0 ? 5000 : false,
+  });
+  const retryNotifications = useMutation({
+    mutationFn: (permissionId: string) =>
+      runtimeApi.retryPermissionNotifications(runId, permissionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["runs", runId, "permission-notifications"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["runs", runId, "events"],
+      });
+    },
   });
   if (!pending.length) {
     return null;
   }
+  const notificationsByPermission = groupPermissionNotifications(
+    notifications.data?.notifications ?? [],
+  );
   return (
     <Card className="border-warning/40">
       <CardHeader>
@@ -1557,10 +1585,79 @@ function PermissionPanel({
                 </Button>
               ))}
             </div>
+            <PermissionNotificationStatus
+              notifications={
+                notificationsByPermission.get(request.permission_id) ?? []
+              }
+              isRetrying={retryNotifications.isPending}
+              onRetry={() => retryNotifications.mutate(request.permission_id)}
+            />
           </div>
         ))}
       </CardBody>
     </Card>
+  );
+}
+
+function PermissionNotificationStatus({
+  notifications,
+  isRetrying,
+  onRetry,
+}: {
+  notifications: PermissionNotification[];
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useI18n();
+  const hasFailure = notifications.some(
+    (notification) => notification.status === "failed",
+  );
+  return (
+    <div className="mt-3 rounded-md bg-muted/50 p-2 text-xs">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium text-muted-foreground">
+          {t("runs.notificationStatus")}
+        </span>
+        {hasFailure ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={onRetry}
+            disabled={isRetrying}
+          >
+            <RefreshCw className="size-3.5" />
+            {t("runs.notificationRetry")}
+          </Button>
+        ) : null}
+      </div>
+      {notifications.length ? (
+        <div className="flex flex-wrap gap-2">
+          {notifications.map((notification) => (
+            <Badge
+              key={notification.notification_id}
+              tone={permissionNotificationTone(notification.status)}
+            >
+              {notification.channel}:{notification.status}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <div className="text-muted-foreground">
+          {t("runs.notificationNone")}
+        </div>
+      )}
+      {notifications
+        .filter((notification) => notification.error)
+        .map((notification) => (
+          <div
+            key={`${notification.notification_id}-error`}
+            className="mt-2 break-words text-destructive"
+          >
+            {notification.error}
+          </div>
+        ))}
+    </div>
   );
 }
 
@@ -2956,6 +3053,29 @@ function statusLine(statuses?: Record<string, number>) {
     .map(([status, count]) => `${status} ${count}`)
     .join(" / ");
   return text || "none";
+}
+
+function groupPermissionNotifications(notifications: PermissionNotification[]) {
+  const grouped = new Map<string, PermissionNotification[]>();
+  for (const notification of notifications) {
+    const current = grouped.get(notification.permission_id) ?? [];
+    current.push(notification);
+    grouped.set(notification.permission_id, current);
+  }
+  return grouped;
+}
+
+function permissionNotificationTone(status: string) {
+  if (status === "sent") {
+    return "ok";
+  }
+  if (status === "failed") {
+    return "bad";
+  }
+  if (status === "queued") {
+    return "warn";
+  }
+  return "neutral";
 }
 
 function formatBytes(value: number) {

@@ -95,6 +95,9 @@ def make_handler(
             if path == "/workers":
                 self.write_json({"workers": manager.queue_status()["workers"]})
                 return
+            if len(parts) == 2 and parts[0] == "permissions" and parts[1] == "notifications":
+                self.write_json({"notifications": manager.list_permission_notifications()})
+                return
             if len(parts) == 2 and parts[0] == "workers":
                 worker_id = unquote(parts[1])
                 for worker in manager.queue_status()["workers"]:
@@ -282,6 +285,19 @@ def make_handler(
                 return
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "events":
                 self.stream_events(parts[1])
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "runs"
+                and parts[2] == "permission-notifications"
+            ):
+                self.write_json(
+                    {
+                        "notifications": manager.list_permission_notifications(
+                            run_id=parts[1],
+                        )
+                    }
+                )
                 return
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "events.json":
                 try:
@@ -482,6 +498,19 @@ def make_handler(
                     manager.cancel(parts[1], payload.get("reason"))
                     self.write_json(
                         {"cancelled": True, "run_id": parts[1]},
+                        status=HTTPStatus.ACCEPTED,
+                    )
+                    return
+                if (
+                    len(parts) == 6
+                    and parts[0] == "runs"
+                    and parts[2] == "permissions"
+                    and parts[4] == "notifications"
+                    and parts[5] == "retry"
+                ):
+                    notifications = manager.retry_permission_notifications(parts[1], parts[3])
+                    self.write_json(
+                        {"notifications": notifications},
                         status=HTTPStatus.ACCEPTED,
                     )
                     return
@@ -859,6 +888,8 @@ def required_scope_for(method: str, path: str) -> str | None:
         return "access:read" if method == "GET" else "access:write"
     if parts[0] == "workers":
         return "workers:read" if method == "GET" else "workers:write"
+    if parts[0] == "permissions":
+        return "permissions:read" if method == "GET" else "permissions:resolve"
     if parts[0] == "access":
         return "access:read" if method == "GET" else "access:write"
     if parts[0] in {"ops", "cleanup"}:
@@ -875,6 +906,8 @@ def required_scope_for(method: str, path: str) -> str | None:
         if method == "GET":
             if len(parts) >= 3 and parts[2] == "artifacts":
                 return "artifacts:read"
+            if len(parts) >= 3 and parts[2] == "permission-notifications":
+                return "permissions:read"
             if len(parts) >= 3 and parts[2] in {"events", "events.json", "audit.json"}:
                 return "events:read"
             return "runs:read"

@@ -53,6 +53,24 @@ export interface PermissionRequest {
   raw?: Record<string, unknown>;
 }
 
+export interface PermissionNotification {
+  notification_id: string;
+  run_id: string;
+  permission_id: string;
+  channel: string;
+  target: string;
+  status: string;
+  attempts: number;
+  message: string;
+  action_url: string;
+  delivery_ref?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface WorkerInfo {
   worker_id: string;
   status: string;
@@ -147,7 +165,11 @@ export interface Metrics {
     active_workers: number;
     stale_workers: number;
   };
-  permissions: { pending: number; stalled: number };
+  permissions: {
+    pending: number;
+    stalled: number;
+    notifications?: Record<string, number>;
+  };
   latency_seconds: { count: number; avg: number | null; p95: number | null };
 }
 
@@ -348,6 +370,10 @@ export const runtimeApi = {
     api<{ artifacts: ArtifactInfo[] }>(`runs/${runId}/artifacts`),
   runAudit: (runId: string) =>
     api<Record<string, unknown>>(`runs/${runId}/audit.json`),
+  permissionNotifications: (runId: string) =>
+    api<{ notifications: PermissionNotification[] }>(
+      `runs/${runId}/permission-notifications`,
+    ),
   createRun: (payload: Partial<RunSpec>) =>
     api<RunState>("runs", { method: "POST", body: JSON.stringify(payload) }),
   submitRunInput: (runId: string, prompt: string) =>
@@ -369,6 +395,14 @@ export const runtimeApi = {
       method: "POST",
       body: JSON.stringify({ decided_by: "web-console", ...payload }),
     }),
+  retryPermissionNotifications: (runId: string, permissionId: string) =>
+    api<{ notifications: PermissionNotification[] }>(
+      `runs/${runId}/permissions/${permissionId}/notifications/retry`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "retry from web console" }),
+      },
+    ),
   missions: () => api<{ missions: MissionState[] }>("missions"),
   mission: (missionId: string) => api<MissionState>(`missions/${missionId}`),
   missionEvents: (missionId: string) =>

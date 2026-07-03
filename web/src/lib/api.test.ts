@@ -87,6 +87,8 @@ describe("api helpers", () => {
     await runtimeApi.executors();
     await runtimeApi.costStatus();
     await runtimeApi.runAudit("run_1");
+    await runtimeApi.permissionNotifications("run_1");
+    await runtimeApi.retryPermissionNotifications("run_1", "perm_1");
     await runtimeApi.cancelRun("run_1");
     await runtimeApi.mission("mission_1");
     await runtimeApi.missionEvents("mission_1");
@@ -118,6 +120,8 @@ describe("api helpers", () => {
       "/executors",
       "/cost/status",
       "/runs/run_1/audit.json",
+      "/runs/run_1/permission-notifications",
+      "/runs/run_1/permissions/perm_1/notifications/retry",
       "/runs/run_1/cancel",
       "/missions/mission_1",
       "/missions/mission_1/events.json",
@@ -134,19 +138,25 @@ describe("api helpers", () => {
       "/access/tokens/token_1/revoke",
       "/missions",
     ]);
-    expect(calls[1][1]?.method).toBe("POST");
-    expect(calls[2][1]?.method).toBe("POST");
-    expect(calls[4][1]?.method).toBe("POST");
-    expect(calls[5][1]?.method).toBe("POST");
-    expect(calls[6][1]?.method).toBe("POST");
-    expect(calls[11][1]?.method).toBe("POST");
-    expect(calls[15][1]?.method).toBe("POST");
-    expect(calls[16][1]?.method).toBe("POST");
-    expect(calls[18][1]?.method).toBe("POST");
-    expect(calls[21][1]?.method).toBe("POST");
-    expect(calls[23][1]?.method).toBe("POST");
-    expect(calls[24][1]?.method).toBe("POST");
-    expect(calls[25][1]?.method).toBe("POST");
+    const methods = new Map(calls.map(([path, init]) => [path, init?.method]));
+    expect(methods.get("/auth/login")).toBe("POST");
+    expect(methods.get("/auth/logout")).toBe("POST");
+    expect(methods.get("/workers/worker%201/drain")).toBe("POST");
+    expect(methods.get("/workers/worker%201/resume")).toBe("POST");
+    expect(methods.get("/workers/worker%201/retry")).toBe("POST");
+    expect(
+      methods.get("/runs/run_1/permissions/perm_1/notifications/retry"),
+    ).toBe("POST");
+    expect(methods.get("/runs/run_1/cancel")).toBe("POST");
+    expect(methods.get("/missions/mission_1/cancel")).toBe("POST");
+    expect(methods.get("/missions/mission_1/review-gate/override")).toBe(
+      "POST",
+    );
+    expect(methods.get("/profiles")).toBe("POST");
+    expect(methods.get("/access/projects")).toBe("POST");
+    expect(methods.get("/access/tokens")).toBe("POST");
+    expect(methods.get("/access/tokens/token_1/revoke")).toBe("POST");
+    expect(methods.get("/missions")).toBe("POST");
   });
 
   it("surfaces API errors", async () => {

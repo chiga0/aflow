@@ -269,6 +269,51 @@ class ExecutorLease:
 
 
 @dataclass
+class PermissionNotification:
+    notification_id: str
+    run_id: str
+    permission_id: str
+    channel: str
+    target: str
+    status: str = "queued"
+    attempts: int = 0
+    message: str = ""
+    action_url: str = ""
+    delivery_ref: str | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
+    sent_at: str | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        run_id: str,
+        permission_id: str,
+        channel: str,
+        target: str,
+        message: str,
+        action_url: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> "PermissionNotification":
+        return cls(
+            notification_id=f"pnotif_{uuid4().hex}",
+            run_id=run_id,
+            permission_id=permission_id,
+            channel=clean_channel(channel),
+            target=clean_notification_target(target),
+            message=message,
+            action_url=action_url,
+            metadata=metadata or {},
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class AccessProject:
     project_id: str
     display_name: str
@@ -412,3 +457,24 @@ def clean_principal_id(value: Any) -> str:
     if len(principal) > 200 or any(character < " " for character in principal):
         raise ValueError("principal id is invalid")
     return principal
+
+
+def clean_channel(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("channel is required")
+    channel = value.strip().lower()
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789_-")
+    if any(character not in allowed for character in channel):
+        raise ValueError(
+            "channel may only contain lowercase letters, numbers, underscore, or hyphen"
+        )
+    return channel
+
+
+def clean_notification_target(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("notification target is required")
+    target = value.strip()
+    if len(target) > 240 or any(character < " " for character in target):
+        raise ValueError("notification target is invalid")
+    return target

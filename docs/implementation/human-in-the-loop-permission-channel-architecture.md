@@ -15,13 +15,20 @@ AgentFlow 现在已经具备基础的人类介入闭环：
    - 远程 worker run：先写 `permission.resolve_requested`，worker 轮询 `/workers/{worker_id}/control` 后在本机调用 adapter `resolve_permission`，再回传 `permission.resolved`。
 6. 若超过 `RUN_MANAGER_PERMISSION_STALL_SECONDS` 未处理，会产生 `permission.stalled`；根据 `RUN_MANAGER_PERMISSION_STALL_ACTION` 可以只审计、自动 deny 或 cancel。
 
+已实现的通知能力：
+
+- `permission.requested` 会生成 `PermissionNotification` 记录。
+- 默认 `log` channel 会把通知写入事件流，产生 `permission.notification.queued` 和 `permission.notification.sent`。
+- 可配置 `webhook` channel，把权限请求投递到自定义 HTTP endpoint。
+- Run Detail 的 Permission 区域展示每个 permission 的通知状态，失败时可一键重试。
+- Audit bundle 包含 `permission_notifications`，便于回放“是否通知过、通知到哪里、失败原因是什么”。
+
 当前缺口：
 
-- 没有外部通知 channel。
+- 邮件、飞书、企业微信、微信服务号、Slack、Teams、钉钉等还没有专用 channel adapter。
 - 没有审批人路由策略。
 - 没有 mobile-first approval 页面。
 - 没有多审批人、升级、值班和 quorum。
-- 没有通知投递状态和失败重试。
 - Web 里审批按钮还没有展示完整风险摘要。
 
 ## 目标架构
@@ -274,9 +281,10 @@ IM/Email/Web -> Runtime Permission API -> canonical event
 ### P1：通知但不直接审批
 
 - 新增 `PermissionNotification` 记录和事件。
-- 发送邮件/飞书/企业微信群通知。
+- 默认写入 `log` channel；可选 `webhook` channel 投递到外部系统。
 - 消息内只放“打开 AgentFlow 审批页”的链接。
 - Web 审批仍是唯一决策入口。
+- Run Detail 可查看投递状态并重试失败通知。
 
 收益：低风险，最快解决“没人知道卡在权限”的问题。
 

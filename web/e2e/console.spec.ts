@@ -33,6 +33,8 @@ test("manages runs, permissions, profiles, and operations", async ({
   await navigate(page, /Runs/);
   await page.getByText("run_1").click();
   await expect(page.getByText("Permission Requests")).toBeVisible();
+  await expect(page.getByText("log:sent")).toBeVisible();
+  await expect(page.getByText("webhook:failed")).toBeVisible();
   await expect(page.getByText("Agent Chat")).toBeVisible();
   await expect(page.getByText("Agent output #1")).toBeVisible();
   await expect(
@@ -42,6 +44,7 @@ test("manages runs, permissions, profiles, and operations", async ({
   ).toBeVisible();
   await page.getByLabel("Continue chat").fill("Please continue");
   await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Retry notification" }).click();
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("final-report.md")).toBeVisible();
 
@@ -248,6 +251,44 @@ async function mockRuntime(
         },
       ],
     },
+    "runs/run_1/permission-notifications": {
+      notifications: [
+        {
+          notification_id: "notif_log",
+          run_id: "run_1",
+          permission_id: "perm_1",
+          channel: "log",
+          target: "operator",
+          status: "sent",
+          attempts: 1,
+          message: "Permission requested",
+          action_url: "/#/runs/run_1",
+          delivery_ref: "event-log",
+          error: null,
+          created_at: now,
+          updated_at: now,
+          sent_at: now,
+          metadata: {},
+        },
+        {
+          notification_id: "notif_webhook",
+          run_id: "run_1",
+          permission_id: "perm_1",
+          channel: "webhook",
+          target: "operator",
+          status: "failed",
+          attempts: 1,
+          message: "Permission requested",
+          action_url: "/#/runs/run_1",
+          delivery_ref: null,
+          error: "webhook unreachable",
+          created_at: now,
+          updated_at: now,
+          sent_at: null,
+          metadata: {},
+        },
+      ],
+    },
     "runs/run_1/artifacts": {
       artifacts: [{ name: "final-report.md", size_bytes: 42, updated_at: now }],
     },
@@ -322,9 +363,15 @@ async function mockRuntime(
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\//, "");
     if (request.method() === "POST" && path === "auth/login") {
-      const body = request.postDataJSON() as { email?: string; password?: string };
+      const body = request.postDataJSON() as {
+        email?: string;
+        password?: string;
+      };
       if (body.email !== "owner@example.com" || body.password !== "secret") {
-        await route.fulfill({ json: { error: "invalid credentials" }, status: 401 });
+        await route.fulfill({
+          json: { error: "invalid credentials" },
+          status: 401,
+        });
         return;
       }
       authenticated = true;
@@ -392,6 +439,16 @@ async function mockRuntime(
     if (request.method() === "POST" && path.includes("/resume")) {
       workers[0] = { ...workers[0], status: "active" };
       await route.fulfill({ json: { worker: workers[0], control: {} } });
+      return;
+    }
+    if (
+      request.method() === "POST" &&
+      path.includes("/permissions/") &&
+      path.endsWith("/notifications/retry")
+    ) {
+      await route.fulfill({
+        json: fixtures["runs/run_1/permission-notifications"],
+      });
       return;
     }
     if (request.method() === "POST" && path.includes("/retry")) {

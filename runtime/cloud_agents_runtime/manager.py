@@ -18,6 +18,7 @@ from .events import RuntimeEvent, TERMINAL_RUN_EVENTS
 from .executors import ExecutorConfig, ExecutorRegistry
 from .missions import MissionManager
 from .models import RunSpec, RunState
+from .notifications import PermissionNotifier
 from .ops import BetaOpsConfig, OperationsManager
 from .resources import ResourceLimitConfig, ResourcePolicyResolver
 from .store import RunStore
@@ -52,6 +53,7 @@ class RunManager:
         self.cleanup_manager = CleanupManager(self.store, cleanup_policy)
         self.ops = OperationsManager(self.store, ops_config)
         self.cost = CostManager(self.store, budget_config)
+        self.permission_notifier = PermissionNotifier()
         self.access = AccessManager(
             self.store,
             os.environ.get("RUN_MANAGER_DEFAULT_PRINCIPAL") or "single-tenant-operator",
@@ -133,6 +135,7 @@ class RunManager:
                 "run_cancel",
                 "artifact_files",
                 "permission_resolution",
+                "permission_notification_gateway",
                 "durable_event_store",
                 "run_replay",
                 "event_gap_detection",
@@ -177,6 +180,7 @@ class RunManager:
             "cleanup_policy": self.cleanup_manager.policy.to_dict(),
             "ops_policy": self.ops.config.to_dict(),
             "cost_policy": self.cost.config.to_dict(),
+            "permission_notification_policy": self.permission_notifier.config.to_dict(),
             "executor_registry": self.executor_registry.capabilities(),
             "permission_stall_policy": {
                 "seconds": self.permission_stall_seconds,
@@ -607,6 +611,10 @@ class RunManager:
             "run": run.to_dict(),
             "events": [event.to_dict() for event in self.store.events_since(run_id)],
             "raw_events": self.store.raw_events(run_id),
+            "permission_notifications": [
+                notification.to_dict()
+                for notification in self.store.list_permission_notifications(run_id=run_id)
+            ],
             "artifacts": self.store.list_artifacts(run_id),
             "queue": self.queue_status(),
             "executor": executor.to_dict() if executor else None,
@@ -620,6 +628,55 @@ class RunManager:
     def get_profile(self, profile_id: str) -> dict[str, Any] | None:
         profile = self.store.get_profile(profile_id)
         return profile.to_dict() if profile else None
+
+    def list_permission_notifications(
+        self,
+        run_id: str | None = None,
+        permission_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if run_id is not None:
+            self._require_run(run_id)
+        return [
+            notification.to_dict()
+            for notification in self.store.list_permission_notifications(
+                run_id=run_id,
+                permission_id=permission_id,
+            )
+        ]
+
+    def retry_permission_notifications(
+        self,
+        run_id: str,
+        permission_id: str,
+    ) -> list[dict[str, Any]]:
+        run = self._require_run(run_id)
+        request_event = latest_permission_request(
+            self.store.events_since(run_id),
+            permission_id,
+        )
+        if request_event is None:
+            raise ValueError("permission request not found")
+        notifications = self.store.list_permission_notifications(
+            run_id=run_id,
+            permission_id=permission_id,
+        )
+        if not notifications:
+            self._notify_permission_request(request_event)
+            notifications = self.store.list_permission_notifications(
+                run_id=run_id,
+                permission_id=permission_id,
+            )
+        for notification in notifications:
+            if notification.status == "sent":
+                continue
+            self._deliver_permission_notification(notification, run, request_event)
+        return [
+            notification.to_dict()
+            for notification in self.store.list_permission_notifications(
+                run_id=run_id,
+                permission_id=permission_id,
+            )
+        ]
 
     def create_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.missions.create_profile(payload).to_dict()
@@ -781,6 +838,7 @@ class RunManager:
     def _on_event(self, event: RuntimeEvent) -> None:
         self.missions.handle_run_event(event)
         if event.type == "permission.requested":
+            self._notify_permission_request(event)
             self._start_permission_watchdog(event)
         if event.type in TERMINAL_RUN_EVENTS:
             self._drain_queue()
@@ -789,6 +847,60 @@ class RunManager:
             mission_id = metadata.get("mission_id")
             if isinstance(mission_id, str):
                 self.missions.drain_mission(mission_id)
+
+    def _notify_permission_request(self, event: RuntimeEvent) -> None:
+        permission_id = permission_id_from_event(event)
+        run = self.store.get_run(event.run_id)
+        if not permission_id or run is None:
+            return
+        existing = self.store.list_permission_notifications(
+            run_id=event.run_id,
+            permission_id=permission_id,
+        )
+        if any(
+            notification.metadata.get("event_id") == event.id
+            for notification in existing
+        ):
+            return
+        for notification in self.permission_notifier.notifications_for(
+            run=run,
+            permission_id=permission_id,
+            event=event,
+        ):
+            self.store.create_permission_notification(notification)
+            self.store.append_event(
+                event.run_id,
+                "permission.notification.queued",
+                notification_event_data(notification),
+            )
+            self._deliver_permission_notification(notification, run, event)
+
+    def _deliver_permission_notification(
+        self,
+        notification: Any,
+        run: RunState,
+        event: RuntimeEvent,
+    ) -> None:
+        result = self.permission_notifier.deliver(notification, run=run, event=event)
+        now = utc_timestamp()
+        notification.attempts += 1
+        notification.status = result.status
+        notification.delivery_ref = result.delivery_ref
+        notification.error = result.error
+        notification.updated_at = now
+        if result.status == "sent":
+            notification.sent_at = now
+        self.store.update_permission_notification(notification)
+        self.store.append_event(
+            notification.run_id,
+            f"permission.notification.{result.status}",
+            {
+                **notification_event_data(notification),
+                "delivery_ref": notification.delivery_ref,
+                "error": notification.error,
+                "attempts": notification.attempts,
+            },
+        )
 
     def _start_permission_watchdog(self, event: RuntimeEvent) -> None:
         permission_id = permission_id_from_event(event)
@@ -1005,6 +1117,30 @@ def permission_id_from_event(event: RuntimeEvent) -> str | None:
             if isinstance(request_id, str) and request_id:
                 return request_id
     return None
+
+
+def latest_permission_request(
+    events: list[RuntimeEvent],
+    permission_id: str,
+) -> RuntimeEvent | None:
+    matches = [
+        event
+        for event in events
+        if event.type == "permission.requested"
+        and permission_id_from_event(event) == permission_id
+    ]
+    return matches[-1] if matches else None
+
+
+def notification_event_data(notification: Any) -> dict[str, Any]:
+    return {
+        "notification_id": notification.notification_id,
+        "permission_id": notification.permission_id,
+        "channel": notification.channel,
+        "target": notification.target,
+        "status": notification.status,
+        "action_url": notification.action_url,
+    }
 
 
 def latest_event(events: list[RuntimeEvent], event_type: str) -> RuntimeEvent | None:

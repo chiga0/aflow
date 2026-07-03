@@ -176,6 +176,46 @@ class RunManagerTest(unittest.TestCase):
             finally:
                 manager.shutdown()
 
+    def test_permission_notifications_are_audited_and_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = RunManager(
+                Path(tmp),
+                adapters={"permission": PermissionRequestAdapter()},
+            )
+            try:
+                run = manager.create_run(
+                    RunSpec(prompt="needs approval", adapter="permission")
+                )
+                self.wait_for_event(
+                    manager,
+                    run.run_id,
+                    "permission.notification.sent",
+                )
+
+                notifications = manager.list_permission_notifications(
+                    run.run_id,
+                    "perm-test",
+                )
+                self.assertEqual(len(notifications), 1)
+                self.assertEqual(notifications[0]["channel"], "log")
+                self.assertEqual(notifications[0]["status"], "sent")
+                self.assertEqual(notifications[0]["attempts"], 1)
+
+                retried = manager.retry_permission_notifications(
+                    run.run_id,
+                    "perm-test",
+                )
+                self.assertEqual(retried[0]["status"], "sent")
+                self.assertEqual(retried[0]["attempts"], 1)
+
+                audit = manager.run_audit_bundle(run.run_id)
+                self.assertEqual(
+                    audit["permission_notifications"][0]["notification_id"],
+                    notifications[0]["notification_id"],
+                )
+            finally:
+                manager.shutdown()
+
     def test_queue_respects_worker_capacity_and_releases_next_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunManager(
@@ -1800,6 +1840,37 @@ class HangingAdapter(RuntimeAdapter):
 
     def cancel(self, run, reason: str | None, store) -> None:
         self.cancelled.append(run.run_id)
+        store.append_event(
+            run.run_id,
+            "run.cancelled",
+            {"adapter": self.name, "reason": reason or "cancelled"},
+        )
+
+
+class PermissionRequestAdapter(RuntimeAdapter):
+    name = "permission"
+
+    def capabilities(self) -> dict[str, object]:
+        return {"name": self.name, "features": ["permission"]}
+
+    def start(self, run, store) -> None:
+        store.set_adapter_run_id(run.run_id, f"permission_{run.run_id}")
+        store.append_event(run.run_id, "run.started", {"adapter": self.name})
+
+    def send_input(self, run, prompt: str, store) -> None:
+        store.increment_prompt_count(run.run_id)
+        store.append_event(
+            run.run_id,
+            "permission.requested",
+            {
+                "permission_id": "perm-test",
+                "prompt": "Allow test command?",
+                "tool": "shell",
+                "options": [{"id": "approve", "label": "Approve"}],
+            },
+        )
+
+    def cancel(self, run, reason: str | None, store) -> None:
         store.append_event(
             run.run_id,
             "run.cancelled",

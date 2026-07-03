@@ -223,6 +223,44 @@ const fixtures: Record<string, unknown> = {
   runs: { runs: [run] },
   "runs/run_1": run,
   "runs/run_1/events.json": { events },
+  "runs/run_1/permission-notifications": {
+    notifications: [
+      {
+        notification_id: "notif_log",
+        run_id: "run_1",
+        permission_id: "perm_1",
+        channel: "log",
+        target: "operator",
+        status: "sent",
+        attempts: 1,
+        message: "Permission requested",
+        action_url: "/#/runs/run_1",
+        delivery_ref: "event-log",
+        error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sent_at: new Date().toISOString(),
+        metadata: {},
+      },
+      {
+        notification_id: "notif_webhook",
+        run_id: "run_1",
+        permission_id: "perm_1",
+        channel: "webhook",
+        target: "operator",
+        status: "failed",
+        attempts: 1,
+        message: "Permission requested",
+        action_url: "/#/runs/run_1",
+        delivery_ref: null,
+        error: "webhook unreachable",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sent_at: null,
+        metadata: {},
+      },
+    ],
+  },
   "runs/run_1/artifacts": {
     artifacts: [
       {
@@ -489,6 +527,9 @@ describe("AgentFlow console", () => {
     await switchToEnglish(user);
 
     expect(await screen.findByText("Permission Requests")).toBeInTheDocument();
+    expect(await screen.findByText("log:sent")).toBeInTheDocument();
+    expect(screen.getByText("webhook:failed")).toBeInTheDocument();
+    expect(screen.getByText("webhook unreachable")).toBeInTheDocument();
     expect(await screen.findByText("Agent Chat")).toBeInTheDocument();
     expect(
       screen.getByText("Inspecting live runner state."),
@@ -513,6 +554,15 @@ describe("AgentFlow console", () => {
       ),
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Retry notification" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/runs/run_1/permissions/perm_1/notifications/retry",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() =>
@@ -1166,6 +1216,13 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
       worker: { ...workerFixtures.workers[0], status: "active" },
       control: {},
     });
+  }
+  if (
+    init?.method === "POST" &&
+    path.includes("/permissions/") &&
+    path.endsWith("/notifications/retry")
+  ) {
+    return jsonResponse(fixtures["runs/run_1/permission-notifications"]);
   }
   if (init?.method === "POST" && path.endsWith("/retry")) {
     return jsonResponse({
