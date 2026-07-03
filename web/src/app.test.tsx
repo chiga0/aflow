@@ -451,6 +451,7 @@ describe("AgentFlow console", () => {
     await user.clear(screen.getByLabelText("Timeout seconds"));
     await user.type(screen.getByLabelText("Timeout seconds"), "900");
     await user.click(screen.getByRole("button", { name: /start/i }));
+    expect(screen.getByRole("button", { name: /submitting/i })).toBeDisabled();
 
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -461,6 +462,8 @@ describe("AgentFlow console", () => {
         }),
       ),
     );
+    expect(await screen.findByText("run_created")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
   });
 
   it("resolves a run permission and exposes artifact downloads", async () => {
@@ -1032,7 +1035,19 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
     return jsonResponse({ authenticated: false });
   }
   if (init?.method === "POST" && path === "runs") {
+    await new Promise((resolve) => setTimeout(resolve, 10));
     return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
+  }
+  if (path === "runs/run_created") {
+    return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
+  }
+  if (path === "runs/run_created/events.json") {
+    return jsonResponse({
+      events: events.map((item) => ({ ...item, run_id: "run_created" })),
+    });
+  }
+  if (path === "runs/run_created/artifacts") {
+    return jsonResponse({ artifacts: [] });
   }
   if (init?.method === "POST" && path === "missions") {
     return jsonResponse({ ...mission, mission_id: "mission_created" });

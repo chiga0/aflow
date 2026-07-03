@@ -947,10 +947,24 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
   const [error, setError] = useState<string | null>(null);
   const createRun = useMutation({
     mutationFn: runtimeApi.createRun,
-    onSuccess: async () => {
+    onSuccess: async (run) => {
       setError(null);
-      await queryClient.invalidateQueries({ queryKey: ["runs"] });
-      await queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      queryClient.setQueryData<{ runs: RunState[] }>(["runs"], (current) => {
+        if (!current) {
+          return { runs: [run] };
+        }
+        const withoutCreated = current.runs.filter(
+          (item) => item.run_id !== run.run_id,
+        );
+        return { runs: [run, ...withoutCreated] };
+      });
+      queryClient.setQueryData(["runs", run.run_id], run);
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      await router.navigate({
+        to: "/runs/$runId",
+        params: { runId: run.run_id },
+      });
     },
     onError: (err) => setError(String(err)),
   });
@@ -1061,7 +1075,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
             variant="primary"
           >
             <Play className="h-4 w-4" />
-            {t("common.start")}
+            {createRun.isPending ? t("runs.submitting") : t("common.start")}
           </Button>
         </form>
       </CardBody>
