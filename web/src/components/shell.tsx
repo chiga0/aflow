@@ -201,7 +201,11 @@ export function LanguageToggle() {
 
 function ActiveRunDock() {
   const { t } = useI18n();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(max-width: 640px)").matches
+      : false,
+  );
   const runs = useQuery({
     queryKey: ["runs"],
     queryFn: runtimeApi.runs,
