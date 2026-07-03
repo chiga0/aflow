@@ -98,11 +98,18 @@ const zh = {
   "live.lastEvent": "最新事件",
   "live.noRecentEvent":
     "最近没有收到 runner 事件。你可以查看原始事件、下载审计包，或取消/重试该运行。",
+  "live.currentState": "当前状态",
+  "live.evidence": "证据",
+  "live.nextAction": "下一步",
   "live.permissionAction": "需要人工确认",
   "live.permissionCommand": "命令",
   "live.permissionCwd": "目录",
+  "live.permissionPanelDetail":
+    "Runner 正在等待你确认这次工具调用。决策会写入审计包；提交后远程 worker 可能还需要几秒应用。",
   "live.permissionPayload": "下载请求",
   "live.permissionRisk": "风险",
+  "live.permissionSubmitted": "决策已提交，等待 runner 应用。",
+  "live.permissionSubmitting": "正在提交决策...",
   "live.permissionTool": "工具",
   "live.permissions": "权限",
   "live.runnerSignal": "Runner 信号",
@@ -122,6 +129,7 @@ const zh = {
   "live.stallWorkerStale":
     "接管该运行的 worker 心跳已失联，建议重试该 worker 上的运行。",
   "live.subtitle": "实时流会在这里追加步骤、消息、权限请求和终态事件。",
+  "live.taskProgress": "Run 工作台",
   "live.title": "Agent 实时对话",
   "live.waiting": "等待 runner 输出",
   "live.warnings": "告警",
@@ -362,11 +370,19 @@ const en: Record<keyof typeof zh, string> = {
   "live.lastEvent": "Last event",
   "live.noRecentEvent":
     "No runner event has arrived recently. You can inspect raw events, download the audit bundle, or cancel/retry the run.",
+  "live.currentState": "Current state",
+  "live.evidence": "Evidence",
+  "live.nextAction": "Next action",
   "live.permissionAction": "Human approval required",
   "live.permissionCommand": "Command",
   "live.permissionCwd": "Directory",
+  "live.permissionPanelDetail":
+    "The runner is paused before this tool call. Your decision is written to the audit bundle; remote workers may need a few seconds to apply it.",
   "live.permissionPayload": "Download request",
   "live.permissionRisk": "Risk",
+  "live.permissionSubmitted":
+    "Decision submitted; waiting for the runner to apply it.",
+  "live.permissionSubmitting": "Submitting decision...",
   "live.permissionTool": "Tool",
   "live.permissions": "Permissions",
   "live.runnerSignal": "Runner signal",
@@ -390,6 +406,7 @@ const en: Record<keyof typeof zh, string> = {
     "The worker that claimed this run has a stale heartbeat. Retry or migrate runs from that worker.",
   "live.subtitle":
     "The live stream will append steps, messages, permission requests, and terminal state here.",
+  "live.taskProgress": "Run workspace",
   "live.title": "Agent Chat",
   "live.waiting": "Waiting for runner output",
   "live.warnings": "Warnings",

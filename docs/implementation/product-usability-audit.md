@@ -178,3 +178,85 @@ flowchart LR
 ```
 
 控制面负责调度、状态、审计和 Web；2C2G VPS 只负责 capacity=1 的执行单元，或者只做公网反向代理。
+
+## 第四轮多视角体验审计与修复
+
+> 日期：2026-07-03
+> 方法：并行从 6 个角色视角审计 Web 控制台，包括第一次使用者、真实开发者、SRE、企业审批人/安全负责人、移动端用户、文档学习者。
+
+### 汇总结论
+
+各角色结论高度一致：AgentFlow 的底层能力已经覆盖 run、worker、executor、permission、artifact、audit、notification、monitor，但 Run Detail 仍像内部事件仪表盘，而不是用户完成一件任务的工作台。核心缺口不是“没有事件”，而是用户看不到实时模型输出、看不懂当前卡点、点权限按钮后不知道是否生效。
+
+本轮产品判断：
+
+1. Run Detail 必须变成“单次任务工作台”，首屏先回答目标、状态、下一步和证据。
+2. Agent 输出必须像 Chat 一样连续可读；空 `message.delta` 不能生成空气泡。
+3. 工具调用、权限请求、控制面事件要进入同一条时间线，但原始 JSON 只能作为排障材料。
+4. 权限审批必须固定在主视图首屏，按钮点击后必须显示提交状态。
+5. Qwen 原生 optionId 不能直接当 Runtime decision 发送；应发送标准 `approve|deny|cancel`，同时保留原始 `option_id`。
+
+### 角色审计发现
+
+| 视角 | P0/P1 发现 | 产品含义 |
+| ---- | ---------- | -------- |
+| 第一次使用者 | 权限请求在下方，任务看起来无故卡住；输出区只出现 `message.delta` 小卡片 | 用户需要“当前需要你做什么”，不是事件名称 |
+| 真实开发者 | Qwen `proceed_once/cancel` 被前端当成 `decision` 发送，后端只接受 `approve/deny/cancel` | 这是权限按钮“点了没效果”的直接技术原因 |
+| SRE/运维 | Run 卡住判断没有统一诊断链；按钮缺少 request accepted / waiting worker / applied 反馈 | 长任务需要可解释状态机 |
+| 企业审批人 | 无法证明谁批了、批了什么范围、常驻授权是否可撤销；风险摘要不足 | 当前是 HITL 基础闭环，还不是完整企业审批台 |
+| 移动端用户 | Run Detail 因未定义 helper 崩溃；聊天区过高，权限与状态不在首屏 | 移动端主链路必须先保证不崩和首屏 CTA |
+| 文档学习者 | Mission/Run/Worker/Unit/Executor/Profile 混译，页面缺少概念入口 | UI 文案要用稳定术语，空状态要解释下一步 |
+
+### 本轮已完成修复
+
+1. Run Detail 新增 `Run 工作台`：
+   - 展示本次目标、当前阶段、下一步动作、证据事件。
+   - 区分执行中、排队中、等待权限审批、等待 worker 应用审批、已完成、失败、已取消。
+   - 当出现权限请求时，首屏明确提示“Runner 已暂停在需要人工确认的操作前”。
+
+2. 权限审批改为首屏阻塞卡：
+   - `Permission Requests` 卡片移到实时对话上方。
+   - 展示 permission id、工具名、命令、工作目录、通知状态和通知重试。
+   - 点击后显示“正在提交决策”或错误信息。
+   - 成功后本地立即隐藏待审批卡，等待事件流确认。
+
+3. 修复 Qwen option 映射：
+   - `proceed_once`、`proceed_always_project`、`proceed_always_user` 等 option 统一发送 `decision=approve` + `option_id=<原始 optionId>`。
+   - `cancel/reject/deny` 类 option 统一发送 `decision=cancel` + `option_id=<原始 optionId>`。
+   - 前端不再把 Qwen optionId 直接作为 Runtime decision。
+
+4. 实时输出可读性修复：
+   - 空 `message.delta` 不再生成空 Agent 气泡。
+   - Qwen `agent_message_chunk` 聚合为连续 Agent 输出。
+   - Qwen `tool_call/tool_call_update` 展示工具名、状态、命令、目录、输入和输出摘要。
+   - Qwen `agent_thought_chunk` 只展示“模型正在分析并准备下一步”的进展提示，不展示内部思考文本。
+   - `permission.resolve_requested`、notification、cost、event gap、executor failure 等控制面事件进入可读时间线。
+
+5. 测试补强：
+   - 覆盖 Run 工作台首屏文案。
+   - 覆盖 Qwen optionId 到标准 Runtime decision 的映射。
+   - 覆盖空 SSE delta、Qwen message chunk、tool update、thought chunk、permission resolve requested。
+   - 覆盖 Run 工作台状态判断：排队、待审批、等待 worker 应用、完成、失败、取消。
+   - Web 单测覆盖率保持 90%+ 全局阈值。
+
+### 仍需后续治理
+
+这些问题不是本轮 UI 修复能完全闭环，但已明确为后续产品/架构事项：
+
+1. 审批身份：`decided_by` 仍需从真实 session/API token principal 注入，不能只由前端填写。
+2. 常驻授权：`Always Allow` 需要平台级授权记录、过期时间、撤销入口和二次确认。
+3. 审批应用确认：远程 worker 应在应用权限后追加 `permission.applied`，UI 才能明确区分 submitted/resolved/applied。
+4. 通知闭环：log/webhook sent 不等于人已阅读，后续需要 delivered/viewed/clicked/callback_rejected。
+5. 概念文案：Mission、Run、Worker、Unit、Executor、Profile、Permission、Artifact、Audit Bundle 需要全站稳定术语。
+6. 移动端：需要继续把 Run Detail 的右侧信息折叠成移动端分组，并补充无横向滚动、Dock 不遮挡、触控尺寸的 E2E。
+
+### 验收标准
+
+本轮修复后的 Run Detail 至少应满足：
+
+1. 用户进入单个 Run 页面，首屏能看到任务目标、当前阶段、下一步操作和最新证据。
+2. 如果 Run 等待权限，首屏必须出现审批卡，按钮点击后有提交中、失败或等待应用反馈。
+3. Qwen 权限按钮不再 400；审计请求体同时包含标准 decision 和原始 optionId。
+4. 模型流式输出以连续文本出现；空 delta 不产生空白卡片。
+5. 工具调用以可读摘要出现，原始 JSON 保留为排障材料。
+6. 刷新页面后，已提交或已解决的权限请求不会继续显示为常驻待处理按钮。

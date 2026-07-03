@@ -1164,10 +1164,11 @@ function RunDetailPage() {
           <LiveRunnerPanel
             connectionStatus={live.status}
             events={live.events}
+            artifacts={artifacts.data?.artifacts ?? []}
+            run={run.data}
             runId={runId}
             runStatus={run.data?.status}
           />
-          <PermissionPanel runId={runId} events={live.events} />
           <EventList events={live.events} />
         </div>
         <div className="grid content-start gap-4">
@@ -1251,9 +1252,18 @@ const liveEventTypes = [
   "adapter.event",
   "stream.warning",
   "permission.requested",
+  "permission.notification.queued",
+  "permission.notification.sent",
+  "permission.notification.failed",
+  "permission.resolve_requested",
+  "permission.resolve_failed",
   "permission.resolved",
   "permission.stalled",
   "step.completed",
+  "cost.quoted",
+  "executor.failed",
+  "event.gap_detected",
+  "run.cancel_requested",
   "run.completed",
   "run.failed",
   "run.cancelled",
@@ -1319,13 +1329,17 @@ function useRunLiveEvents(
 }
 
 function LiveRunnerPanel({
+  artifacts,
   connectionStatus,
   events,
+  run,
   runId,
   runStatus,
 }: {
+  artifacts: ArtifactInfo[];
   connectionStatus: LiveConnectionStatus;
   events: RuntimeEvent[];
+  run?: RunState;
   runId: string;
   runStatus?: string;
 }) {
@@ -1352,6 +1366,8 @@ function LiveRunnerPanel({
     workers.data?.workers ?? [],
   );
   const resolvedPermissions = resolvedPermissionIds(events);
+  const pendingPermissions = pendingPermissionRequests(events);
+  const taskProgress = runTaskProgress(run, events, artifacts);
   const ended = isTerminal(runStatus);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const submitInput = useMutation({
@@ -1405,6 +1421,8 @@ function LiveRunnerPanel({
         </Badge>
       </CardHeader>
       <CardBody className="grid gap-4">
+        <TaskProgressPanel progress={taskProgress} />
+        <InlinePermissionPanel pending={pendingPermissions} runId={runId} />
         <div className="grid gap-3 md:grid-cols-4">
           <Metric
             label={t("live.runStatus")}
@@ -1455,7 +1473,7 @@ function LiveRunnerPanel({
         ) : null}
         <div
           ref={scrollRef}
-          className="grid min-h-[420px] max-h-[min(68vh,760px)] gap-3 overflow-auto rounded-md border border-border bg-muted/40 p-3"
+          className="grid min-h-[420px] max-h-[min(68vh,760px)] content-start gap-3 overflow-auto rounded-md border border-border bg-muted/40 p-3"
         >
           {filteredTranscript.map((item) => (
             <RunnerBubble
@@ -1527,6 +1545,60 @@ type RunnerTranscriptItem = {
 
 type RunnerFilter = "all" | "agent" | "permission" | "warning" | "error";
 
+type PermissionDecisionPayload = {
+  decision: "approve" | "deny" | "cancel";
+  option_id?: string;
+  reason: string;
+};
+
+type TaskProgress = {
+  goal: string;
+  phase: string;
+  status: string;
+  nextAction: string;
+  tone: "neutral" | "ok" | "warn" | "bad" | "info";
+  evidence: string;
+};
+
+function TaskProgressPanel({ progress }: { progress: TaskProgress }) {
+  const { t } = useI18n();
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t("live.taskProgress")}
+          </div>
+          <div className="mt-1 break-words text-base font-semibold">
+            {progress.goal}
+          </div>
+        </div>
+        <Badge tone={progress.tone}>{progress.phase}</Badge>
+      </div>
+      <div className="grid gap-2 md:grid-cols-3">
+        <div className="rounded-md bg-muted/50 p-3">
+          <div className="text-xs text-muted-foreground">
+            {t("live.currentState")}
+          </div>
+          <div className="mt-1 font-medium">{progress.status}</div>
+        </div>
+        <div className="rounded-md bg-muted/50 p-3">
+          <div className="text-xs text-muted-foreground">
+            {t("live.nextAction")}
+          </div>
+          <div className="mt-1 font-medium">{progress.nextAction}</div>
+        </div>
+        <div className="rounded-md bg-muted/50 p-3">
+          <div className="text-xs text-muted-foreground">
+            {t("live.evidence")}
+          </div>
+          <div className="mt-1 font-medium">{progress.evidence}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RunnerBubble({
   item,
   resolvedPermissions,
@@ -1538,22 +1610,34 @@ function RunnerBubble({
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [submittedPermissionId, setSubmittedPermissionId] = useState<
+    string | null
+  >(null);
   const permission = item.permissionRequest;
   const isPendingPermission =
-    permission && !resolvedPermissions?.has(permission.permission_id);
+    permission &&
+    !resolvedPermissions?.has(permission.permission_id) &&
+    submittedPermissionId !== permission.permission_id;
   const permissionContext = permission ? permissionContextRows(permission) : [];
   const resolve = useMutation({
-    mutationFn: ({ id, decision }: { id: string; decision: string }) => {
+    mutationFn: ({
+      id,
+      option,
+    }: {
+      id: string;
+      option: NonNullable<PermissionRequest["options"]>[number];
+    }) => {
       if (!runId) {
         throw new Error("run id is required");
       }
-      return runtimeApi.resolvePermission(runId, id, {
-        decision,
-        option_id: decision,
-        reason: "resolved from Agent Chat action bubble",
-      });
+      return runtimeApi.resolvePermission(
+        runId,
+        id,
+        permissionDecisionPayload(option, "resolved from Agent Chat"),
+      );
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
+      setSubmittedPermissionId(variables.id);
       if (!runId) {
         return;
       }
@@ -1610,15 +1694,21 @@ function RunnerBubble({
                   key={option.id}
                   disabled={resolve.isPending}
                   size="sm"
-                  variant={option.id === "deny" ? "danger" : "primary"}
+                  variant={
+                    permissionDecisionForOption(option) === "cancel"
+                      ? "danger"
+                      : option.id.toLowerCase().includes("always")
+                        ? "secondary"
+                        : "primary"
+                  }
                   onClick={() =>
                     resolve.mutate({
                       id: permission.permission_id,
-                      decision: option.id,
+                      option,
                     })
                   }
                 >
-                  {option.label || option.id}
+                  {permissionOptionLabel(option)}
                 </Button>
               ))}
               <Button
@@ -1636,6 +1726,16 @@ function RunnerBubble({
                 {t("live.permissionPayload")}
               </Button>
             </div>
+            {resolve.isSuccess ? (
+              <div className="text-xs text-muted-foreground">
+                {t("live.permissionSubmitted")}
+              </div>
+            ) : null}
+            {resolve.isError ? (
+              <div className="text-xs text-destructive">
+                {String(resolve.error)}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <div className="mt-2 font-mono text-xs opacity-60">
@@ -1646,30 +1746,36 @@ function RunnerBubble({
   );
 }
 
-function PermissionPanel({
+function InlinePermissionPanel({
   runId,
-  events,
+  pending,
 }: {
   runId: string;
-  events: RuntimeEvent[];
+  pending: PermissionRequest[];
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const resolved = resolvedPermissionIds(events);
-  const pending = events
-    .map(extractPermissionRequest)
-    .filter((request): request is NonNullable<typeof request> =>
-      Boolean(request),
-    )
-    .filter((request) => !resolved.has(request.permission_id));
+  const [submittedIds, setSubmittedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const visiblePending = pending.filter(
+    (request) => !submittedIds.has(request.permission_id),
+  );
   const resolve = useMutation({
-    mutationFn: ({ id, decision }: { id: string; decision: string }) =>
-      runtimeApi.resolvePermission(runId, id, {
-        decision,
-        option_id: decision,
-        reason: "resolved from web console",
-      }),
-    onSuccess: async () => {
+    mutationFn: ({
+      id,
+      option,
+    }: {
+      id: string;
+      option: NonNullable<PermissionRequest["options"]>[number];
+    }) =>
+      runtimeApi.resolvePermission(
+        runId,
+        id,
+        permissionDecisionPayload(option, "resolved from web console"),
+      ),
+    onSuccess: async (_result, variables) => {
+      setSubmittedIds((current) => new Set(current).add(variables.id));
       await queryClient.invalidateQueries({
         queryKey: ["runs", runId, "events"],
       });
@@ -1681,8 +1787,8 @@ function PermissionPanel({
   const notifications = useQuery({
     queryKey: ["runs", runId, "permission-notifications"],
     queryFn: () => runtimeApi.permissionNotifications(runId),
-    enabled: pending.length > 0,
-    refetchInterval: pending.length > 0 ? 5000 : false,
+    enabled: visiblePending.length > 0,
+    refetchInterval: visiblePending.length > 0 ? 5000 : false,
   });
   const retryNotifications = useMutation({
     mutationFn: (permissionId: string) =>
@@ -1696,7 +1802,7 @@ function PermissionPanel({
       });
     },
   });
-  if (!pending.length) {
+  if (!visiblePending.length) {
     return null;
   }
   const notificationsByPermission = groupPermissionNotifications(
@@ -1705,19 +1811,39 @@ function PermissionPanel({
   return (
     <Card className="border-warning/40">
       <CardHeader>
-        <CardTitle>{t("runs.permissionRequests")}</CardTitle>
+        <div>
+          <CardTitle>{t("runs.permissionRequests")}</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("live.permissionPanelDetail")}
+          </p>
+        </div>
         <Badge tone="warn">
-          {pending.length} {t("runs.permissionPending")}
+          {visiblePending.length} {t("runs.permissionPending")}
         </Badge>
       </CardHeader>
       <CardBody className="grid gap-3">
-        {pending.map((request) => (
+        {visiblePending.map((request) => (
           <div
             key={request.permission_id}
             className="rounded-md border border-border p-3"
           >
             <div className="font-medium">
               {request.prompt || request.tool || request.permission_id}
+            </div>
+            <div className="mt-2 grid gap-1 text-sm text-muted-foreground">
+              <div>
+                {t("common.token")}: {request.permission_id}
+              </div>
+              {request.tool ? (
+                <div>
+                  {t("live.permissionTool")}: {request.tool}
+                </div>
+              ) : null}
+              {permissionContextRows(request).map((row) => (
+                <div key={row.label}>
+                  {t(row.label)}: {row.value}
+                </div>
+              ))}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {(request.options?.length
@@ -1726,19 +1852,36 @@ function PermissionPanel({
               ).map((option) => (
                 <Button
                   key={option.id}
+                  disabled={resolve.isPending}
                   size="sm"
-                  variant={option.id === "deny" ? "danger" : "primary"}
+                  variant={
+                    permissionDecisionForOption(option) === "cancel"
+                      ? "danger"
+                      : option.id.toLowerCase().includes("always")
+                        ? "secondary"
+                        : "primary"
+                  }
                   onClick={() =>
                     resolve.mutate({
                       id: request.permission_id,
-                      decision: option.id,
+                      option,
                     })
                   }
                 >
-                  {option.label || option.id}
+                  {permissionOptionLabel(option)}
                 </Button>
               ))}
             </div>
+            {resolve.isPending ? (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {t("live.permissionSubmitting")}
+              </div>
+            ) : null}
+            {resolve.isError ? (
+              <div className="mt-2 text-sm text-destructive">
+                {String(resolve.error)}
+              </div>
+            ) : null}
             <PermissionNotificationStatus
               notifications={
                 notificationsByPermission.get(request.permission_id) ?? []
@@ -3388,9 +3531,181 @@ function mergeEvents(current: RuntimeEvent[], incoming: RuntimeEvent[]) {
   return merged;
 }
 
+function pendingPermissionRequests(events: RuntimeEvent[]) {
+  const resolved = resolvedPermissionIds(events);
+  const submitted = permissionResolveRequestedIds(events);
+  const seen = new Set<string>();
+  return events
+    .map(extractPermissionRequest)
+    .filter((request): request is PermissionRequest => Boolean(request))
+    .filter((request) => {
+      if (
+        seen.has(request.permission_id) ||
+        resolved.has(request.permission_id) ||
+        submitted.has(request.permission_id)
+      ) {
+        return false;
+      }
+      seen.add(request.permission_id);
+      return true;
+    });
+}
+
+function permissionResolveRequestedIds(events: RuntimeEvent[]) {
+  const submitted = new Set<string>();
+  for (const event of events) {
+    if (event.type !== "permission.resolve_requested") {
+      continue;
+    }
+    const permissionId =
+      stringValue(event.data.permission_id) ??
+      stringValue(event.data.request_id) ??
+      stringValue(event.data.requestId);
+    if (permissionId) {
+      submitted.add(permissionId);
+    }
+  }
+  return submitted;
+}
+
+function permissionDecisionForOption(
+  option: NonNullable<PermissionRequest["options"]>[number],
+): PermissionDecisionPayload["decision"] {
+  const value = `${option.id} ${option.label ?? ""}`.toLowerCase();
+  if (
+    value.includes("cancel") ||
+    value.includes("reject") ||
+    value.includes("deny")
+  ) {
+    return "cancel";
+  }
+  return "approve";
+}
+
+function permissionDecisionPayload(
+  option: NonNullable<PermissionRequest["options"]>[number],
+  reason: string,
+): PermissionDecisionPayload {
+  return {
+    decision: permissionDecisionForOption(option),
+    option_id: option.id,
+    reason,
+  };
+}
+
+function permissionOptionLabel(
+  option: NonNullable<PermissionRequest["options"]>[number],
+) {
+  const decision = permissionDecisionForOption(option);
+  if (option.label) {
+    return option.label;
+  }
+  if (decision === "cancel") {
+    return "Reject";
+  }
+  return option.id === "approve" ? "Approve" : option.id;
+}
+
+function runTaskProgress(
+  run: RunState | undefined,
+  events: RuntimeEvent[],
+  artifacts: ArtifactInfo[],
+): TaskProgress {
+  const latest = events.at(-1);
+  const pending = pendingPermissionRequests(events);
+  const submitted = permissionResolveRequestedIds(events);
+  const resolved = resolvedPermissionIds(events);
+  const goal =
+    run?.spec.prompt?.trim() ||
+    stringValue(
+      events.find((event) => event.type === "input.accepted")?.data
+        .prompt_preview,
+    ) ||
+    "Run request";
+  const evidence = latest
+    ? `${latest.type} #${latest.sequence}`
+    : run?.status
+      ? `run.${run.status}`
+      : "waiting";
+  if (pending.length) {
+    return {
+      goal,
+      phase: "等待权限审批",
+      status: "Runner 已暂停在需要人工确认的操作前。",
+      nextAction: "请在上方权限卡片批准或拒绝。",
+      tone: "warn",
+      evidence,
+    };
+  }
+  if (submitted.size > resolved.size) {
+    return {
+      goal,
+      phase: "等待执行单元应用审批",
+      status: "决策已写入控制面，正在等待 worker 拉取并应用。",
+      nextAction: "保持页面打开，稍后查看实时输出是否继续推进。",
+      tone: "info",
+      evidence,
+    };
+  }
+  if (run?.status === "queued" || latest?.type === "run.queued") {
+    return {
+      goal,
+      phase: "排队中",
+      status: "Run 已进入队列，正在等待可用执行单元。",
+      nextAction: "查看执行单元容量，或注册/恢复 worker。",
+      tone: "neutral",
+      evidence,
+    };
+  }
+  if (run?.status === "completed") {
+    const finalArtifact =
+      artifacts.find((artifact) => artifact.name.includes("final")) ??
+      artifacts.at(0);
+    return {
+      goal,
+      phase: "已完成",
+      status: "Runner 已完成本次执行。",
+      nextAction: finalArtifact
+        ? `查看产物 ${finalArtifact.name} 或下载审计包。`
+        : "下载事件和审计包完成复盘。",
+      tone: "ok",
+      evidence,
+    };
+  }
+  if (run?.status === "failed" || latest?.type.endsWith(".failed")) {
+    return {
+      goal,
+      phase: "失败",
+      status: "执行器或适配器报告失败。",
+      nextAction: "查看错误事件、诊断信息和审计包后重试。",
+      tone: "bad",
+      evidence,
+    };
+  }
+  if (run?.status === "cancelled") {
+    return {
+      goal,
+      phase: "已取消",
+      status: "Run 已停止，不会再产生新的模型输出。",
+      nextAction: "如需继续，请创建新的 Run。",
+      tone: "warn",
+      evidence,
+    };
+  }
+  return {
+    goal,
+    phase: "执行中",
+    status: "Runner 正在接收模型、工具和控制面事件。",
+    nextAction: "关注下方实时对话；出现权限卡片时及时处理。",
+    tone: "ok",
+    evidence,
+  };
+}
+
 function runnerTranscript(events: RuntimeEvent[]): RunnerTranscriptItem[] {
   const items: RunnerTranscriptItem[] = [];
   const agentMessages = new Map<string, RunnerTranscriptItem>();
+  const progressMessages = new Map<string, RunnerTranscriptItem>();
 
   for (const event of events) {
     const adapterDelta = qwenMessageDeltaFromAdapterEvent(event);
@@ -3398,6 +3713,9 @@ function runnerTranscript(events: RuntimeEvent[]): RunnerTranscriptItem[] {
       const promptNumber = stringValue(event.data.prompt_number) ?? "current";
       const key = `agent-${promptNumber}`;
       const text = adapterDelta ?? stringValue(event.data.text) ?? "";
+      if (!text.trim()) {
+        continue;
+      }
       const existing = agentMessages.get(key);
       if (existing) {
         existing.body = `${existing.body}${text}`;
@@ -3415,6 +3733,29 @@ function runnerTranscript(events: RuntimeEvent[]): RunnerTranscriptItem[] {
           sequence: event.sequence,
         };
         agentMessages.set(key, item);
+        items.push(item);
+      }
+      continue;
+    }
+
+    if (isQwenThoughtEvent(event)) {
+      const promptNumber = stringValue(event.data.prompt_number) ?? "current";
+      const key = `agent-progress-${promptNumber}`;
+      const existing = progressMessages.get(key);
+      if (existing) {
+        existing.sequence = event.sequence;
+        existing.created_at = event.created_at;
+      } else {
+        const item: RunnerTranscriptItem = {
+          id: key,
+          role: "system",
+          title: "Agent progress",
+          body: "Model is analyzing the request and preparing the next action.",
+          created_at: event.created_at,
+          event_type: event.type,
+          sequence: event.sequence,
+        };
+        progressMessages.set(key, item);
         items.push(item);
       }
       continue;
@@ -3531,6 +3872,29 @@ function transcriptItemForEvent(
         title: "Permission resolved",
         body: `Decision: ${stringValue(event.data.decision) ?? "recorded"}`,
       };
+    case "permission.resolve_requested":
+      return {
+        ...base,
+        role: "system",
+        title: "Permission decision submitted",
+        body: "Decision was recorded in the control plane and is waiting for the worker to apply it.",
+      };
+    case "permission.resolve_failed":
+      return {
+        ...base,
+        role: "error",
+        title: "Permission decision failed",
+        body: compactJson(event.data),
+      };
+    case "permission.notification.queued":
+    case "permission.notification.sent":
+    case "permission.notification.failed":
+      return {
+        ...base,
+        role: event.type.endsWith(".failed") ? "warning" : "system",
+        title: "Permission notification",
+        body: compactJson(event.data),
+      };
     case "permission.stalled":
       return {
         ...base,
@@ -3555,6 +3919,34 @@ function transcriptItemForEvent(
         role: "warning",
         title: "Runner warning",
         body: compactJson(event.data),
+      };
+    case "run.cancel_requested":
+      return {
+        ...base,
+        role: "warning",
+        title: "Cancel requested",
+        body: "The control plane accepted the cancel request and is waiting for the runner to stop.",
+      };
+    case "event.gap_detected":
+      return {
+        ...base,
+        role: "warning",
+        title: "Event stream recovered",
+        body: compactJson(event.data),
+      };
+    case "cost.quoted":
+      return {
+        ...base,
+        role: "system",
+        title: "Cost budget checked",
+        body: compactJson(event.data),
+      };
+    case "executor.failed":
+      return {
+        ...base,
+        role: "error",
+        title: "Executor failed",
+        body: failureBody(event),
       };
     case "run.completed":
       return {
@@ -3604,22 +3996,33 @@ function permissionBody(event: RuntimeEvent) {
 function permissionContextRows(permission: PermissionRequest) {
   const raw = recordValue(permission.raw);
   const rawPayload = recordValue(raw?.payload) ?? recordValue(raw?.raw);
+  const qwenData = recordValue(rawPayload?.data);
+  const qwenToolCall = recordValue(qwenData?.toolCall);
+  const qwenRawInput = recordValue(qwenToolCall?.rawInput);
+  const qwenMeta = recordValue(qwenToolCall?._meta);
   const command =
     stringValue(raw?.command) ??
     stringValue(rawPayload?.command) ??
     stringValue(rawPayload?.cmd) ??
-    stringValue(rawPayload?.shell);
+    stringValue(rawPayload?.shell) ??
+    stringValue(qwenRawInput?.command);
   const cwd =
     stringValue(raw?.cwd) ??
     stringValue(rawPayload?.cwd) ??
-    stringValue(rawPayload?.workspace);
+    stringValue(rawPayload?.workspace) ??
+    stringValue(qwenRawInput?.cwd);
   const risk =
     stringValue(raw?.risk) ??
     stringValue(raw?.risk_level) ??
     stringValue(rawPayload?.risk) ??
     stringValue(rawPayload?.risk_level);
+  const tool =
+    permission.tool ??
+    stringValue(qwenMeta?.toolName) ??
+    stringValue(qwenToolCall?.tool);
   return [
     risk ? { label: "live.permissionRisk" as I18nKey, value: risk } : undefined,
+    tool ? { label: "live.permissionTool" as I18nKey, value: tool } : undefined,
     cwd ? { label: "live.permissionCwd" as I18nKey, value: cwd } : undefined,
     command
       ? {
@@ -3702,12 +4105,21 @@ function qwenAdapterEventBody(event: RuntimeEvent) {
   const meta = recordValue(update._meta);
   const title = stringValue(update.title) ?? stringValue(meta?.toolName);
   const status = stringValue(update.status);
-  const rawInput = update.rawInput ? compactJson(update.rawInput) : undefined;
-  const rawOutput = stringValue(update.rawOutput);
+  const rawInputRecord = recordValue(update.rawInput);
+  const rawInput = rawInputRecord ? compactJson(rawInputRecord) : undefined;
+  const command = rawInputRecord
+    ? (stringValue(rawInputRecord.command) ?? stringValue(rawInputRecord.cmd))
+    : undefined;
+  const cwd = rawInputRecord ? stringValue(rawInputRecord.cwd) : undefined;
+  const rawOutput =
+    stringValue(update.rawOutput) ??
+    (update.rawOutput ? compactJson(update.rawOutput) : undefined);
   const content = qwenContentText(update);
   return [
     title ?? "qwen tool event",
     status ? `status: ${status}` : undefined,
+    command ? `command: ${command}` : undefined,
+    cwd ? `cwd: ${cwd}` : undefined,
     rawInput ? `input: ${rawInput}` : undefined,
     rawOutput ? `output: ${rawOutput}` : undefined,
     content ? `content: ${content}` : undefined,
@@ -4260,6 +4672,7 @@ export const __testUtils = {
   runnerReadableReport,
   runnerSignal,
   runnerTranscript,
+  runTaskProgress,
   stringValue,
   toolEventBody,
   toolEventRole,
@@ -4268,7 +4681,11 @@ export const __testUtils = {
   workerResourceWarnings,
   latestRunOutput,
   missionChatItems,
+  pendingPermissionRequests,
+  permissionDecisionForOption,
+  permissionDecisionPayload,
   permissionContextRows,
+  permissionResolveRequestedIds,
   isTerminal,
   statusLine,
   timeAgo,

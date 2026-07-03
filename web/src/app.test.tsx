@@ -95,8 +95,8 @@ const events = [
       prompt: "Allow shell command?",
       tool: "shell",
       options: [
-        { id: "approve", label: "Approve" },
-        { id: "deny", label: "Deny" },
+        { id: "proceed_once", label: "Approve" },
+        { id: "cancel", label: "Reject" },
       ],
     },
   },
@@ -542,8 +542,11 @@ describe("AgentFlow console", () => {
     expect(screen.getByText("webhook:failed")).toBeInTheDocument();
     expect(screen.getByText("webhook unreachable")).toBeInTheDocument();
     expect(await screen.findByText("Agent Chat")).toBeInTheDocument();
+    expect(screen.getByText("Run workspace")).toBeInTheDocument();
+    expect(screen.getByText("Current state")).toBeInTheDocument();
+    expect(screen.getByText("Next action")).toBeInTheDocument();
     expect(screen.getByText("Human approval required")).toBeInTheDocument();
-    expect(screen.getByText(/Tool: shell/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Tool: shell/).length).toBeGreaterThan(0);
     expect(
       within(screen.getByRole("main")).getByText(
         "Inspecting live runner state.",
@@ -588,6 +591,13 @@ describe("AgentFlow console", () => {
           body: expect.stringContaining("approve"),
         }),
       ),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/runs/run_1/permissions/perm_1",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("proceed_once"),
+      }),
     );
   });
 
@@ -851,6 +861,7 @@ describe("AgentFlow console", () => {
       ),
       event("step.started", 8, { prompt_number: 1 }, now),
       event("step.submitted", 9, { prompt_number: 1 }, now),
+      event("message.delta", 9.5, { prompt_number: 1, text: "" }, now),
       event("message.delta", 10, { prompt_number: 1, text: "Hel" }, now),
       event("message.delta", 11, { prompt_number: 1, text: "lo" }, now),
       event(
@@ -860,12 +871,22 @@ describe("AgentFlow console", () => {
         now,
       ),
       event("permission.resolved", 13, { decision: "approve" }, now),
+      event(
+        "permission.resolve_requested",
+        13.5,
+        { permission_id: "perm_2", decision: "approve" },
+        now,
+      ),
       event("permission.stalled", 14, { permission_id: "perm_3" }, now),
+      event("permission.notification.sent", 14.5, { channel: "log" }, now),
+      event("cost.quoted", 14.6, { estimated_cost_usd: 0.01 }, now),
+      event("event.gap_detected", 14.7, { missed: 2 }, now),
       event("stream.warning", 15, { reason: "reconnect" }, now),
       event("step.completed", 16, { prompt_number: 1 }, now),
       event("run.completed", 17, { final_artifact: "final_1.json" }, now),
       event("run.failed", 18, { reason: "boom" }, now),
       event("run.cancelled", 19, { reason: "user" }, now),
+      event("executor.failed", 19.5, { reason: "executor boom" }, now),
       event("turn_error", 20, { raw: true }, now),
       event(
         "adapter.event",
@@ -918,6 +939,24 @@ describe("AgentFlow console", () => {
         },
         now,
       ),
+      event(
+        "adapter.event",
+        25,
+        {
+          adapter: "qwen",
+          raw: {
+            type: "session_update",
+            data: {
+              sessionId: "session_1",
+              update: {
+                sessionUpdate: "agent_thought_chunk",
+                content: { type: "text", text: "hidden internal text" },
+              },
+            },
+          },
+        },
+        now,
+      ),
     ];
 
     const transcript = __testUtils.runnerTranscript(liveEvents);
@@ -945,7 +984,21 @@ describe("AgentFlow console", () => {
     expect(transcript.map((item) => item.title)).toContain(
       "Permission required",
     );
+    expect(transcript.map((item) => item.title)).toContain(
+      "Permission decision submitted",
+    );
+    expect(transcript.map((item) => item.title)).toContain("Agent progress");
+    expect(transcript.map((item) => item.body).join("\n")).not.toContain(
+      "hidden internal text",
+    );
     expect(transcript.map((item) => item.title)).toContain("Run failed");
+    expect(transcript.map((item) => item.title)).toContain("Executor failed");
+    expect(transcript.map((item) => item.title)).toContain(
+      "Cost budget checked",
+    );
+    expect(transcript.map((item) => item.title)).toContain(
+      "Event stream recovered",
+    );
     expect(transcript.map((item) => item.title)).toContain("turn_error");
     expect(__testUtils.mergeEvents(liveEvents, [])).toBe(liveEvents);
     expect(__testUtils.mergeEvents(liveEvents, [liveEvents[0]])).toBe(
@@ -994,6 +1047,48 @@ describe("AgentFlow console", () => {
       "Runner Execution Report",
     );
     expect(__testUtils.copyProfile(plannerProfile).id).toBe("planner-copy");
+    expect(
+      __testUtils.pendingPermissionRequests([
+        event(
+          "permission.requested",
+          40,
+          { permission_id: "perm_pending" },
+          now,
+        ),
+      ]),
+    ).toHaveLength(1);
+    expect(
+      __testUtils.pendingPermissionRequests([
+        event(
+          "permission.requested",
+          41,
+          { permission_id: "perm_submitted" },
+          now,
+        ),
+        event(
+          "permission.resolve_requested",
+          42,
+          { permission_id: "perm_submitted" },
+          now,
+        ),
+      ]),
+    ).toHaveLength(0);
+    expect(
+      __testUtils.permissionDecisionPayload(
+        { id: "proceed_once", label: "Allow" },
+        "reason",
+      ),
+    ).toEqual({
+      decision: "approve",
+      option_id: "proceed_once",
+      reason: "reason",
+    });
+    expect(
+      __testUtils.permissionDecisionForOption({
+        id: "cancel",
+        label: "Reject",
+      }),
+    ).toBe("cancel");
     expect(__testUtils.compactJson(null)).toBe("");
     expect(__testUtils.compactJson({ ok: true })).toContain("ok");
     expect(__testUtils.emptyProfile().id).toBe("custom-profile");
@@ -1015,6 +1110,27 @@ describe("AgentFlow console", () => {
       ),
     ).toBe("error");
     expect(
+      __testUtils.toolEventRole(
+        event(
+          "adapter.event",
+          32.1,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  status: "failed",
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ),
+    ).toBe("error");
+    expect(
       __testUtils.runnerTranscript([event("run.completed", 33, {}, now)])[0]
         .body,
     ).toBe("The runner reached a terminal success state.");
@@ -1026,9 +1142,186 @@ describe("AgentFlow console", () => {
         event("adapter.event", 35, { name: "named-tool" }, now),
       ),
     ).toContain("named-tool");
+    expect(
+      __testUtils.toolEventBody(
+        event(
+          "adapter.event",
+          35.1,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "tool_call",
+                  status: "running",
+                  _meta: { toolName: "run_shell_command" },
+                  rawInput: {
+                    command: "pwd",
+                    cwd: "/workspace",
+                  },
+                  rawOutput: { stdout: "/workspace" },
+                  content: [
+                    { content: { text: "tool content" } },
+                    { content: { text: "" } },
+                  ],
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ),
+    ).toContain("command: pwd");
+    expect(
+      __testUtils.toolEventBody(
+        event(
+          "adapter.event",
+          35.2,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  rawInput: { cmd: "echo ok" },
+                  rawOutput: { stdout: "ok" },
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ),
+    ).toContain("command: echo ok");
+    expect(
+      __testUtils.toolEventBody(
+        event(
+          "adapter.event",
+          35.3,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { text: "not a tool" },
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ),
+    ).toBe("adapter event");
+    expect(
+      __testUtils.toolEventBody(
+        event(
+          "adapter.event",
+          35.4,
+          {
+            adapter: "qwen",
+            raw: {
+              type: "session_update",
+              data: {
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  title: "No input tool",
+                },
+              },
+            },
+          },
+          now,
+        ),
+      ),
+    ).toContain("No input tool");
     expect(__testUtils.toolEventBody(event("adapter.event", 36, {}, now))).toBe(
       "adapter event",
     );
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "queued" },
+        [event("run.queued", 37, {}, now)],
+        [],
+      ).phase,
+    ).toBe("排队中");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "completed" },
+        [event("run.completed", 38, {}, now)],
+        [
+          {
+            name: "final-report.md",
+            size_bytes: 12,
+            updated_at: now,
+          },
+        ],
+      ).phase,
+    ).toBe("已完成");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "failed" },
+        [event("executor.failed", 39, {}, now)],
+        [],
+      ).tone,
+    ).toBe("bad");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "running" },
+        [
+          event(
+            "permission.requested",
+            39.1,
+            { permission_id: "perm_wait" },
+            now,
+          ),
+        ],
+        [],
+      ).phase,
+    ).toBe("等待权限审批");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "running" },
+        [
+          event(
+            "permission.resolve_requested",
+            39.2,
+            { permission_id: "perm_wait" },
+            now,
+          ),
+        ],
+        [],
+      ).phase,
+    ).toBe("等待执行单元应用审批");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "cancelled" },
+        [event("run.cancelled", 39.3, {}, now)],
+        [],
+      ).phase,
+    ).toBe("已取消");
+    expect(
+      __testUtils.runTaskProgress(
+        undefined,
+        [
+          event(
+            "input.accepted",
+            39.4,
+            { prompt_preview: "fallback prompt" },
+            now,
+          ),
+        ],
+        [],
+      ).goal,
+    ).toBe("fallback prompt");
+    expect(
+      __testUtils.permissionDecisionForOption({
+        id: "deny_once",
+        label: "Deny",
+      }),
+    ).toBe("cancel");
     expect(__testUtils.statusLine({ running: 2 })).toBe("running 2");
     expect(__testUtils.stringValue(123)).toBe("123");
     expect(__testUtils.timeAgo(undefined)).toBe("-");
