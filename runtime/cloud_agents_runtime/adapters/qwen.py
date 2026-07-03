@@ -402,8 +402,9 @@ class QwenServeAdapter(RuntimeAdapter):
         qwen_type = payload.get("type") or event_name
         data = payload.get("data")
         if qwen_type == "session_update" and isinstance(data, dict):
-            session_update = data.get("sessionUpdate")
-            content = data.get("content")
+            update = qwen_session_update_payload(data)
+            session_update = update.get("sessionUpdate")
+            content = update.get("content")
             if session_update == "agent_message_chunk" and isinstance(content, dict):
                 text = str(content.get("text") or "")
                 with self._lock:
@@ -627,6 +628,13 @@ def parse_json_or_text(value: str) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return value
+
+
+def qwen_session_update_payload(data: dict[str, Any]) -> dict[str, Any]:
+    update = data.get("update")
+    if isinstance(update, dict):
+        return update
+    return data
 
 
 def parse_int(value: str | None) -> int | None:

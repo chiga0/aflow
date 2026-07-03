@@ -920,8 +920,14 @@ class FakeQwenHandler(BaseHTTPRequestHandler):
                     "v": 1,
                     "type": "session_update",
                     "data": {
-                        "sessionUpdate": "agent_message_chunk",
-                        "content": {"type": "text", "text": FakeQwenHandler.message_text},
+                        "sessionId": "session-1",
+                        "update": {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": {
+                                "type": "text",
+                                "text": FakeQwenHandler.message_text,
+                            },
+                        },
                     },
                 },
             )

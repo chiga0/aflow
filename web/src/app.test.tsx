@@ -852,6 +852,45 @@ describe("AgentFlow console", () => {
         { command: "npm lint", exit_code: 1, stderr: "lint failed" },
         now,
       ),
+      event(
+        "adapter.event",
+        23,
+        {
+          adapter: "qwen",
+          raw: {
+            type: "session_update",
+            data: {
+              sessionId: "session_1",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Qwen streamed output." },
+              },
+            },
+          },
+        },
+        now,
+      ),
+      event(
+        "adapter.event",
+        24,
+        {
+          adapter: "qwen",
+          raw: {
+            type: "session_update",
+            data: {
+              sessionId: "session_1",
+              update: {
+                sessionUpdate: "tool_call_update",
+                status: "completed",
+                title: "ListFiles: .",
+                rawInput: { path: "/workspace" },
+                rawOutput: "Directory is empty.",
+              },
+            },
+          },
+        },
+        now,
+      ),
     ];
 
     const transcript = __testUtils.runnerTranscript(liveEvents);
@@ -865,6 +904,17 @@ describe("AgentFlow console", () => {
     expect(
       transcript.find((item) => item.title === "Agent output #1")?.body,
     ).toBe("Hello");
+    expect(transcript.find((item) => item.title === "Agent output")?.body).toBe(
+      "Qwen streamed output.",
+    );
+    expect(transcript.map((item) => item.body)).toContain(
+      [
+        "ListFiles: .",
+        "status: completed",
+        'input: {\n  "path": "/workspace"\n}',
+        "output: Directory is empty.",
+      ].join("\n"),
+    );
     expect(transcript.map((item) => item.title)).toContain(
       "Permission required",
     );
@@ -883,7 +933,7 @@ describe("AgentFlow console", () => {
     expect(__testUtils.bubbleClass("error")).toContain("destructive");
     expect(__testUtils.filterLabel("warning")).toBe("Warnings");
     expect(__testUtils.filterTranscript(transcript, "all")).toBe(transcript);
-    expect(__testUtils.filterTranscript(transcript, "agent")).toHaveLength(1);
+    expect(__testUtils.filterTranscript(transcript, "agent")).toHaveLength(2);
     expect(
       __testUtils.filterTranscript(transcript, "permission").length,
     ).toBeGreaterThan(1);

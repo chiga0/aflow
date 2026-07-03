@@ -509,10 +509,14 @@ export function extractPermissionRequest(
   return {
     permission_id: rawId,
     prompt: stringValue(
-      event.data.prompt ?? nestedValue(event.data.raw, "data", "prompt"),
+      event.data.prompt ??
+        nestedValue(event.data.raw, "data", "prompt") ??
+        nestedValue(event.data.raw, "data", "toolCall", "title"),
     ),
     tool: stringValue(
-      event.data.tool ?? nestedValue(event.data.raw, "data", "tool"),
+      event.data.tool ??
+        nestedValue(event.data.raw, "data", "tool") ??
+        nestedValue(event.data.raw, "data", "toolCall", "_meta", "toolName"),
     ),
     options: Array.isArray(options)
       ? options
@@ -524,8 +528,9 @@ export function extractPermissionRequest(
             id:
               stringValue(option.id) ||
               stringValue(option.option_id) ||
+              stringValue(option.optionId) ||
               "approve",
-            label: stringValue(option.label),
+            label: stringValue(option.label) || stringValue(option.name),
             description: stringValue(option.description),
           }))
       : undefined,

@@ -32,6 +32,18 @@ describe("api helpers", () => {
       permission_id: "perm_fallback",
       options: [{}],
     });
+    const qwenShape = event("permission.requested", {
+      raw: {
+        data: {
+          requestId: "perm_qwen",
+          options: [{ optionId: "proceed_once", name: "Allow" }],
+          toolCall: {
+            title: "/var/lib/cloud-agents-runtime",
+            _meta: { toolName: "list_directory" },
+          },
+        },
+      },
+    });
 
     expect(extractPermissionRequest(direct)).toMatchObject({
       permission_id: "perm_direct",
@@ -44,6 +56,12 @@ describe("api helpers", () => {
     expect(extractPermissionRequest(fallbackOption)).toMatchObject({
       permission_id: "perm_fallback",
       options: [{ id: "approve" }],
+    });
+    expect(extractPermissionRequest(qwenShape)).toMatchObject({
+      permission_id: "perm_qwen",
+      prompt: "/var/lib/cloud-agents-runtime",
+      tool: "list_directory",
+      options: [{ id: "proceed_once", label: "Allow" }],
     });
     expect(extractPermissionRequest(event("run.running", {}))).toBeNull();
     expect(

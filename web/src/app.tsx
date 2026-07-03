@@ -3136,10 +3136,11 @@ function runnerTranscript(events: RuntimeEvent[]): RunnerTranscriptItem[] {
   const agentMessages = new Map<string, RunnerTranscriptItem>();
 
   for (const event of events) {
-    if (event.type === "message.delta") {
+    const adapterDelta = qwenMessageDeltaFromAdapterEvent(event);
+    if (event.type === "message.delta" || adapterDelta) {
       const promptNumber = stringValue(event.data.prompt_number) ?? "current";
       const key = `agent-${promptNumber}`;
-      const text = stringValue(event.data.text) ?? "";
+      const text = adapterDelta ?? stringValue(event.data.text) ?? "";
       const existing = agentMessages.get(key);
       if (existing) {
         existing.body = `${existing.body}${text}`;
@@ -3278,6 +3279,9 @@ function transcriptItemForEvent(
         body: compactJson(event.data),
       };
     case "adapter.event":
+      if (isQwenThoughtEvent(event)) {
+        return null;
+      }
       return {
         ...base,
         role: toolEventRole(event),
@@ -3343,7 +3347,9 @@ function failureBody(event: RuntimeEvent) {
 
 function toolEventRole(event: RuntimeEvent): RunnerTranscriptItem["role"] {
   const status =
-    stringValue(event.data.status) ?? stringValue(event.data.outcome);
+    stringValue(event.data.status) ??
+    stringValue(event.data.outcome) ??
+    qwenAdapterStatus(event);
   const exitCode = event.data.exit_code;
   if (status === "failed" || exitCode === 1) {
     return "error";
@@ -3352,6 +3358,10 @@ function toolEventRole(event: RuntimeEvent): RunnerTranscriptItem["role"] {
 }
 
 function toolEventBody(event: RuntimeEvent) {
+  const qwenBody = qwenAdapterEventBody(event);
+  if (qwenBody) {
+    return qwenBody;
+  }
   const command =
     stringValue(event.data.command) ??
     stringValue(event.data.tool) ??
@@ -3371,6 +3381,83 @@ function toolEventBody(event: RuntimeEvent) {
     stdout ? `stdout: ${stdout.slice(0, 800)}` : undefined,
     stderr ? `stderr: ${stderr.slice(0, 800)}` : undefined,
   ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function qwenMessageDeltaFromAdapterEvent(event: RuntimeEvent) {
+  if (event.type !== "adapter.event") {
+    return null;
+  }
+  const update = qwenSessionUpdate(event);
+  if (!update || stringValue(update.sessionUpdate) !== "agent_message_chunk") {
+    return null;
+  }
+  return qwenContentText(update);
+}
+
+function qwenAdapterStatus(event: RuntimeEvent) {
+  const update = qwenSessionUpdate(event);
+  return update ? stringValue(update.status) : undefined;
+}
+
+function qwenAdapterEventBody(event: RuntimeEvent) {
+  const update = qwenSessionUpdate(event);
+  if (!update) {
+    return null;
+  }
+  const sessionUpdate = stringValue(update.sessionUpdate);
+  if (sessionUpdate !== "tool_call" && sessionUpdate !== "tool_call_update") {
+    return null;
+  }
+  const meta = recordValue(update._meta);
+  const title = stringValue(update.title) ?? stringValue(meta?.toolName);
+  const status = stringValue(update.status);
+  const rawInput = update.rawInput ? compactJson(update.rawInput) : undefined;
+  const rawOutput = stringValue(update.rawOutput);
+  const content = qwenContentText(update);
+  return [
+    title ?? "qwen tool event",
+    status ? `status: ${status}` : undefined,
+    rawInput ? `input: ${rawInput}` : undefined,
+    rawOutput ? `output: ${rawOutput}` : undefined,
+    content ? `content: ${content}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function qwenSessionUpdate(event: RuntimeEvent) {
+  const raw = recordValue(event.data.raw);
+  const data = recordValue(raw?.data);
+  if (!data) {
+    return null;
+  }
+  return recordValue(data.update) ?? data;
+}
+
+function isQwenThoughtEvent(event: RuntimeEvent) {
+  return (
+    stringValue(qwenSessionUpdate(event)?.sessionUpdate) ===
+    "agent_thought_chunk"
+  );
+}
+
+function qwenContentText(update: Record<string, unknown>) {
+  const content = update.content;
+  const contentRecord = recordValue(content);
+  if (contentRecord) {
+    return stringValue(contentRecord.text);
+  }
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  return content
+    .map((item) => {
+      const itemRecord = recordValue(item);
+      const nested = recordValue(itemRecord?.content);
+      return stringValue(nested?.text);
+    })
     .filter(Boolean)
     .join("\n");
 }
@@ -3468,6 +3555,13 @@ function compactJson(value: unknown) {
     return String(value ?? "");
   }
   return JSON.stringify(value, null, 2);
+}
+
+function recordValue(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function registryValue(source: Record<string, unknown>, key: string) {
