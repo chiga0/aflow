@@ -175,6 +175,27 @@ class RuntimeServerTest(unittest.TestCase):
                 headers={"cookie": cookie},
             )
             self.assertEqual(access["current_principal"]["id"], "cloudagents")
+            access_with_legacy_bearer = request_json(
+                f"{base_url}/access/policy",
+                headers={
+                    "authorization": "Bearer secret",
+                    "cookie": cookie,
+                    "x-remote-user": "proxy-user",
+                },
+            )
+            self.assertEqual(
+                access_with_legacy_bearer["current_principal"]["id"],
+                "cloudagents",
+            )
+            redirect = request_no_redirect(
+                f"{base_url}/access",
+                headers={
+                    "accept": "text/html",
+                    "x-forwarded-prefix": "/cloud-agents",
+                },
+            )
+            self.assertEqual(redirect.status, HTTPStatus.FOUND)
+            self.assertEqual(redirect.headers["location"], "/cloud-agents/#/access")
             created = request_json(
                 f"{base_url}/access/tokens",
                 method="POST",
@@ -941,6 +962,28 @@ def request_raw(
     if payload is not None:
         request.add_header("content-type", "application/json")
     return urllib.request.urlopen(request, timeout=5)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def request_no_redirect(
+    url: str,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> urllib.response.addinfourl:
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+    if payload is not None:
+        request.add_header("content-type", "application/json")
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        return opener.open(request, timeout=5)
+    except urllib.error.HTTPError as response:
+        return response
 
 
 def request_text(url: str, headers: dict[str, str] | None = None) -> str:

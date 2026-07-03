@@ -43,6 +43,10 @@ def make_handler(
             if path == "/auth/session":
                 self.write_json(auth_config.session_status(self.headers.get("cookie")))
                 return
+            spa_target = spa_redirect_target(path, self.headers)
+            if spa_target:
+                self.write_redirect(spa_target)
+                return
             if not self.require_auth(path):
                 return
             parts = split_path(path)
@@ -515,11 +519,11 @@ def make_handler(
 
         def require_auth(self, path: str) -> bool:
             self.current_identity = None
-            if is_authorized(auth_config, path, self.headers.get("authorization")):
-                return True
             session_identity = auth_config.session_identity(self.headers.get("cookie"))
             if session_identity:
                 self.current_identity = session_identity
+                return True
+            if is_authorized(auth_config, path, self.headers.get("authorization")):
                 return True
             identity = None
             if auth_config.enabled:
@@ -634,6 +638,16 @@ def make_handler(
             self.wfile.flush()
             self.close_connection = True
 
+        def write_redirect(self, location: str) -> None:
+            body = b""
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("location", location)
+            self.send_header("content-length", "0")
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            self.close_connection = True
+
         def write_file(self, path: Path) -> None:
             body = path.read_bytes()
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -688,6 +702,40 @@ def make_handler(
 
 def split_path(path: str) -> list[str]:
     return [part for part in path.strip("/").split("/") if part]
+
+
+def spa_redirect_target(path: str, headers: Any) -> str | None:
+    if not request_prefers_html(headers):
+        return None
+    parts = split_path(path)
+    if not parts:
+        return None
+    hash_path: str | None = None
+    if parts[0] in {"units", "executors", "profiles", "access", "operations"} and len(parts) == 1:
+        hash_path = f"/{parts[0]}"
+    elif parts[0] in {"runs", "missions"} and len(parts) <= 2:
+        hash_path = "/" + "/".join(parts)
+    if not hash_path:
+        return None
+    prefix = ""
+    try:
+        forwarded_prefix = headers.get("x-forwarded-prefix", "")
+    except AttributeError:
+        forwarded_prefix = ""
+    forwarded_prefix = str(forwarded_prefix).strip().rstrip("/")
+    if forwarded_prefix.startswith("/"):
+        prefix = forwarded_prefix
+    return f"{prefix}/#{hash_path}"
+
+
+def request_prefers_html(headers: Any) -> bool:
+    try:
+        accept = str(headers.get("accept", ""))
+    except AttributeError:
+        return False
+    if not accept:
+        return False
+    return "text/html" in accept.lower()
 
 
 def parse_last_event_id(value: str | None) -> int:
