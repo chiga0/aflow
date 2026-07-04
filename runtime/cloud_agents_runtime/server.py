@@ -173,6 +173,34 @@ def make_handler(
             if len(parts) == 1 and parts[0] == "missions":
                 self.write_json({"missions": manager.list_missions()})
                 return
+            if len(parts) == 1 and parts[0] == "tasks":
+                self.write_json({"tasks": manager.list_tasks()})
+                return
+            if len(parts) == 2 and parts[0] == "tasks":
+                task = manager.get_task(unquote(parts[1]))
+                if task is None:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                    return
+                self.write_json(task)
+                return
+            if len(parts) == 3 and parts[0] == "tasks" and parts[2] == "events.json":
+                try:
+                    self.write_json({"events": manager.task_events(unquote(parts[1]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if len(parts) == 3 and parts[0] == "tasks" and parts[2] == "artifacts":
+                try:
+                    self.write_json({"artifacts": manager.task_artifacts(unquote(parts[1]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if len(parts) == 3 and parts[0] == "tasks" and parts[2] == "result":
+                try:
+                    self.write_json(manager.task_result(unquote(parts[1])))
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
             if len(parts) == 2 and parts[0] == "a2a" and parts[1] == "tasks":
                 self.write_json({"tasks": manager.list_missions()})
                 return
@@ -466,6 +494,30 @@ def make_handler(
                 if len(parts) == 1 and parts[0] == "missions":
                     mission = manager.create_mission(payload)
                     self.write_json(mission, status=HTTPStatus.CREATED)
+                    return
+                if len(parts) == 1 and parts[0] == "tasks":
+                    task = manager.create_task(payload)
+                    self.write_json(task, status=HTTPStatus.CREATED)
+                    return
+                if len(parts) == 3 and parts[0] == "tasks" and parts[2] == "cancel":
+                    try:
+                        task = manager.cancel_task(unquote(parts[1]), payload.get("reason"))
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
+                    return
+                if len(parts) == 3 and parts[0] == "tasks" and parts[2] == "messages":
+                    message = payload.get("message") or payload.get("prompt")
+                    if not isinstance(message, str) or not message.strip():
+                        self.write_error(HTTPStatus.BAD_REQUEST, "message is required")
+                        return
+                    try:
+                        accepted = manager.send_task_message(unquote(parts[1]), message)
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    self.write_json(accepted, status=HTTPStatus.ACCEPTED)
                     return
                 if len(parts) == 2 and parts[0] == "a2a" and parts[1] == "tasks":
                     task = create_a2a_task(manager, payload)
@@ -991,9 +1043,13 @@ def spa_redirect_target(path: str, headers: Any) -> str | None:
     if not parts:
         return None
     hash_path: str | None = None
-    if parts[0] in {"units", "executors", "profiles", "access", "operations"} and len(parts) == 1:
+    if (
+        parts[0]
+        in {"workspace", "overview", "units", "executors", "profiles", "access", "operations"}
+        and len(parts) == 1
+    ):
         hash_path = f"/{parts[0]}"
-    elif parts[0] in {"runs", "missions"} and len(parts) <= 2:
+    elif parts[0] in {"runs", "missions", "tasks"} and len(parts) <= 2:
         hash_path = "/" + "/".join(parts)
     if not hash_path:
         return None
@@ -1054,6 +1110,16 @@ def required_scope_for(method: str, path: str) -> str | None:
         return "profiles:read" if method == "GET" else "profiles:write"
     if parts[0] in {"missions", "a2a", "temporal"}:
         return "missions:read" if method == "GET" else "missions:write"
+    if parts[0] == "tasks":
+        if method == "GET":
+            if len(parts) >= 3 and parts[2] == "artifacts":
+                return "artifacts:read"
+            if len(parts) >= 3 and parts[2] in {"events.json", "result"}:
+                return "events:read"
+            return "runs:read"
+        if len(parts) >= 3 and parts[2] == "cancel":
+            return "runs:cancel"
+        return "runs:create"
     if parts[0] == "session":
         if method == "GET":
             if len(parts) >= 3 and parts[2] in {"events", "events.json"}:

@@ -1,6 +1,6 @@
 # 使用管理台
 
-这篇按页面说明日常怎么用 AgentFlow。第一次使用时，建议先创建 fake run，再尝试 qwen run 和 mission。
+这篇按页面说明日常怎么用 AgentFlow。普通用户优先使用工作台发起任务、看进度和拿结果；管理员再进入 Overview、Runs、Missions、Units、Executors、Access、Operations 做后台治理。
 
 ## 登录
 
@@ -17,6 +17,50 @@ https://<你的域名>/cloud-agents/
 
 当前是本地邮箱账户体系，不是浏览器 Basic Auth，也还没有 SMTP 邮件验证、邮箱验证码或找回密码。
 
+## Workspace
+
+Workspace 是默认首页，也是普通用户的主要入口。
+
+你可以：
+
+- 用自然语言描述任务目标。
+- 选择单 Agent 或多 Agent 编排模式。
+- 可选指定 adapter 和已有工作区。
+- 查看最近任务、进行中任务、需要处理的任务和已完成任务。
+- 打开 Task Detail 查看实时进展、追加消息、下载结果和产物。
+
+推荐流程：
+
+1. 第一次部署后，adapter 先选 `fake`，输入短目标，例如 `请回复 OK`。
+2. 确认任务进入详情页，并能看到 Timeline、Result、Artifacts。
+3. fake 通过后，再选择 `qwen` 跑真实轻量任务。
+4. 长任务或机器资源紧张时，先在 Units 注册远程 worker，再发起真实任务。
+
+Workspace 背后的 API 是 `/tasks`。它会把底层 run 或 mission 投影为统一的用户任务，所以普通用户不需要先理解 run、worker、executor、lease 等技术参数。
+
+## Task Detail
+
+Task Detail 是用户查看单个任务的主页面。
+
+你会看到：
+
+| 区域 | 用途 |
+| --- | --- |
+| 任务状态 | 显示 queued、running、blocked、completed、failed、cancelled |
+| Timeline | 按用户可读语言展示环境准备、Agent 启动、权限请求、模型输出和完成状态 |
+| Follow up | 单 Agent 任务仍在运行时，可以追加上下文或新要求 |
+| Result | 汇总最终结果或当前摘要 |
+| Artifacts | 下载 final report、diagnostics、事件文件等产物 |
+| 后台链接 | owner/operator 可跳到对应 Run 或 Mission 做审计排障 |
+
+如果任务一直 running，优先看：
+
+1. Timeline 是否还有新进展。
+2. 是否出现 `attention` 或权限处理提示。
+3. Result 是否已有中间摘要。
+4. Artifacts 是否已经生成报告或 diagnostics。
+5. 需要更细排障时，再进入后台 Run Detail、Executors 或 Units。
+
 ## Overview
 
 Overview 用来看系统是否健康：
@@ -26,11 +70,11 @@ Overview 用来看系统是否健康：
 - 失败、运行中、等待状态。
 - 成本和预算基础信息。
 
-如果你觉得系统“没反应”，先看 Overview，再进入具体 Run Detail 或 Units。
+如果你觉得系统“没反应”，普通用户先看 Task Detail；管理员再看 Overview、具体 Run Detail 或 Units。
 
 ## Runs
 
-Runs 用来创建和查看单个任务。
+Runs 是后台运行视图，用来创建和查看单个底层 run。普通用户日常应优先使用 Workspace；Runs 更适合部署验证、qwen 排障和审计。
 
 推荐流程：
 

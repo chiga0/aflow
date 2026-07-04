@@ -45,9 +45,14 @@ class RuntimeServerTest(unittest.TestCase):
             self.assertIn("daemon_event_projection", capabilities["features"])
             self.assertIn("session_events", capabilities["features"])
             self.assertIn("webshell_compatible_bff", capabilities["features"])
+            self.assertIn("task_workspace_bff", capabilities["features"])
             self.assertEqual(
                 capabilities["ui_projection"]["routes"]["events"],
                 "/session/{id}/events",
+            )
+            self.assertEqual(
+                capabilities["task_workspace"]["routes"]["create_task"],
+                "/tasks",
             )
             queue = request_json(
                 f"{base_url}/queue",
@@ -557,6 +562,55 @@ class RuntimeServerTest(unittest.TestCase):
                         f"{base_url}/runs/{run['run_id']}/artifacts/%2E%2E%2Fruntime.db"
                     )
                 self.assertEqual(bad_artifact.exception.code, HTTPStatus.BAD_REQUEST)
+
+    def test_task_workspace_bff_wraps_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with running_runtime(artifact_root=Path(tmp)) as base_url:
+                task = request_json(
+                    f"{base_url}/tasks",
+                    method="POST",
+                    payload={"goal": "prepare task workspace smoke", "adapter": "fake"},
+                )
+                self.assertTrue(task["task_id"].startswith("run_"))
+                self.assertEqual(task["kind"], "run")
+                self.assertEqual(task["goal"], "prepare task workspace smoke")
+                wait_for_run_status(base_url, task["task_id"], "completed")
+                tasks = request_json(f"{base_url}/tasks")
+                self.assertIn(task["task_id"], {item["task_id"] for item in tasks["tasks"]})
+                detail = request_json(f"{base_url}/tasks/{task['task_id']}")
+                self.assertEqual(detail["source"]["run_id"], task["task_id"])
+                events = request_json(f"{base_url}/tasks/{task['task_id']}/events.json")
+                self.assertIn("task.accepted", {event["type"] for event in events["events"]})
+                self.assertIn("task.completed", {event["type"] for event in events["events"]})
+                result = request_json(f"{base_url}/tasks/{task['task_id']}/result")
+                self.assertEqual(result["task_id"], task["task_id"])
+                self.assertTrue(result["artifacts"])
+                artifacts = request_json(f"{base_url}/tasks/{task['task_id']}/artifacts")
+                self.assertIn(
+                    "final_1.json",
+                    {artifact["name"] for artifact in artifacts["artifacts"]},
+                )
+
+    def test_task_workspace_bff_accepts_cancel_and_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with running_runtime(artifact_root=Path(tmp), worker_capacity=0) as base_url:
+                task = request_json(
+                    f"{base_url}/tasks",
+                    method="POST",
+                    payload={"goal": "queued task", "adapter": "fake"},
+                )
+                accepted = request_json(
+                    f"{base_url}/tasks/{task['task_id']}/messages",
+                    method="POST",
+                    payload={"message": "extra context"},
+                )
+                self.assertTrue(accepted["accepted"])
+                cancelled = request_json(
+                    f"{base_url}/tasks/{task['task_id']}/cancel",
+                    method="POST",
+                    payload={"reason": "test"},
+                )
+                self.assertEqual(cancelled["status"], "cancelled")
 
     def test_session_bff_projects_run_events_to_daemon_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

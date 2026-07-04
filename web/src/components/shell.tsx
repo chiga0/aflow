@@ -10,6 +10,7 @@ import {
   Languages,
   LogOut,
   Menu,
+  MessageSquare,
   Moon,
   Network,
   Server,
@@ -33,7 +34,8 @@ import { useI18n, type I18nKey } from "../lib/i18n";
 import { cn } from "../lib/utils";
 
 const navItems = [
-  { to: "/", labelKey: "nav.overview", icon: Activity },
+  { to: "/", labelKey: "nav.workspace", icon: MessageSquare },
+  { to: "/overview", labelKey: "nav.overview", icon: Activity },
   { to: "/runs", labelKey: "nav.runs", icon: ClipboardList },
   { to: "/units", labelKey: "nav.units", icon: Network },
   { to: "/executors", labelKey: "nav.executors", icon: Server },

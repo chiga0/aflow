@@ -29,7 +29,7 @@
 
 ## V2 产品重定位
 
-状态：`design_ready_for_review`
+状态：`in_progress`
 
 V2 的目标不再是把 AgentFlow 首先呈现为 Run Manager / Worker / Executor 控制台，而是把它呈现为面向最终用户的云端长期运行 Agent 工作台：
 
@@ -49,12 +49,25 @@ V2 实施阶段：
 | 阶段 | 目标 | 状态 | 退出标准 |
 | --- | --- | --- | --- |
 | V2-P0 | 方案定稿与审计 | `design_ready_for_review` | owner review 通过，明确 V2 MVP 范围 |
-| V2-P1 | 用户端 Task Workspace | `not_started` | `/workspace` 可创建 task、查看列表、进度、权限和结果 |
+| V2-P1 | 用户端 Task Workspace | `foundation_done` | 首页工作台可创建 task、查看列表、实时进展、结果和产物；后台 run/mission 细节被隐藏 |
 | V2-P2 | 正式认证与用户隔离 | `not_started` | `/setup`、CSRF、改密码、token_version、task/run 用户隔离可用 |
 | V2-P3 | 默认 Agent 编排 | `not_started` | 复杂 task 自动生成 plan 并创建 mission；简单 task 退化为 single run |
 | V2-P4 | 文件、Skills 与结果页 | `not_started` | 文件上传成为 task input；结果页可消费；基础 `SKILL.md` registry 可用 |
 | V2-P5 | IM / 移动端入口 | `not_started` | IM 可发起 task、接收通知、处理 permission |
 | V2-P6 | 后台端 Admin/Ops/Audit 重构 | `not_started` | 现有 console 收敛为后台治理入口，普通用户默认不接触 runtime 参数 |
+
+V2-P1 已落地的工程范围：
+
+- 新增 `/tasks` BFF：把 run 和 mission 投影成统一的用户任务模型。
+- 新增首页 Workspace：普通用户从目标输入框开始，而不是从 Overview/Runs/Executors 开始。
+- 新增 Task Detail：展示用户可读 Timeline、任务状态、结果摘要、artifact 和后台源链接。
+- 新增前后端测试：覆盖 task 创建、列表、事件投影、结果、产物、追加消息和取消。
+
+V2-P1 尚未包含：
+
+- 真正的任务 owner/project 隔离，仍依赖当前单租户 RBAC foundation。
+- 自动任务规划器，复杂任务需要用户显式选择多 Agent 编排。
+- 文件上传、Skills registry、IM/移动端入口。
 
 ## P0：设计与审计
 

@@ -1,11 +1,19 @@
 # AgentFlow V2 产品与架构整体方案
 
 > 日期：2026-07-04  
-> 状态：`design_ready_for_review`  
+> 状态：`in_progress`，V2-P1 Task Workspace foundation 已落地
 > 目标：把 AgentFlow 从“面向运行时管理的控制台”升级为“面向最终用户的云端长期运行 Agent 工作台”，同时保留并强化后台审计、稳定性、安全、隔离和可恢复能力。  
 > 设计原则：用户端简单，后台端可控，runtime 底座可靠。
 
 配套审计记录：[AgentFlow V2 多轮审计记录](v2-product-architecture-audit.md)。
+
+实现进展：
+
+- 2026-07-04：新增用户端 Workspace 和 Task Detail，默认首页从后台 Overview 切换为任务工作台。
+- 2026-07-04：新增 `/tasks` BFF，把底层 run/mission 投影成统一的用户任务模型，支持创建、列表、详情、事件、结果、产物、追加消息和取消。
+- 2026-07-04：保留 `/overview`、`/runs`、`/missions`、`/units`、`/executors`、`/access`、`/operations` 作为后台 Admin/Ops/Audit 入口。
+
+当前边界：V2-P1 解决“用户默认入口”和“任务投影”问题；用户/项目级数据隔离、自动规划器、文件上传、Skills registry、IM/移动端入口仍属于后续 V2 阶段。
 
 ## 0. 一句话定义
 

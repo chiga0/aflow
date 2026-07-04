@@ -75,6 +75,62 @@ const missionEvents = [
   },
 ];
 
+const task = {
+  task_id: "run_1",
+  kind: "run",
+  title: "Inspect runtime",
+  goal: "Inspect runtime",
+  status: "running",
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  progress: { completed_steps: 0, total_steps: 1, percent: 50 },
+  agent_summary: { adapter: "fake", active_agent: "Smoke Test Agent" },
+  needs_attention: true,
+  pending_permission_count: 1,
+  source: { run_id: "run_1", mission_id: null },
+  result_summary: "Inspecting live runner state.",
+  links: { detail: "/tasks/run_1", source: "/runs/run_1" },
+};
+
+const taskEvents = [
+  {
+    id: "tevt_1",
+    task_id: "run_1",
+    sequence: 1,
+    type: "task.accepted",
+    title: "Task accepted",
+    body: "Inspect runtime",
+    status: "queued",
+    created_at: new Date().toISOString(),
+    source_event_type: "run.created",
+    source: { kind: "run" },
+  },
+  {
+    id: "tevt_2",
+    task_id: "run_1",
+    sequence: 2,
+    type: "permission.required",
+    title: "Action needs approval",
+    body: "Allow shell command?",
+    status: "blocked",
+    created_at: new Date().toISOString(),
+    source_event_type: "permission.requested",
+    source: { kind: "run" },
+  },
+  {
+    id: "tevt_3",
+    task_id: "run_1",
+    sequence: 3,
+    type: "agent.message",
+    title: "Agent update",
+    body: "Inspecting live runner state.",
+    status: "running",
+    created_at: new Date().toISOString(),
+    source_event_type: "message.delta",
+    source: { kind: "run" },
+  },
+];
+
 const events = [
   {
     id: "evt_0",
@@ -313,6 +369,32 @@ const fixtures: Record<string, unknown> = {
       },
     ],
   },
+  tasks: { tasks: [task] },
+  "tasks/run_1": task,
+  "tasks/run_1/events.json": { events: taskEvents },
+  "tasks/run_1/artifacts": {
+    artifacts: [
+      {
+        name: "final-report.md",
+        size_bytes: 42,
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "tasks/run_1/result": {
+    task_id: "run_1",
+    status: "running",
+    summary: "Inspecting live runner state.",
+    artifacts: [
+      {
+        name: "final-report.md",
+        size_bytes: 42,
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    completed: false,
+    generated_at: new Date().toISOString(),
+  },
   runs: { runs: [run] },
   "runs/run_1": run,
   "runs/run_1/events.json": { events },
@@ -549,24 +631,24 @@ describe("AgentFlow console", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the runtime overview", async () => {
+  it("renders the user workspace and keeps the admin overview reachable", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "概览" }),
+      await screen.findByRole("heading", { name: "工作台" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("健康")).toBeInTheDocument();
-    expect(screen.getByText("最近运行")).toBeInTheDocument();
-    expect(screen.getByText("最近任务")).toBeInTheDocument();
-    expect(screen.getByText("首次使用路径")).toBeInTheDocument();
-    expect(screen.getByText("先创建 fake run")).toBeInTheDocument();
-    expect(screen.getByText("阅读架构与术语")).toHaveAttribute(
-      "href",
-      "https://chiga0.github.io/agent-research/architecture/",
-    );
+    expect(await screen.findByText("发起任务")).toBeInTheDocument();
+    expect(screen.getAllByText("Inspect runtime").length).toBeGreaterThan(0);
+    expect(screen.getByText("待处理")).toBeInTheDocument();
     expect(await screen.findByText("活跃运行")).toBeInTheDocument();
     expect(screen.getByText("回到对话")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "概览" }));
+    expect(
+      await screen.findByRole("heading", { name: "概览" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("首次使用路径")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("切换语言"));
     expect(
@@ -592,8 +674,69 @@ describe("AgentFlow console", () => {
     await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(
-      await screen.findByRole("heading", { name: "概览" }),
+      await screen.findByRole("heading", { name: "工作台" }),
     ).toBeInTheDocument();
+  });
+
+  it("creates and inspects a user-facing task", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await switchToEnglish(user);
+
+    expect(
+      await screen.findByRole("heading", { name: "Workspace" }),
+    ).toBeInTheDocument();
+    await user.type(
+      screen.getByLabelText("What do you want done?"),
+      "Prepare a customer report",
+    );
+    await user.selectOptions(screen.getByLabelText("Mode"), "single");
+    await user.selectOptions(screen.getByLabelText("Adapter"), "fake");
+    await user.click(screen.getByRole("button", { name: "Start Task" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/tasks",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Prepare a customer report"),
+        }),
+      ),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Prepare a customer report" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Live Progress")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: "run_1" },
+      });
+    });
+    expect(
+      await screen.findByText("Action needs approval"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Inspecting live runner state.").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("final-report.md")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Follow up"), "Please continue");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/tasks/run_1/messages",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Please continue"),
+        }),
+      ),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/tasks/run_1/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("creates a run from the Runs page", async () => {
@@ -830,9 +973,9 @@ describe("AgentFlow console", () => {
     await user.click(screen.getAllByRole("button", { name: "Create" })[1]);
     await user.click(screen.getAllByRole("button", { name: "Create" })[0]);
     await user.click(screen.getAllByRole("button", { name: "Create" })[2]);
-    expect((await screen.findAllByText("new@example.com")).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      (await screen.findAllByText("new@example.com")).length,
+    ).toBeGreaterThan(0);
     expect(await screen.findByText("cat_created_secret")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() =>
@@ -1386,7 +1529,9 @@ describe("AgentFlow console", () => {
     expect(__testUtils.daemonResolvedPermissionIds([...daemon])).toEqual(
       new Set(["perm_daemon"]),
     );
-    expect(__testUtils.daemonPendingPermissionRequests([...daemon])).toEqual([]);
+    expect(__testUtils.daemonPendingPermissionRequests([...daemon])).toEqual(
+      [],
+    );
     expect(__testUtils.mergeDaemonEvents([], [...daemon])).toHaveLength(8);
     expect(__testUtils.daemonSequence(daemon[3])).toBe(4);
     expect(__testUtils.daemonCreatedAt(daemon[0])).toContain("T");
@@ -1400,6 +1545,17 @@ describe("AgentFlow console", () => {
           update: {
             sessionUpdate: "agent_thought_chunk",
             content: [{ content: { text: "hidden" } }],
+          },
+        },
+      },
+      {
+        id: "thought-2",
+        v: 1,
+        type: "session_update",
+        data: {
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: [{ content: { text: "still hidden" } }],
           },
         },
       },
@@ -1422,6 +1578,17 @@ describe("AgentFlow console", () => {
           update: {
             sessionUpdate: "status",
             status: { eventType: "custom.event", message: "custom status" },
+          },
+        },
+      },
+      {
+        id: "unknown-session-update",
+        v: 1,
+        type: "session_update",
+        data: {
+          update: {
+            sessionUpdate: "unknown_update",
+            message: "ignored update",
           },
         },
       },
@@ -1500,13 +1667,14 @@ describe("AgentFlow console", () => {
         data: { ok: true },
       },
     ] as const;
-    const edgeTranscript = __testUtils.daemonRunnerTranscript([
-      ...daemonEdges,
-    ]);
+    const edgeTranscript = __testUtils.daemonRunnerTranscript([...daemonEdges]);
     expect(edgeTranscript).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ title: "Agent progress" }),
-        expect.objectContaining({ title: "custom.event", body: "custom status" }),
+        expect.objectContaining({
+          title: "custom.event",
+          body: "custom status",
+        }),
         expect.objectContaining({ role: "error", title: "Run shell · failed" }),
         expect.objectContaining({
           title: "Custom title · running",
@@ -1631,8 +1799,7 @@ describe("AgentFlow console", () => {
       ])[0].body,
     ).toBe("qwen");
     expect(
-      __testUtils.runnerTranscript([event("run.started", 34, {}, now)])[0]
-        .body,
+      __testUtils.runnerTranscript([event("run.started", 34, {}, now)])[0].body,
     ).toBe("Session is active.");
     expect(
       __testUtils.runnerTranscript([
@@ -2319,7 +2486,9 @@ describe("AgentFlow console", () => {
       vi
         .fn()
         .mockResolvedValueOnce(new Response("preview body", { status: 200 }))
-        .mockResolvedValueOnce(new Response("missing artifact", { status: 404 })),
+        .mockResolvedValueOnce(
+          new Response("missing artifact", { status: 404 }),
+        ),
     );
 
     await expect(__testUtils.fetchTextArtifact("/artifact.txt")).resolves.toBe(
@@ -2421,6 +2590,53 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
   }
+  if (init?.method === "POST" && path === "tasks") {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return jsonResponse({
+      ...task,
+      task_id: "run_created",
+      title: "Prepare a customer report",
+      goal: "Prepare a customer report",
+      status: "queued",
+      needs_attention: false,
+      source: { run_id: "run_created", mission_id: null },
+    });
+  }
+  if (path === "tasks/run_created") {
+    return jsonResponse({
+      ...task,
+      task_id: "run_created",
+      title: "Prepare a customer report",
+      goal: "Prepare a customer report",
+      status: "queued",
+      needs_attention: false,
+      source: { run_id: "run_created", mission_id: null },
+    });
+  }
+  if (path === "tasks/run_created/events.json") {
+    return jsonResponse({
+      events: taskEvents.map((item) => ({ ...item, task_id: "run_created" })),
+    });
+  }
+  if (path === "tasks/run_created/artifacts") {
+    return jsonResponse({ artifacts: [] });
+  }
+  if (path === "tasks/run_created/result") {
+    return jsonResponse({
+      task_id: "run_created",
+      status: "queued",
+      summary: null,
+      artifacts: [],
+      completed: false,
+      generated_at: new Date().toISOString(),
+    });
+  }
+  if (init?.method === "POST" && path === "tasks/run_1/messages") {
+    return jsonResponse({ accepted: true, task_id: "run_1", run_id: "run_1" });
+  }
+  if (init?.method === "POST" && path === "tasks/run_1/cancel") {
+    return jsonResponse({ ...task, status: "cancelled" });
+  }
   if (path === "runs/run_created") {
     return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
   }
@@ -2497,9 +2713,8 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
       metadata: {},
     };
     (
-      (fixtures["auth/users"] as { users: Array<Record<string, unknown>> })
-        .users
-    ).push(created);
+      fixtures["auth/users"] as { users: Array<Record<string, unknown>> }
+    ).users.push(created);
     return jsonResponse(created);
   }
   if (init?.method === "POST" && path === "auth/login") {

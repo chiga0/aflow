@@ -9,6 +9,15 @@ AgentFlow 当前已经具备 run、mission、worker、artifact、audit、permiss
 
 本轮产品优化的核心判断是：Run Detail 必须以 Agent Chat 为第一视图。状态、artifact、审计包和原始事件都应该服务于这条主线，而不是抢占首屏。
 
+2026-07-04 复审追加：只把 Run Detail 改成 Chat-first 仍不够。产品首页也不能继续默认进入 Overview/Queue/Executor 这类后台视图，否则最终用户第一次看到的仍是技术控制台。本轮已新增用户端 Workspace 和 Task Detail：
+
+- 首页默认进入 Workspace，用自然语言目标创建 task。
+- `/tasks` BFF 把底层 run/mission 投影为统一任务模型。
+- Task Detail 用用户可读 Timeline、Result、Artifacts 承接任务进展。
+- Overview/Runs/Missions/Units/Executors/Access/Operations 保留为 Admin/Ops/Audit 后台。
+
+剩余产品缺口：任务 owner/project 隔离、自动规划器、文件上传、Skills registry、移动端/IM 入口仍未完成。
+
 ## 高优先级问题
 
 | 优先级 | 问题                                       | 影响                                                | 处理                                                       |
@@ -18,7 +27,8 @@ AgentFlow 当前已经具备 run、mission、worker、artifact、audit、permiss
 | P1     | 权限请求与聊天主线割裂                     | 用户容易误判为 runner 卡住                          | 已完成：Chat action bubble 可直接审批，右侧保留汇总        |
 | P1     | 原始事件流过于突出                         | 非工程用户会被 event schema 干扰                    | 已降低层级，保留在 Chat 下方作为审计视图                   |
 | P1     | 小 VPS 资源打满时页面表现像“空白”          | 用户难以判断是前端、Nginx、runtime 还是 runner 问题 | 已补 Units 资源水位与低配风险提示；仍建议控制面/执行面分离 |
-| P2     | Run/Mission 之间的语义仍偏技术             | 初次使用需要学习 run、worker、lease 等概念          | 后续用“任务、执行单元、审计包”做中文默认文案收敛           |
+| P1     | 首页默认是后台 Overview                    | 最终用户第一次使用就看到 runtime 参数              | 已调整：首页是 Workspace，后台概览迁移到 `/overview`       |
+| P2     | Run/Mission 之间的语义仍偏技术             | 初次使用需要学习 run、worker、lease 等概念          | 已新增 Task 投影；后台页面仍需继续收敛术语                 |
 
 ## 本轮已完成的体验改动
 

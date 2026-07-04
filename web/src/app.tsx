@@ -13,14 +13,19 @@ import {
   createRouter,
   Link,
   RouterProvider,
+  useNavigate,
   useParams,
 } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import {
   AlertTriangle,
+  CheckCircle2,
+  CircleDot,
+  Clock3,
   Copy,
   Cpu,
   Download,
+  ExternalLink,
   FileText,
   Filter,
   GitBranch,
@@ -88,6 +93,8 @@ import {
   type PermissionRequest,
   type RuntimeEvent,
   type RunState,
+  type TaskEvent,
+  type TaskState,
   type WorkerInfo,
   type WorkerRegistration,
 } from "./lib/api";
@@ -107,6 +114,11 @@ const rootRoute = createRootRoute({ component: Shell });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  component: WorkspacePage,
+});
+const overviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/overview",
   component: OverviewPage,
 });
 const runsRoute = createRoute({
@@ -139,6 +151,11 @@ const missionDetailRoute = createRoute({
   path: "/missions/$missionId",
   component: MissionDetailPage,
 });
+const taskDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tasks/$taskId",
+  component: TaskDetailPage,
+});
 const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiles",
@@ -157,12 +174,14 @@ const operationsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  overviewRoute,
   runsRoute,
   runDetailRoute,
   unitsRoute,
   executorsRoute,
   missionsRoute,
   missionDetailRoute,
+  taskDetailRoute,
   profilesRoute,
   accessRoute,
   operationsRoute,
@@ -313,6 +332,570 @@ function LoginPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function WorkspacePage() {
+  const { t } = useI18n();
+  const tasks = useQuery({ queryKey: ["tasks"], queryFn: runtimeApi.tasks });
+  const capabilities = useQuery({
+    queryKey: ["capabilities"],
+    queryFn: runtimeApi.capabilities,
+  });
+  const running = (tasks.data?.tasks ?? []).filter((task) =>
+    ["queued", "running", "blocked"].includes(task.status),
+  ).length;
+  const attention = (tasks.data?.tasks ?? []).filter(
+    (task) => task.needs_attention,
+  ).length;
+  const completed = (tasks.data?.tasks ?? []).filter(
+    (task) => task.status === "completed",
+  ).length;
+
+  return (
+    <Page title={t("workspace.title")} subtitle={t("workspace.subtitle")}>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric
+          label={t("workspace.activeTasks")}
+          value={running}
+          detail={t("workspace.activeTasksDetail")}
+        />
+        <Metric
+          label={t("workspace.needsAttention")}
+          value={attention}
+          detail={t("workspace.needsAttentionDetail")}
+        />
+        <Metric
+          label={t("workspace.completedTasks")}
+          value={completed}
+          detail={t("workspace.completedTasksDetail")}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[440px_minmax(0,1fr)]">
+        <CreateTaskPanel
+          adapters={Object.keys(capabilities.data?.adapters ?? { fake: {} })}
+        />
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              <CardTitle>{t("workspace.recentTasks")}</CardTitle>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => tasks.refetch()}>
+              <RefreshCw className="h-4 w-4" />
+              {t("common.refresh")}
+            </Button>
+          </CardHeader>
+          <CardBody>
+            <TaskList tasks={tasks.data?.tasks ?? []} />
+          </CardBody>
+        </Card>
+      </div>
+    </Page>
+  );
+}
+
+function CreateTaskPanel({ adapters }: { adapters: string[] }) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [goal, setGoal] = useState("");
+  const [adapter, setAdapter] = useState(adapters[0] ?? "fake");
+  const [mode, setMode] = useState("single");
+  const [workspace, setWorkspace] = useState("");
+  useEffect(() => {
+    if (!adapters.length || adapters.includes(adapter)) {
+      return;
+    }
+    setAdapter(adapters[0] ?? "fake");
+  }, [adapter, adapters]);
+  const createTask = useMutation({
+    mutationFn: runtimeApi.createTask,
+    onSuccess: async (task) => {
+      setGoal("");
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      await navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: task.task_id },
+      });
+    },
+  });
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!goal.trim()) {
+      return;
+    }
+    createTask.mutate({
+      goal: goal.trim(),
+      mode,
+      adapter,
+      workspace: workspace.trim() || undefined,
+      strategy: mode === "mission" ? "sequential" : undefined,
+    });
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Send className="h-4 w-4 text-primary" />
+          <CardTitle>{t("workspace.newTask")}</CardTitle>
+        </div>
+        <Badge tone="info">{t("workspace.userMode")}</Badge>
+      </CardHeader>
+      <CardBody>
+        <form className="grid gap-4" onSubmit={submit}>
+          <Field label={t("workspace.goal")}>
+            <Textarea
+              className="min-h-36"
+              placeholder={t("workspace.goalPlaceholder")}
+              value={goal}
+              onChange={(event) => setGoal(event.target.value)}
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t("workspace.mode")}>
+              <Select
+                value={mode}
+                onChange={(event) => setMode(event.target.value)}
+              >
+                <option value="single">{t("workspace.modeSingle")}</option>
+                <option value="mission">{t("workspace.modeMission")}</option>
+              </Select>
+            </Field>
+            <Field label={t("common.adapter")}>
+              <Select
+                value={adapter}
+                onChange={(event) => setAdapter(event.target.value)}
+              >
+                {adapters.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label={t("common.workspace")}>
+            <Input
+              placeholder={t("workspace.workspacePlaceholder")}
+              value={workspace}
+              onChange={(event) => setWorkspace(event.target.value)}
+            />
+          </Field>
+          {createTask.isError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {String(createTask.error)}
+            </div>
+          ) : null}
+          <Button
+            className="h-11"
+            disabled={createTask.isPending || !goal.trim()}
+            type="submit"
+            variant="primary"
+          >
+            <Send className="h-4 w-4" />
+            {createTask.isPending
+              ? t("workspace.creating")
+              : t("workspace.startTask")}
+          </Button>
+        </form>
+      </CardBody>
+    </Card>
+  );
+}
+
+function TaskList({ tasks }: { tasks: TaskState[] }) {
+  const { t } = useI18n();
+  if (!tasks.length) {
+    return (
+      <EmptyState
+        title={t("workspace.noTasks")}
+        detail={t("workspace.noTasksDetail")}
+      />
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      {tasks.map((task) => (
+        <Link
+          key={task.task_id}
+          className="grid gap-3 rounded-md border border-border p-3 hover:bg-muted"
+          to="/tasks/$taskId"
+          params={{ taskId: task.task_id }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="line-clamp-1 font-medium">{task.title}</div>
+              <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                {task.task_id}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {task.needs_attention ? (
+                <Badge tone="warn">{t("workspace.attention")}</Badge>
+              ) : null}
+              <StatusBadge status={task.status} />
+            </div>
+          </div>
+          <div className="line-clamp-2 text-sm text-muted-foreground">
+            {task.goal}
+          </div>
+          <TaskProgressBar task={task} />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{taskAgentLabel(task)}</span>
+            <span>{timeAgo(task.updated_at)}</span>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function TaskDetailPage() {
+  const { taskId } = useParams({ from: "/tasks/$taskId" });
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const task = useQuery({
+    queryKey: ["tasks", taskId],
+    queryFn: () => runtimeApi.task(taskId),
+  });
+  const events = useQuery({
+    queryKey: ["tasks", taskId, "events"],
+    queryFn: () => runtimeApi.taskEvents(taskId),
+  });
+  const artifacts = useQuery({
+    queryKey: ["tasks", taskId, "artifacts"],
+    queryFn: () => runtimeApi.taskArtifacts(taskId),
+  });
+  const result = useQuery({
+    queryKey: ["tasks", taskId, "result"],
+    queryFn: () => runtimeApi.taskResult(taskId),
+  });
+  const cancelTask = useMutation({
+    mutationFn: () => runtimeApi.cancelTask(taskId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      await queryClient.invalidateQueries({ queryKey: ["tasks", taskId] });
+    },
+  });
+  const submitMessage = useMutation({
+    mutationFn: (message: string) =>
+      runtimeApi.submitTaskMessage(taskId, message),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["tasks", taskId, "events"],
+      });
+    },
+  });
+  const current = task.data;
+  return (
+    <Page
+      title={current?.title ?? t("workspace.taskDetail")}
+      subtitle={current?.goal ?? t("workspace.loadingTask")}
+    >
+      {current ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Metric
+            label={t("workspace.taskStatus")}
+            value={<StatusBadge status={current.status} />}
+            detail={taskAgentLabel(current)}
+          />
+          <Metric
+            label={t("common.progress")}
+            value={`${current.progress.percent}%`}
+            detail={`${current.progress.completed_steps}/${current.progress.total_steps}`}
+          />
+          <Metric
+            label={t("workspace.updated")}
+            value={timeAgo(current.updated_at)}
+            detail={current.kind}
+          />
+        </div>
+      ) : null}
+
+      {current ? (
+        <Card>
+          <CardBody className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-mono text-xs text-muted-foreground">
+                  {current.task_id}
+                </div>
+                <TaskProgressBar task={current} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {current.source.run_id ? (
+                  <LinkButton
+                    href={`#/runs/${current.source.run_id}`}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {t("workspace.sourceRun")}
+                  </LinkButton>
+                ) : null}
+                {current.source.mission_id ? (
+                  <LinkButton
+                    href={`#/missions/${current.source.mission_id}`}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    <GitBranch className="h-4 w-4" />
+                    {t("workspace.sourceMission")}
+                  </LinkButton>
+                ) : null}
+                <Button
+                  disabled={
+                    cancelTask.isPending ||
+                    ["completed", "failed", "cancelled"].includes(
+                      current.status,
+                    )
+                  }
+                  size="sm"
+                  variant="danger"
+                  onClick={() => cancelTask.mutate()}
+                >
+                  <PauseCircle className="h-4 w-4" />
+                  {t("common.cancel")}
+                </Button>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-primary" />
+              <CardTitle>{t("workspace.timeline")}</CardTitle>
+            </div>
+            <Badge tone="neutral">{events.data?.events.length ?? 0}</Badge>
+          </CardHeader>
+          <CardBody>
+            <TaskTimeline events={events.data?.events ?? []} />
+            {current?.kind === "run" ? (
+              <TaskMessageForm
+                disabled={
+                  submitMessage.isPending ||
+                  !current ||
+                  current.status !== "running"
+                }
+                onSubmit={(message) => submitMessage.mutate(message)}
+              />
+            ) : null}
+          </CardBody>
+        </Card>
+
+        <div className="grid content-start gap-4">
+          <TaskResultPanel result={result.data} />
+          <TaskArtifactsPanel
+            artifacts={artifacts.data?.artifacts ?? []}
+            task={current}
+          />
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+function TaskProgressBar({ task }: { task: TaskState }) {
+  const percent = Math.max(0, Math.min(100, task.progress.percent || 0));
+  return (
+    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+      <div
+        className="h-full rounded-full bg-primary transition-all"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
+
+function TaskTimeline({ events }: { events: TaskEvent[] }) {
+  const { t } = useI18n();
+  if (!events.length) {
+    return (
+      <EmptyState
+        title={t("workspace.noEvents")}
+        detail={t("workspace.noEventsDetail")}
+      />
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      {events.map((event) => (
+        <div
+          key={event.id}
+          className="grid grid-cols-[28px_minmax(0,1fr)] gap-3"
+        >
+          <div className="grid h-7 w-7 place-items-center rounded-full border border-border bg-background">
+            {taskEventIcon(event.status)}
+          </div>
+          <div className="min-w-0 rounded-md border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-medium">{event.title}</div>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={event.status} />
+                <span className="text-xs text-muted-foreground">
+                  {timeAgo(event.created_at)}
+                </span>
+              </div>
+            </div>
+            {event.body ? (
+              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                {event.body}
+              </div>
+            ) : null}
+            <div className="mt-2 font-mono text-xs text-muted-foreground">
+              {event.sequence}. {event.source_event_type}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TaskMessageForm({
+  disabled,
+  onSubmit,
+}: {
+  disabled: boolean;
+  onSubmit: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const [message, setMessage] = useState("");
+  return (
+    <form
+      className="mt-4 grid gap-2 border-t border-border pt-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!message.trim()) {
+          return;
+        }
+        onSubmit(message.trim());
+        setMessage("");
+      }}
+    >
+      <Field label={t("workspace.followUp")}>
+        <Textarea
+          className="min-h-24"
+          disabled={disabled}
+          placeholder={t("workspace.followUpPlaceholder")}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+      </Field>
+      <Button
+        disabled={disabled || !message.trim()}
+        type="submit"
+        variant="primary"
+      >
+        <Send className="h-4 w-4" />
+        {t("live.send")}
+      </Button>
+    </form>
+  );
+}
+
+function TaskResultPanel({ result }: { result?: { summary?: string | null } }) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-primary" />
+          <CardTitle>{t("common.result")}</CardTitle>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {result?.summary ? (
+          <div className="whitespace-pre-wrap text-sm">{result.summary}</div>
+        ) : (
+          <EmptyState
+            title={t("workspace.noResult")}
+            detail={t("workspace.noResultDetail")}
+          />
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function TaskArtifactsPanel({
+  task,
+  artifacts,
+}: {
+  task?: TaskState;
+  artifacts: ArtifactInfo[];
+}) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("common.artifacts")}</CardTitle>
+        <Badge tone="neutral">{artifacts.length}</Badge>
+      </CardHeader>
+      <CardBody className="grid gap-2">
+        {artifacts.map((artifact) => {
+          const href = taskArtifactHref(task, artifact.name);
+          return (
+            <div
+              key={artifact.name}
+              className="grid gap-2 rounded-md border border-border p-3 text-sm"
+            >
+              <div className="break-words font-medium">{artifact.name}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatBytes(artifact.size_bytes)}
+              </div>
+              {href ? (
+                <LinkButton href={href} size="sm">
+                  <Download className="h-4 w-4" />
+                  {t("common.download")}
+                </LinkButton>
+              ) : null}
+            </div>
+          );
+        })}
+        {!artifacts.length ? (
+          <EmptyState title={t("runs.noArtifacts")} />
+        ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+function taskArtifactHref(task: TaskState | undefined, artifactName: string) {
+  if (task?.source.run_id) {
+    return artifactHref(task.source.run_id, artifactName);
+  }
+  if (task?.source.mission_id) {
+    return missionArtifactHref(task.source.mission_id, artifactName);
+  }
+  return undefined;
+}
+
+function taskEventIcon(status: string) {
+  if (status === "completed") {
+    return <CheckCircle2 className="h-4 w-4 text-success" />;
+  }
+  if (status === "queued") {
+    return <Clock3 className="h-4 w-4 text-warning" />;
+  }
+  if (status === "failed" || status === "cancelled" || status === "blocked") {
+    return <AlertTriangle className="h-4 w-4 text-destructive" />;
+  }
+  return <CircleDot className="h-4 w-4 text-primary" />;
+}
+
+function taskAgentLabel(task: TaskState) {
+  const adapter = stringValue(task.agent_summary.adapter);
+  const activeAgent = stringValue(task.agent_summary.active_agent);
+  const strategy = stringValue(task.agent_summary.strategy);
+  return (
+    [activeAgent, adapter, strategy].filter(Boolean).join(" · ") || task.kind
   );
 }
 
@@ -1252,7 +1835,9 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
 }
 
 function adapterTip(adapter: string, t: (key: I18nKey) => string) {
-  return adapter === "qwen" ? t("runs.adapterQwenTip") : t("runs.adapterFakeTip");
+  return adapter === "qwen"
+    ? t("runs.adapterQwenTip")
+    : t("runs.adapterFakeTip");
 }
 
 function RunDetailPage() {
@@ -3834,10 +4419,7 @@ function ArtifactPanel({
                 <FileText className="h-4 w-4" />
                 {t("common.preview")}
               </Button>
-              <LinkButton
-                href={artifactHref(runId, artifact.name)}
-                size="sm"
-              >
+              <LinkButton href={artifactHref(runId, artifact.name)} size="sm">
                 <Download className="h-4 w-4" />
                 {t("common.download")}
               </LinkButton>
@@ -4067,7 +4649,9 @@ function mergeDaemonEvents(current: DaemonEvent[], incoming: DaemonEvent[]) {
   );
   if (
     merged.length === current.length &&
-    merged.every((event, index) => String(event.id) === String(current[index]?.id))
+    merged.every(
+      (event, index) => String(event.id) === String(current[index]?.id),
+    )
   ) {
     return current;
   }
@@ -4192,7 +4776,9 @@ function runTaskProgress(
     };
   }
   if (run?.status === "queued" || latest?.type === "run.queued") {
-    const activeWorkers = workers.filter((worker) => worker.status === "active");
+    const activeWorkers = workers.filter(
+      (worker) => worker.status === "active",
+    );
     const hasCapacity = activeWorkers.some(
       (worker) => worker.active_count < worker.capacity,
     );
@@ -4264,7 +4850,10 @@ function daemonRunnerTranscript(events: DaemonEvent[]): RunnerTranscriptItem[] {
     const sessionUpdate = stringValue(update?.sessionUpdate);
     const base = daemonBaseTranscriptItem(event);
 
-    if (event.type === "session_update" && sessionUpdate === "agent_message_chunk") {
+    if (
+      event.type === "session_update" &&
+      sessionUpdate === "agent_message_chunk"
+    ) {
       const text = daemonContentText(update) ?? "";
       if (!text.trim()) {
         continue;
@@ -4289,7 +4878,10 @@ function daemonRunnerTranscript(events: DaemonEvent[]): RunnerTranscriptItem[] {
       continue;
     }
 
-    if (event.type === "session_update" && sessionUpdate === "agent_thought_chunk") {
+    if (
+      event.type === "session_update" &&
+      sessionUpdate === "agent_thought_chunk"
+    ) {
       const key = "daemon-agent-progress";
       const existing = progressMessages.get(key);
       if (existing) {
@@ -4359,7 +4951,8 @@ function daemonTranscriptItemForEvent(
       ...base,
       role: stderr ? "warning" : "system",
       title: "Shell output",
-      body: [stdout, stderr].filter(Boolean).join("\n") || compactJson(event.data),
+      body:
+        [stdout, stderr].filter(Boolean).join("\n") || compactJson(event.data),
     };
   }
   if (event.type === "permission_request") {
@@ -4477,14 +5070,21 @@ function daemonToolBody(update: Record<string, unknown> | null) {
   const command =
     typeof input === "string"
       ? input
-      : stringValue(recordValue(input)?.command) ?? stringValue(recordValue(input)?.cmd);
+      : (stringValue(recordValue(input)?.command) ??
+        stringValue(recordValue(input)?.cmd));
   return [
     stringValue(tool?.name) ?? stringValue(update?.title) ?? "tool event",
-    stringValue(tool?.status) ? `status: ${stringValue(tool?.status)}` : undefined,
+    stringValue(tool?.status)
+      ? `status: ${stringValue(tool?.status)}`
+      : undefined,
     command ? `command: ${command}` : undefined,
     input && !command ? `input: ${compactJson(input)}` : undefined,
-    output ? `output: ${typeof output === "string" ? output : compactJson(output)}` : undefined,
-    daemonContentText(update) ? `content: ${daemonContentText(update)}` : undefined,
+    output
+      ? `output: ${typeof output === "string" ? output : compactJson(output)}`
+      : undefined,
+    daemonContentText(update)
+      ? `content: ${daemonContentText(update)}`
+      : undefined,
   ]
     .filter(Boolean)
     .join("\n");
@@ -4539,7 +5139,10 @@ function daemonPendingPermissionRequests(events: DaemonEvent[]) {
     .map(daemonPermissionRequest)
     .filter((request): request is PermissionRequest => Boolean(request))
     .filter((request) => {
-      if (seen.has(request.permission_id) || resolved.has(request.permission_id)) {
+      if (
+        seen.has(request.permission_id) ||
+        resolved.has(request.permission_id)
+      ) {
         return false;
       }
       seen.add(request.permission_id);
@@ -4563,18 +5166,20 @@ function daemonRunnerProcessSummary(
     const update = daemonSessionUpdate(event);
     return stringValue(update?.sessionUpdate) === "agent_thought_chunk";
   }).length;
-  const toolItems = transcript.filter((item) =>
-    item.event_type === "shell_output" ||
-    item.title.toLowerCase().includes("tool") ||
-    item.title.toLowerCase().includes("shell") ||
-    item.body.toLowerCase().includes("command:"),
+  const toolItems = transcript.filter(
+    (item) =>
+      item.event_type === "shell_output" ||
+      item.title.toLowerCase().includes("tool") ||
+      item.title.toLowerCase().includes("shell") ||
+      item.body.toLowerCase().includes("command:"),
   );
   return {
     messageChunks,
     progressSignals,
     toolCalls: toolItems.length,
-    permissionRequests: events.filter((event) => event.type === "permission_request")
-      .length,
+    permissionRequests: events.filter(
+      (event) => event.type === "permission_request",
+    ).length,
     rawAdapterEvents: 0,
     lastTool: toolItems.at(-1),
   };
@@ -5384,7 +5989,7 @@ function workerNoSourceDeployCommand(registration: WorkerRegistration) {
     `RUN_WORKER_TOKEN=${shellSingleQuote(token)}`,
     `RUN_WORKER_ID=${shellSingleQuote(registration.worker_id)}`,
     `RUN_WORKER_CAPACITY=${registration.capacity}`,
-    "bash -c 'tmp=$(mktemp); curl -fsSL https://raw.githubusercontent.com/chiga0/agent-research/main/scripts/deploy_worker_vps.sh -o \"$tmp\"; bash \"$tmp\" root@<worker-ip> /path/to/key.pem'",
+    'bash -c \'tmp=$(mktemp); curl -fsSL https://raw.githubusercontent.com/chiga0/agent-research/main/scripts/deploy_worker_vps.sh -o "$tmp"; bash "$tmp" root@<worker-ip> /path/to/key.pem\'',
   ].join(" \\\n  ");
 }
 
@@ -5611,7 +6216,9 @@ function isTerminalEvent(eventType: string) {
 }
 
 function isTerminalDaemonEvent(eventType: string) {
-  return ["turn_complete", "turn_error", "prompt_cancelled"].includes(eventType);
+  return ["turn_complete", "turn_error", "prompt_cancelled"].includes(
+    eventType,
+  );
 }
 
 function daemonSequence(event: DaemonEvent) {

@@ -179,6 +179,7 @@ class RunManager:
                 "daemon_event_projection",
                 "session_events",
                 "webshell_compatible_bff",
+                "task_workspace_bff",
             ],
             "ui_projection": {
                 "protocol": "qwen-daemon-compatible",
@@ -189,6 +190,19 @@ class RunManager:
                     "events": "/session/{id}/events",
                     "cancel": "/session/{id}/cancel",
                     "permission": "/session/{id}/permission/{requestId}",
+                },
+            },
+            "task_workspace": {
+                "protocol": "agentflow-task-workspace-v1",
+                "routes": {
+                    "list_tasks": "/tasks",
+                    "create_task": "/tasks",
+                    "task": "/tasks/{id}",
+                    "events": "/tasks/{id}/events.json",
+                    "artifacts": "/tasks/{id}/artifacts",
+                    "result": "/tasks/{id}/result",
+                    "messages": "/tasks/{id}/messages",
+                    "cancel": "/tasks/{id}/cancel",
                 },
             },
             "resource_limits": self.resource_resolver.config.to_dict(),
@@ -225,6 +239,127 @@ class RunManager:
         self.store.enqueue_run(run.run_id)
         self._drain_queue()
         return self.store.get_run(run.run_id) or run
+
+    def list_tasks(self) -> list[dict[str, Any]]:
+        tasks = [
+            self._task_from_mission_snapshot(mission)
+            for mission in self.list_missions()
+        ]
+        tasks.extend(self._task_from_run(run) for run in self.store.list_runs())
+        return sorted(tasks, key=lambda task: task["updated_at"], reverse=True)
+
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        if task_id.startswith("mission_"):
+            mission = self.get_mission(task_id)
+            return self._task_from_mission_snapshot(mission) if mission else None
+        run = self.get_run(task_id)
+        return self._task_from_run(run) if run else None
+
+    def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        goal = payload.get("goal") or payload.get("prompt")
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("goal is required")
+        mode = str(payload.get("mode") or payload.get("task_type") or "single").lower()
+        if mode in {"mission", "orchestrated", "plan"}:
+            mission = self.create_mission(
+                {
+                    "goal": goal.strip(),
+                    "strategy": payload.get("strategy") or "sequential",
+                    "adapter": payload.get("adapter") or "fake",
+                    "repo": payload.get("repo"),
+                    "workspace": payload.get("workspace"),
+                    "model": payload.get("model"),
+                    "sandbox": payload.get("sandbox") or {},
+                    "timeout_seconds": payload.get("timeout_seconds"),
+                    "metadata": {
+                        **dict(payload.get("metadata") or {}),
+                        "created_from": "task_workspace",
+                    },
+                    "tasks": payload.get("tasks") or [],
+                }
+            )
+            return self._task_from_mission_snapshot(mission)
+
+        run_payload = {
+            "prompt": goal.strip(),
+            "adapter": payload.get("adapter") or "fake",
+            "repo": payload.get("repo"),
+            "workspace": payload.get("workspace"),
+            "model": payload.get("model"),
+            "sandbox": payload.get("sandbox") or {},
+            "timeout_seconds": payload.get("timeout_seconds"),
+            "metadata": {
+                **dict(payload.get("metadata") or {}),
+                "created_from": "task_workspace",
+                "task_title": payload.get("title") or first_line(goal),
+            },
+        }
+        run = self.create_run(RunSpec.from_payload(run_payload))
+        return self._task_from_run(run)
+
+    def cancel_task(self, task_id: str, reason: str | None = None) -> dict[str, Any]:
+        if task_id.startswith("mission_"):
+            return self._task_from_mission_snapshot(self.cancel_mission(task_id, reason))
+        self.cancel(task_id, reason)
+        run = self._require_run(task_id)
+        return self._task_from_run(run)
+
+    def send_task_message(self, task_id: str, message: str) -> dict[str, Any]:
+        if task_id.startswith("mission_"):
+            raise ValueError("mission tasks do not accept direct follow-up messages yet")
+        self.send_input(task_id, message)
+        return {"accepted": True, "task_id": task_id, "run_id": task_id}
+
+    def task_events(self, task_id: str) -> list[dict[str, Any]]:
+        if task_id.startswith("mission_"):
+            if self.get_mission(task_id) is None:
+                raise KeyError(task_id)
+            return [
+                project_task_event(
+                    event.to_dict(),
+                    task_id=task_id,
+                    kind="mission",
+                )
+                for event in self.store.mission_events_since(task_id)
+            ]
+        run = self._require_run(task_id)
+        return [
+            project_task_event(
+                event.to_dict(),
+                task_id=task_id,
+                kind="run",
+                adapter=run.spec.adapter,
+            )
+            for event in self.store.events_since(task_id)
+        ]
+
+    def task_artifacts(self, task_id: str) -> list[dict[str, Any]]:
+        if task_id.startswith("mission_"):
+            if self.get_mission(task_id) is None:
+                raise KeyError(task_id)
+            return self.store.list_mission_artifacts(task_id)
+        self._require_run(task_id)
+        return self.store.list_artifacts(task_id)
+
+    def task_result(self, task_id: str) -> dict[str, Any]:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        artifacts = self.task_artifacts(task_id)
+        events = self.task_events(task_id)
+        summary = latest_task_summary(events)
+        if not summary and artifacts:
+            summary = "Artifacts are ready: " + ", ".join(
+                artifact["name"] for artifact in artifacts[:5] if artifact.get("name")
+            )
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "summary": summary,
+            "artifacts": artifacts,
+            "completed": task["status"] in {"completed", "failed", "cancelled"},
+            "generated_at": utc_timestamp(),
+        }
 
     def send_input(self, run_id: str, prompt: str) -> None:
         run = self._require_run(run_id)
@@ -750,6 +885,86 @@ class RunManager:
             raise KeyError(run_id)
         return run
 
+    def _task_from_run(self, run: RunState) -> dict[str, Any]:
+        events = self.store.events_since(run.run_id)
+        permission_count = pending_permission_count(events)
+        metadata = dict(run.spec.metadata or {})
+        title = str(metadata.get("task_title") or first_line(run.spec.prompt) or run.run_id)
+        result_summary = latest_run_summary(events)
+        return {
+            "task_id": run.run_id,
+            "kind": "run",
+            "title": title,
+            "goal": run.spec.prompt or title,
+            "status": task_status(run.status),
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+            "progress": {
+                "completed_steps": 1 if run.status in {"completed", "failed", "cancelled"} else 0,
+                "total_steps": 1,
+                "percent": task_progress_percent(run.status),
+            },
+            "agent_summary": {
+                "adapter": run.spec.adapter,
+                "model": run.spec.model,
+                "active_agent": adapter_display_name(run.spec.adapter),
+            },
+            "needs_attention": permission_count > 0,
+            "pending_permission_count": permission_count,
+            "source": {"run_id": run.run_id, "mission_id": None},
+            "result_summary": result_summary,
+            "links": {
+                "detail": f"/tasks/{run.run_id}",
+                "source": f"/runs/{run.run_id}",
+                "audit": f"/runs/{run.run_id}/audit.json",
+            },
+        }
+
+    def _task_from_mission_snapshot(self, mission: dict[str, Any]) -> dict[str, Any]:
+        task_count = int(mission.get("task_count") or len(mission.get("tasks") or []))
+        completed = int(mission.get("completed_task_count") or 0)
+        status = str(mission.get("status") or "created")
+        spec = mission.get("spec") if isinstance(mission.get("spec"), dict) else {}
+        tasks = mission.get("tasks") if isinstance(mission.get("tasks"), list) else []
+        active_task = next(
+            (
+                task
+                for task in tasks
+                if isinstance(task, dict)
+                and task.get("status") not in {"completed", "failed", "cancelled"}
+            ),
+            None,
+        )
+        return {
+            "task_id": mission["mission_id"],
+            "kind": "mission",
+            "title": first_line(str(spec.get("goal") or mission["mission_id"])),
+            "goal": spec.get("goal") or mission["mission_id"],
+            "status": task_status(status),
+            "created_at": mission["created_at"],
+            "updated_at": mission["updated_at"],
+            "progress": {
+                "completed_steps": completed,
+                "total_steps": max(task_count, 1),
+                "percent": int((completed / max(task_count, 1)) * 100),
+            },
+            "agent_summary": {
+                "adapter": spec.get("adapter"),
+                "strategy": spec.get("strategy"),
+                "active_agent": (
+                    active_task.get("profile_id") if isinstance(active_task, dict) else None
+                ),
+            },
+            "needs_attention": status in {"review_blocked", "blocked"},
+            "pending_permission_count": 0,
+            "source": {"run_id": None, "mission_id": mission["mission_id"]},
+            "result_summary": mission_result_summary(mission),
+            "links": {
+                "detail": f"/tasks/{mission['mission_id']}",
+                "source": f"/missions/{mission['mission_id']}",
+            },
+        }
+
     def _require_worker_job(self, worker_id: str, run_id: str) -> None:
         job = self.store.get_job(run_id)
         if job is None:
@@ -1139,6 +1354,211 @@ def permission_id_from_event(event: RuntimeEvent) -> str | None:
             request_id = raw_data.get("requestId") or raw_data.get("permission_id")
             if isinstance(request_id, str) and request_id:
                 return request_id
+    return None
+
+
+def pending_permission_count(events: list[RuntimeEvent]) -> int:
+    requested: set[str] = set()
+    resolved: set[str] = set()
+    for event in events:
+        permission_id = permission_id_from_event(event)
+        if not permission_id:
+            continue
+        if event.type == "permission.requested":
+            requested.add(permission_id)
+        elif event.type in {"permission.resolved", "permission.resolve_failed"}:
+            resolved.add(permission_id)
+    return len(requested - resolved)
+
+
+def first_line(value: Any, *, limit: int = 96) -> str:
+    text = str(value or "").strip().splitlines()[0].strip() if value else ""
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def adapter_display_name(adapter: str) -> str:
+    return {"fake": "Smoke Test Agent", "qwen": "Qwen Agent"}.get(adapter, adapter)
+
+
+def task_status(status: str) -> str:
+    if status in {"created", "pending", "waiting_dependencies"}:
+        return "queued"
+    if status in {"review_blocked", "blocked"}:
+        return "blocked"
+    return status
+
+
+def task_progress_percent(status: str) -> int:
+    if status == "completed":
+        return 100
+    if status in {"failed", "cancelled"}:
+        return 100
+    if status == "running":
+        return 50
+    if status == "queued":
+        return 10
+    return 0
+
+
+def latest_run_summary(events: list[RuntimeEvent]) -> str | None:
+    for event in reversed(events):
+        if event.type in {"run.completed", "run.failed", "adapter.completed"}:
+            text = event_text(event.data)
+            if text:
+                return first_line(text, limit=220)
+        if event.type == "message.delta":
+            text = event_text(event.data)
+            if text:
+                return first_line(text, limit=220)
+    return None
+
+
+def latest_task_summary(events: list[dict[str, Any]]) -> str | None:
+    for event in reversed(events):
+        body = event.get("body")
+        if isinstance(body, str) and body.strip():
+            if event.get("status") in {"completed", "failed"} or event.get("type") in {
+                "agent.message",
+                "task.completed",
+                "task.failed",
+            }:
+                return first_line(body, limit=220)
+    return None
+
+
+def mission_result_summary(mission: dict[str, Any]) -> str | None:
+    tasks = mission.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    completed: list[str] = []
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("status") != "completed":
+            continue
+        title = task.get("title")
+        if isinstance(title, str) and title:
+            completed.append(title)
+    if not completed:
+        return None
+    return "Completed: " + ", ".join(completed[:5])
+
+
+def project_task_event(
+    event: dict[str, Any],
+    *,
+    task_id: str,
+    kind: str,
+    adapter: str | None = None,
+) -> dict[str, Any]:
+    event_type = str(event.get("type") or "event")
+    title, status = task_event_title_status(event_type, kind=kind)
+    body = event_text(dict_value(event.get("data")))
+    return {
+        "id": event.get("id") or f"{task_id}:{event.get('sequence')}",
+        "task_id": task_id,
+        "sequence": event.get("sequence") or 0,
+        "type": task_event_type(event_type),
+        "title": title,
+        "body": body,
+        "status": status,
+        "created_at": event.get("created_at"),
+        "source_event_type": event_type,
+        "source": {
+            "kind": kind,
+            "adapter": adapter,
+            "raw": event,
+        },
+    }
+
+
+def task_event_type(event_type: str) -> str:
+    mapping = {
+        "run.created": "task.accepted",
+        "run.queued": "task.queued",
+        "run.started": "agent.started",
+        "workspace.prepared": "environment.prepared",
+        "resources.resolved": "environment.prepared",
+        "cost.quoted": "task.planned",
+        "executor.acquired": "agent.started",
+        "executor.starting": "agent.started",
+        "lease.claimed": "agent.started",
+        "input.accepted": "user.message",
+        "message.delta": "agent.message",
+        "step.started": "agent.progress",
+        "tool.completed": "agent.progress",
+        "permission.requested": "permission.required",
+        "permission.resolved": "permission.resolved",
+        "run.completed": "task.completed",
+        "run.failed": "task.failed",
+        "run.cancelled": "task.cancelled",
+        "mission.created": "task.accepted",
+        "mission.started": "agent.started",
+        "mission.completed": "task.completed",
+        "mission.failed": "task.failed",
+        "mission.cancelled": "task.cancelled",
+        "task.created": "agent.assigned",
+        "task.started": "agent.started",
+        "task.completed": "agent.completed",
+        "task.failed": "agent.failed",
+    }
+    return mapping.get(event_type, "agent.progress")
+
+
+def task_event_title_status(event_type: str, *, kind: str) -> tuple[str, str]:
+    event_type_name = task_event_type(event_type)
+    if event_type_name == "task.accepted":
+        return ("Task accepted", "queued")
+    if event_type_name == "task.queued":
+        return ("Waiting for an execution unit", "queued")
+    if event_type_name == "environment.prepared":
+        return ("Environment prepared", "running")
+    if event_type_name == "task.planned":
+        return ("Plan and budget checked", "running")
+    if event_type_name == "agent.assigned":
+        return ("Agent assigned", "running")
+    if event_type_name == "agent.started":
+        return ("Agent started", "running")
+    if event_type_name == "user.message":
+        return ("User message received", "running")
+    if event_type_name == "agent.message":
+        return ("Agent update", "running")
+    if event_type_name == "permission.required":
+        return ("Action needs approval", "blocked")
+    if event_type_name == "permission.resolved":
+        return ("Approval resolved", "running")
+    if event_type_name == "task.completed":
+        return ("Task completed", "completed")
+    if event_type_name == "task.failed":
+        return ("Task failed", "failed")
+    if event_type_name == "task.cancelled":
+        return ("Task cancelled", "cancelled")
+    if event_type_name == "agent.completed":
+        return ("Agent finished a step", "completed")
+    if event_type_name == "agent.failed":
+        return ("Agent step failed", "failed")
+    return ("Mission event" if kind == "mission" else "Agent progress", "running")
+
+
+def event_text(data: dict[str, Any]) -> str | None:
+    for key in ("summary", "text", "message", "output", "prompt", "prompt_preview", "reason"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raw = dict_value(data.get("raw"))
+    raw_data = dict_value(raw.get("data"))
+    update = dict_value(raw_data.get("update")) or raw_data
+    content = dict_value(update.get("content"))
+    text = content.get("text") or update.get("rawOutput")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    tool_call = dict_value(raw_data.get("toolCall")) or dict_value(update.get("toolCall"))
+    title = tool_call.get("title") or tool_call.get("name")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    task_title = data.get("task_title") or data.get("title")
+    if isinstance(task_title, str) and task_title.strip():
+        return task_title.strip()
     return None
 
 

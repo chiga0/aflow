@@ -13,7 +13,7 @@ test("signs in from the responsive login page", async ({ page, isMobile }) => {
   await page.getByLabel("邮箱").fill("owner@example.com");
   await page.getByLabel("密码").fill("secret");
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 });
 
 test("manages runs, permissions, profiles, and operations", async ({
@@ -21,9 +21,10 @@ test("manages runs, permissions, profiles, and operations", async ({
 }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+  await expect(page.getByText("发起任务")).toBeVisible();
   await page.getByLabel("切换语言").click();
-  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace" })).toBeVisible();
   await navigate(page, /Runs/);
   await page.getByLabel("Prompt").fill("Browser smoke run");
   await page.getByRole("button", { name: "Start" }).click();
@@ -165,6 +166,22 @@ async function mockRuntime(
     },
   ];
   const runs = [run];
+  const task = {
+    task_id: "run_1",
+    kind: "run",
+    title: "Inspect runtime",
+    goal: "Inspect runtime",
+    status: "running",
+    created_at: now,
+    updated_at: now,
+    progress: { completed_steps: 0, total_steps: 1, percent: 50 },
+    agent_summary: { adapter: "fake", active_agent: "Smoke Test Agent" },
+    needs_attention: true,
+    pending_permission_count: 1,
+    source: { run_id: "run_1", mission_id: null },
+    result_summary: "Live runner output from the mocked SSE stream.",
+    links: { detail: "/tasks/run_1", source: "/runs/run_1" },
+  };
   const workers = [
     {
       worker_id: "hk-2c2g-a",
@@ -233,6 +250,35 @@ async function mockRuntime(
       },
       permissions: { pending: 1, stalled: 0 },
       latency_seconds: { count: 0, avg: null, p95: null },
+    },
+    tasks: { tasks: [task] },
+    "tasks/run_1": task,
+    "tasks/run_1/events.json": {
+      events: [
+        {
+          id: "tevt_1",
+          task_id: "run_1",
+          sequence: 1,
+          type: "task.accepted",
+          title: "Task accepted",
+          body: "Inspect runtime",
+          status: "queued",
+          created_at: now,
+          source_event_type: "run.created",
+          source: { kind: "run" },
+        },
+      ],
+    },
+    "tasks/run_1/artifacts": {
+      artifacts: [{ name: "final-report.md", size_bytes: 42, updated_at: now }],
+    },
+    "tasks/run_1/result": {
+      task_id: "run_1",
+      status: "running",
+      summary: "Live runner output from the mocked SSE stream.",
+      artifacts: [{ name: "final-report.md", size_bytes: 42, updated_at: now }],
+      completed: false,
+      generated_at: now,
     },
     runs: { runs },
     "runs/run_1": run,
@@ -582,8 +628,7 @@ async function mockRuntime(
     }
     if (path === "session/run_1/events") {
       await route.fulfill({
-        body:
-          "event: session_update\nid: 5\ndata: {\"id\":5,\"v\":1,\"type\":\"session_update\",\"data\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\" SSE daemon chunk.\"}}},\"_meta\":{\"serverTimestamp\":1780000000000,\"runtimeRunId\":\"run_1\",\"runtimeSequence\":5}}\n\n",
+        body: 'event: session_update\nid: 5\ndata: {"id":5,"v":1,"type":"session_update","data":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" SSE daemon chunk."}}},"_meta":{"serverTimestamp":1780000000000,"runtimeRunId":"run_1","runtimeSequence":5}}\n\n',
         contentType: "text/event-stream",
         status: 200,
       });

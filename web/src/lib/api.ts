@@ -54,6 +54,63 @@ export interface ArtifactInfo {
   updated_at: string;
 }
 
+export interface TaskProgress {
+  completed_steps: number;
+  total_steps: number;
+  percent: number;
+}
+
+export interface TaskState {
+  task_id: string;
+  kind: "run" | "mission" | string;
+  title: string;
+  goal: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  progress: TaskProgress;
+  agent_summary: Record<string, unknown>;
+  needs_attention: boolean;
+  pending_permission_count: number;
+  source: { run_id?: string | null; mission_id?: string | null };
+  result_summary?: string | null;
+  links: Record<string, string>;
+}
+
+export interface TaskEvent {
+  id: string;
+  task_id: string;
+  sequence: number;
+  type: string;
+  title: string;
+  body?: string | null;
+  status: string;
+  created_at: string;
+  source_event_type: string;
+  source: Record<string, unknown>;
+}
+
+export interface TaskResult {
+  task_id: string;
+  status: string;
+  summary?: string | null;
+  artifacts: ArtifactInfo[];
+  completed: boolean;
+  generated_at: string;
+}
+
+export interface TaskCreateRequest {
+  goal: string;
+  mode?: "single" | "mission" | string;
+  adapter?: string;
+  model?: string | null;
+  repo?: string | null;
+  workspace?: string | null;
+  strategy?: string;
+  timeout_seconds?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface PermissionRequest {
   permission_id: string;
   prompt?: string;
@@ -384,6 +441,37 @@ export const runtimeApi = {
       executors: ExecutorLease[];
     }>("executors"),
   runs: () => api<{ runs: RunState[] }>("runs"),
+  tasks: () => api<{ tasks: TaskState[] }>("tasks"),
+  task: (taskId: string) =>
+    api<TaskState>(`tasks/${encodeURIComponent(taskId)}`),
+  taskEvents: (taskId: string) =>
+    api<{ events: TaskEvent[] }>(
+      `tasks/${encodeURIComponent(taskId)}/events.json`,
+    ),
+  taskArtifacts: (taskId: string) =>
+    api<{ artifacts: ArtifactInfo[] }>(
+      `tasks/${encodeURIComponent(taskId)}/artifacts`,
+    ),
+  taskResult: (taskId: string) =>
+    api<TaskResult>(`tasks/${encodeURIComponent(taskId)}/result`),
+  createTask: (payload: TaskCreateRequest) =>
+    api<TaskState>("tasks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  submitTaskMessage: (taskId: string, message: string) =>
+    api<{ accepted: boolean; task_id: string; run_id?: string }>(
+      `tasks/${encodeURIComponent(taskId)}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      },
+    ),
+  cancelTask: (taskId: string) =>
+    api<TaskState>(`tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "cancelled from workspace" }),
+    }),
   run: (runId: string) => api<RunState>(`runs/${runId}`),
   runEvents: (runId: string) =>
     api<{ events: RuntimeEvent[] }>(`runs/${runId}/events.json`),

@@ -105,6 +105,14 @@ describe("api helpers", () => {
     await runtimeApi.queue();
     await runtimeApi.executors();
     await runtimeApi.costStatus();
+    await runtimeApi.tasks();
+    await runtimeApi.task("run 1");
+    await runtimeApi.taskEvents("run 1");
+    await runtimeApi.taskArtifacts("run 1");
+    await runtimeApi.taskResult("run 1");
+    await runtimeApi.createTask({ goal: "ship", adapter: "fake" });
+    await runtimeApi.submitTaskMessage("run 1", "continue");
+    await runtimeApi.cancelTask("run 1");
     await runtimeApi.runAudit("run_1");
     await runtimeApi.submitRunInput("run_1", "legacy continue");
     await runtimeApi.resolvePermission("run_1", "perm_legacy", {
@@ -154,6 +162,14 @@ describe("api helpers", () => {
       "/queue",
       "/executors",
       "/cost/status",
+      "/tasks",
+      "/tasks/run%201",
+      "/tasks/run%201/events.json",
+      "/tasks/run%201/artifacts",
+      "/tasks/run%201/result",
+      "/tasks",
+      "/tasks/run%201/messages",
+      "/tasks/run%201/cancel",
       "/runs/run_1/audit.json",
       "/runs/run_1/input",
       "/runs/run_1/permissions/perm_legacy",
@@ -186,6 +202,9 @@ describe("api helpers", () => {
     expect(methods.get("/workers/worker%201/drain")).toBe("POST");
     expect(methods.get("/workers/worker%201/resume")).toBe("POST");
     expect(methods.get("/workers/worker%201/retry")).toBe("POST");
+    expect(methods.get("/tasks")).toBe("POST");
+    expect(methods.get("/tasks/run%201/messages")).toBe("POST");
+    expect(methods.get("/tasks/run%201/cancel")).toBe("POST");
     expect(methods.get("/runs/run_1/input")).toBe("POST");
     expect(methods.get("/runs/run_1/permissions/perm_legacy")).toBe("POST");
     expect(methods.get("/session/run_1/prompt")).toBe("POST");
