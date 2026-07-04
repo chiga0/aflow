@@ -55,7 +55,21 @@ from runtime.cloud_agents_runtime.interop import (
     optional_int,
     require_string,
 )
-from runtime.cloud_agents_runtime.manager import RunManager
+from runtime.cloud_agents_runtime.manager import (
+    RunManager,
+    adapter_display_name,
+    event_text,
+    first_line,
+    latest_run_summary,
+    latest_task_summary,
+    mission_result_summary,
+    pending_permission_count,
+    project_task_event,
+    task_event_title_status,
+    task_event_type,
+    task_progress_percent,
+    task_status,
+)
 from runtime.cloud_agents_runtime.missions import build_task_definitions, run_status_to_task_status
 from runtime.cloud_agents_runtime.models import (
     AuthSession,
@@ -104,6 +118,86 @@ from test_runtime_server import request_json, running_fake_qwen, running_runtime
 
 
 class RuntimeEdgeTest(unittest.TestCase):
+    def test_task_projection_helper_edges(self) -> None:
+        events = [
+            RuntimeEvent("permission.requested", "run_1", 1, {"permission_id": "p1"}),
+            RuntimeEvent("permission.requested", "run_1", 2, {"raw": {"data": {"requestId": "p2"}}}),
+            RuntimeEvent("permission.resolved", "run_1", 3, {"permission_id": "p1"}),
+            RuntimeEvent("message.delta", "run_1", 4, {"text": "agent summary"}),
+            RuntimeEvent("run.completed", "run_1", 5, {"summary": "done"}),
+        ]
+        self.assertEqual(pending_permission_count(events), 1)
+        self.assertEqual(first_line("x" * 120, limit=12), "xxxxxxxxx...")
+        self.assertEqual(first_line(None), "")
+        self.assertEqual(adapter_display_name("fake"), "Smoke Test Agent")
+        self.assertEqual(adapter_display_name("custom"), "custom")
+        self.assertEqual(task_status("created"), "queued")
+        self.assertEqual(task_status("review_blocked"), "blocked")
+        self.assertEqual(task_status("running"), "running")
+        self.assertEqual(task_progress_percent("completed"), 100)
+        self.assertEqual(task_progress_percent("failed"), 100)
+        self.assertEqual(task_progress_percent("running"), 50)
+        self.assertEqual(task_progress_percent("queued"), 10)
+        self.assertEqual(task_progress_percent("created"), 0)
+        self.assertEqual(latest_run_summary(events), "done")
+        self.assertEqual(
+            latest_task_summary(
+                [
+                    {"type": "agent.progress", "status": "running", "body": "skip"},
+                    {"type": "agent.message", "status": "running", "body": "keep"},
+                ]
+            ),
+            "keep",
+        )
+        self.assertIsNone(latest_task_summary([{"body": ""}]))
+        self.assertEqual(
+            mission_result_summary(
+                {
+                    "tasks": [
+                        {"status": "completed", "title": "Plan"},
+                        {"status": "running", "title": "Code"},
+                    ]
+                }
+            ),
+            "Completed: Plan",
+        )
+        self.assertIsNone(mission_result_summary({"tasks": "bad"}))
+        self.assertIsNone(mission_result_summary({"tasks": [{"status": "running"}]}))
+
+        self.assertEqual(task_event_type("mission.completed"), "task.completed")
+        self.assertEqual(task_event_type("task.failed"), "agent.failed")
+        self.assertEqual(task_event_type("unknown"), "agent.progress")
+        self.assertEqual(task_event_title_status("task.created", kind="mission")[0], "Agent assigned")
+        self.assertEqual(task_event_title_status("tool.completed", kind="run")[0], "Agent progress")
+        self.assertEqual(task_event_title_status("unknown", kind="mission")[0], "Mission event")
+        projected = project_task_event(
+            {
+                "type": "permission.requested",
+                "sequence": None,
+                "created_at": "now",
+                "data": {"prompt": "Approve?"},
+            },
+            task_id="run_1",
+            kind="run",
+            adapter="fake",
+        )
+        self.assertEqual(projected["id"], "run_1:None")
+        self.assertEqual(projected["sequence"], 0)
+        self.assertEqual(projected["type"], "permission.required")
+        self.assertEqual(projected["body"], "Approve?")
+
+        self.assertEqual(event_text({"output": "stdout"}), "stdout")
+        self.assertEqual(
+            event_text({"raw": {"data": {"update": {"content": {"text": "nested"}}}}}),
+            "nested",
+        )
+        self.assertEqual(
+            event_text({"raw": {"data": {"toolCall": {"title": "Tool title"}}}}),
+            "Tool title",
+        )
+        self.assertEqual(event_text({"title": "Task title"}), "Task title")
+        self.assertIsNone(event_text({}))
+
     def test_server_error_paths(self) -> None:
         with running_runtime() as base_url:
             self.assertEqual(request_json(f"{base_url}/runs")["runs"], [])

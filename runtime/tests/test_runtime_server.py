@@ -612,6 +612,80 @@ class RuntimeServerTest(unittest.TestCase):
                 )
                 self.assertEqual(cancelled["status"], "cancelled")
 
+    def test_task_workspace_bff_wraps_missions_and_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with running_runtime(artifact_root=Path(tmp), worker_capacity=0) as base_url:
+                with self.assertRaises(urllib.error.HTTPError) as missing_goal:
+                    request_json(f"{base_url}/tasks", method="POST", payload={})
+                self.assertEqual(missing_goal.exception.code, HTTPStatus.BAD_REQUEST)
+
+                mission_task = request_json(
+                    f"{base_url}/tasks",
+                    method="POST",
+                    payload={
+                        "goal": "plan a mission task",
+                        "mode": "mission",
+                        "strategy": "sequential",
+                        "adapter": "fake",
+                    },
+                )
+                self.assertTrue(mission_task["task_id"].startswith("mission_"))
+                self.assertEqual(mission_task["kind"], "mission")
+                self.assertIn(mission_task["status"], {"queued", "running"})
+                mission_detail = request_json(f"{base_url}/tasks/{mission_task['task_id']}")
+                self.assertEqual(mission_detail["source"]["mission_id"], mission_task["task_id"])
+                mission_events = request_json(
+                    f"{base_url}/tasks/{mission_task['task_id']}/events.json"
+                )
+                self.assertIn("events", mission_events)
+                mission_artifacts = request_json(
+                    f"{base_url}/tasks/{mission_task['task_id']}/artifacts"
+                )
+                self.assertIn("artifacts", mission_artifacts)
+                mission_result = request_json(
+                    f"{base_url}/tasks/{mission_task['task_id']}/result"
+                )
+                self.assertEqual(mission_result["task_id"], mission_task["task_id"])
+                with self.assertRaises(urllib.error.HTTPError) as mission_message:
+                    request_json(
+                        f"{base_url}/tasks/{mission_task['task_id']}/messages",
+                        method="POST",
+                        payload={"message": "continue"},
+                    )
+                self.assertEqual(mission_message.exception.code, HTTPStatus.BAD_REQUEST)
+                cancelled = request_json(
+                    f"{base_url}/tasks/{mission_task['task_id']}/cancel",
+                    method="POST",
+                    payload={"reason": "test"},
+                )
+                self.assertEqual(cancelled["status"], "cancelled")
+
+                for suffix in ("", "/events.json", "/artifacts", "/result"):
+                    with self.assertRaises(urllib.error.HTTPError) as missing_task:
+                        request_json(f"{base_url}/tasks/run_missing{suffix}")
+                    self.assertEqual(missing_task.exception.code, HTTPStatus.NOT_FOUND)
+                with self.assertRaises(urllib.error.HTTPError) as missing_cancel:
+                    request_json(
+                        f"{base_url}/tasks/run_missing/cancel",
+                        method="POST",
+                        payload={},
+                    )
+                self.assertEqual(missing_cancel.exception.code, HTTPStatus.NOT_FOUND)
+                with self.assertRaises(urllib.error.HTTPError) as missing_message:
+                    request_json(
+                        f"{base_url}/tasks/run_missing/messages",
+                        method="POST",
+                        payload={"message": "hello"},
+                    )
+                self.assertEqual(missing_message.exception.code, HTTPStatus.NOT_FOUND)
+                with self.assertRaises(urllib.error.HTTPError) as empty_message:
+                    request_json(
+                        f"{base_url}/tasks/{mission_task['task_id']}/messages",
+                        method="POST",
+                        payload={},
+                    )
+                self.assertEqual(empty_message.exception.code, HTTPStatus.BAD_REQUEST)
+
     def test_session_bff_projects_run_events_to_daemon_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with running_runtime(artifact_root=Path(tmp)) as base_url:
