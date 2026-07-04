@@ -40,6 +40,7 @@ nav:
       - 单 Agent 基座选型: implementation/single-agent-strategy.md
       - 从单 Agent 执行单元到多 Agent 编排: implementation/single-to-multi-agent-implementation-plan.md
       - 外部方案对比与多方向审计: implementation/alternative-solutions-comparative-audit.md
+      - DeerFlow 深度调研与 AgentFlow 对比: implementation/deer-flow-comparative-research.md
   - 研究资料:
       - AgentFlow 与企业级 Cloud Agents 技术调研报告: cloud-agents/index.md
       - 生产级多 Agent 系统编排与运行屏障工程: multi-agent/research-on-multi-agent-orchestration-frameworks.md

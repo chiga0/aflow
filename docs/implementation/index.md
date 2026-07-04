@@ -30,6 +30,7 @@
 - [单 Agent 基座选型](single-agent-strategy.md)：比较直接部署、fork、抽取核心和从头实现。
 - [从单 Agent 执行单元到多 Agent 编排](single-to-multi-agent-implementation-plan.md)：给出可实施的多 Agent 演进路线。
 - [外部方案对比与多方向审计](alternative-solutions-comparative-audit.md)：对比托管运行时、SDK、编排框架、云沙箱和当前 SAEU 方案。
+- [DeerFlow 深度调研与 AgentFlow 对比](deer-flow-comparative-research.md)：从产品定位、目标用户、功能、架构、认证、Skills、工作台体验和部署运维角度分析 DeerFlow 可借鉴的部分。
 - [方案审计与 Review 记录](review-and-audit-record.md)：记录多轮审计结论、风险和 Go/No-Go。
 - [实施 Roadmap](implementation-roadmap.md)：跟踪阶段、状态、验收标准和替代方案评估节点。
 
