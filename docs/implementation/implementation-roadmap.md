@@ -41,6 +41,7 @@ V2 的目标不再是把 AgentFlow 首先呈现为 Run Manager / Worker / Execut
 设计产物：
 
 - [AgentFlow V2 产品与架构整体方案](v2-product-architecture.md)
+- [AgentFlow V2 多轮审计记录](v2-product-architecture-audit.md)
 - [DeerFlow 深度调研与 AgentFlow 对比](deer-flow-comparative-research.md)
 
 V2 实施阶段：
