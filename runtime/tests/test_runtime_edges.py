@@ -121,7 +121,12 @@ class RuntimeEdgeTest(unittest.TestCase):
     def test_task_projection_helper_edges(self) -> None:
         events = [
             RuntimeEvent("permission.requested", "run_1", 1, {"permission_id": "p1"}),
-            RuntimeEvent("permission.requested", "run_1", 2, {"raw": {"data": {"requestId": "p2"}}}),
+            RuntimeEvent(
+                "permission.requested",
+                "run_1",
+                2,
+                {"raw": {"data": {"requestId": "p2"}}},
+            ),
             RuntimeEvent("permission.resolved", "run_1", 3, {"permission_id": "p1"}),
             RuntimeEvent("message.delta", "run_1", 4, {"text": "agent summary"}),
             RuntimeEvent("run.completed", "run_1", 5, {"summary": "done"}),
@@ -167,7 +172,10 @@ class RuntimeEdgeTest(unittest.TestCase):
         self.assertEqual(task_event_type("mission.completed"), "task.completed")
         self.assertEqual(task_event_type("task.failed"), "agent.failed")
         self.assertEqual(task_event_type("unknown"), "agent.progress")
-        self.assertEqual(task_event_title_status("task.created", kind="mission")[0], "Agent assigned")
+        self.assertEqual(
+            task_event_title_status("task.created", kind="mission")[0],
+            "Agent assigned",
+        )
         self.assertEqual(task_event_title_status("tool.completed", kind="run")[0], "Agent progress")
         self.assertEqual(task_event_title_status("unknown", kind="mission")[0], "Mission event")
         projected = project_task_event(
