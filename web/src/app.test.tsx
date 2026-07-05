@@ -720,12 +720,15 @@ describe("AgentFlow console", () => {
     expect(
       await screen.findByText("Action needs approval"),
     ).toBeInTheDocument();
+    expect(screen.queryByText("permission.requested")).not.toBeInTheDocument();
+    expect(screen.queryByText("message.delta")).not.toBeInTheDocument();
     expect(
       screen.getAllByText("Inspecting live runner state.").length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("final-report.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
     await user.type(screen.getByLabelText("Follow up"), "Please continue");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(

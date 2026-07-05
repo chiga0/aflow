@@ -33,6 +33,16 @@ test("creates a task from the user workspace", async ({ page }) => {
   await expect(page.getByText("Task accepted")).toBeVisible();
   await expect(page.getByText("V2 checklist started").first()).toBeVisible();
   await expect(page.getByText("workspace-result.md")).toBeVisible();
+  await expect(page.getByText("run.created")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "发送" })).toBeVisible();
+  const followUpRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/tasks/run_workspace_created/messages"),
+  );
+  await page.getByLabel("追加消息").fill("请继续完善清单");
+  await page.getByLabel("追加消息").press("Enter");
+  await followUpRequest;
 });
 
 test("hides backend navigation for a member user", async ({ page }) => {
@@ -734,6 +744,20 @@ async function mockRuntime(
       await route.fulfill({
         status: 201,
         json: createdWorkspaceTask,
+      });
+      return;
+    }
+    if (
+      request.method() === "POST" &&
+      path === "tasks/run_workspace_created/messages"
+    ) {
+      await route.fulfill({
+        status: 202,
+        json: {
+          accepted: true,
+          task_id: "run_workspace_created",
+          run_id: "run_workspace_created",
+        },
       });
       return;
     }

@@ -61,10 +61,11 @@ B 端
 
 | 阶段 | 状态 | 说明 |
 | --- | --- | --- |
-| P1：路径与导航隔离 | in progress | 新增 `/admin/*`，C 端隐藏后台导航 |
-| P1：C 端 Chat 首页 | in progress | 首页改为 Chat composer，隐藏 adapter/mode/workspace |
-| P1：C 端任务详情去技术化 | in progress | 移除后台 Run/Mission 直跳，保留进度、结果、产物 |
-| P2：Admin 内部链接收敛 | planned | 后台内部所有 run/mission 链接迁到 `/admin/*` |
+| P1：路径与导航隔离 | done | 新增 `/admin/*`，C 端隐藏后台导航，保留旧后台路径兼容 |
+| P1：C 端 Chat 首页 | done | 首页改为 Chat composer，隐藏 adapter/mode/workspace |
+| P1：C 端任务详情去技术化 | done | 移除后台 Run/Mission 直跳，保留进度、结果、产物 |
+| P2a：C 端继续对话可靠性 | done | 任务详情发送按钮移动端可见，Enter 发送、Shift+Enter 换行，不显示底层事件名 |
+| P2b：Admin 内部链接收敛 | planned | 后台内部所有 run/mission 链接迁到 `/admin/*` |
 | P3：任务投影增强 | planned | 多 Agent 子任务聚合为用户可读进展 |
 | P4：权限与结果体验 | planned | 用户端审批卡片、最终结果页、分享/导出 |
 | P5：线上 E2E | planned | 对公网 C 端和 B 端分别做登录、建任务、查看后台的 E2E |
@@ -75,7 +76,9 @@ B 端
 
 通过。C 端首屏以 Chat 输入为主，降低学习成本；B 端独立 Admin 保留治理深度。
 
-剩余风险：如果任务详情仍暴露底层 event 名称，会继续让用户感到“技术控制台化”。后续需要把 `TaskEvent` 投影成自然语言进展。
+本轮已处理：C 端任务详情不再展示 `run.created`、`message.delta`、`permission.requested` 等底层事件名；继续对话支持按钮点击和 Enter 发送。
+
+剩余风险：任务投影仍主要依赖后端 `TaskEvent.title/body`，需要继续把多 Agent 子任务聚合成自然语言阶段进展。
 
 ### 架构 Review
 
@@ -95,6 +98,8 @@ B 端
 
 - C 端首页默认没有 Runs/Executors/Access 等后台导航。
 - C 端可以输入任务并进入 `/tasks/:taskId`。
+- C 端任务详情可以继续补充消息，Enter 可发送，移动端发送按钮可见。
+- C 端任务详情不显示底层 runtime event 名称。
 - B 端 owner 可以进入 `/admin` 并看到 Runs/Workers/Executors 等后台导航。
 - 移动端 C 端输入和开始任务按钮可见。
 

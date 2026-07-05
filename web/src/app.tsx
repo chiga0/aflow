@@ -625,8 +625,8 @@ function TaskList({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="line-clamp-1 font-medium">{task.title}</div>
-              <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                {task.task_id}
+              <div className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                {taskAgentLabel(task)}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -828,9 +828,6 @@ function TaskTimeline({ events }: { events: TaskEvent[] }) {
                 {event.body}
               </div>
             ) : null}
-            <div className="mt-2 font-mono text-xs text-muted-foreground">
-              {event.sequence}. {event.source_event_type}
-            </div>
           </div>
         </div>
       ))}
@@ -847,28 +844,38 @@ function TaskMessageForm({
 }) {
   const { t } = useI18n();
   const [message, setMessage] = useState("");
+  const submitCurrentMessage = () => {
+    if (!message.trim() || disabled) {
+      return;
+    }
+    onSubmit(message.trim());
+    setMessage("");
+  };
   return (
     <form
-      className="mt-4 grid gap-2 border-t border-border pt-4"
+      className="sticky bottom-0 mt-4 grid gap-2 border-t border-border bg-card pt-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!message.trim()) {
-          return;
-        }
-        onSubmit(message.trim());
-        setMessage("");
+        submitCurrentMessage();
       }}
     >
       <Field label={t("workspace.followUp")}>
         <Textarea
-          className="min-h-24"
+          className="min-h-24 resize-none"
           disabled={disabled}
           placeholder={t("workspace.followUpPlaceholder")}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submitCurrentMessage();
+            }
+          }}
         />
       </Field>
       <Button
+        className="w-full sm:w-fit"
         disabled={disabled || !message.trim()}
         type="submit"
         variant="primary"
