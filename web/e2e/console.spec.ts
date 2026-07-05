@@ -82,6 +82,7 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.getByLabel("Prompt").fill("Browser smoke run");
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("heading", { name: "Run Detail" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/runs\/run_created/);
   await expect(page.getByText("Active Runs")).toBeVisible();
 
   await navigate(page, /Runs/);
@@ -123,6 +124,7 @@ test("manages runs, permissions, profiles, and operations", async ({
   await expect(
     page.getByRole("heading", { name: "Mission Stream" }),
   ).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/missions\/mission_1/);
   await expect(page.getByText("Artifacts: plan.md")).toBeVisible();
   await expect(page.getByText("Task DAG")).toBeVisible();
   await expect(

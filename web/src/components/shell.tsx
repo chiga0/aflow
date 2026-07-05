@@ -431,7 +431,7 @@ function ActiveRunLink({ run }: { run: RunState }) {
   return (
     <Link
       className="grid gap-1 rounded-md border border-border p-2 text-sm hover:bg-muted"
-      to="/runs/$runId"
+      to="/admin/runs/$runId"
       params={{ runId: run.run_id }}
     >
       <div className="flex items-center justify-between gap-2">

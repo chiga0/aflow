@@ -1103,7 +1103,7 @@ function GettingStartedPanel() {
       <CardBody className="grid gap-3 md:grid-cols-3">
         <Link
           className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/runs"
+          to="/admin/runs"
         >
           <div className="flex items-center gap-2 font-medium">
             <Play className="h-4 w-4 text-primary" />
@@ -1115,7 +1115,7 @@ function GettingStartedPanel() {
         </Link>
         <Link
           className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/runs"
+          to="/admin/runs"
         >
           <div className="flex items-center gap-2 font-medium">
             <MessageSquare className="h-4 w-4 text-primary" />
@@ -1127,7 +1127,7 @@ function GettingStartedPanel() {
         </Link>
         <Link
           className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/units"
+          to="/admin/units"
         >
           <div className="flex items-center gap-2 font-medium">
             <Server className="h-4 w-4 text-primary" />
@@ -1746,7 +1746,7 @@ function ExecutorLeaseList({ leases }: { leases: ExecutorLease[] }) {
             </div>
             <Link
               className="mt-1 block truncate text-sm text-primary"
-              to="/runs/$runId"
+              to="/admin/runs/$runId"
               params={{ runId: lease.run_id }}
             >
               {lease.run_id}
@@ -1795,7 +1795,7 @@ function CreateRunForm({ adapters }: { adapters: string[] }) {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["metrics"] });
       await router.navigate({
-        to: "/runs/$runId",
+        to: "/admin/runs/$runId",
         params: { runId: run.run_id },
       });
     },
@@ -4150,7 +4150,7 @@ function RunList({ runs }: { runs: RunState[] }) {
         <Link
           key={run.run_id}
           className="grid gap-2 rounded-md border border-border p-3 hover:bg-muted"
-          to="/runs/$runId"
+          to="/admin/runs/$runId"
           params={{ runId: run.run_id }}
         >
           <div className="flex items-center justify-between gap-3">
@@ -4172,7 +4172,7 @@ function RecentRuns({ runs }: { runs: RunState[] }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("overview.recentRuns")}</CardTitle>
-        <Link className="text-sm text-primary" to="/runs">
+        <Link className="text-sm text-primary" to="/admin/runs">
           {t("overview.viewAll")}
         </Link>
       </CardHeader>
@@ -4223,7 +4223,7 @@ function MissionList({ missions }: { missions: MissionState[] }) {
                 {task.run_id ? (
                   <Link
                     className="mt-1 block text-primary"
-                    to="/runs/$runId"
+                    to="/admin/runs/$runId"
                     params={{ runId: task.run_id }}
                   >
                     {task.run_id}
@@ -4235,7 +4235,7 @@ function MissionList({ missions }: { missions: MissionState[] }) {
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs font-medium text-primary hover:bg-muted"
-              to="/missions/$missionId"
+              to="/admin/missions/$missionId"
               params={{ missionId: mission.mission_id }}
             >
               <GitBranch className="h-4 w-4" />
@@ -4344,7 +4344,7 @@ function MissionChatPanel({
             {item.runId ? (
               <Link
                 className="inline-flex items-center gap-2 text-xs text-primary"
-                to="/runs/$runId"
+                to="/admin/runs/$runId"
                 params={{ runId: item.runId }}
               >
                 <MessageSquare className="h-4 w-4" />
@@ -4412,7 +4412,7 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
               {task.run_id ? (
                 <Link
                   className="inline-flex items-center gap-2 text-sm text-primary"
-                  to="/runs/$runId"
+                  to="/admin/runs/$runId"
                   params={{ runId: task.run_id }}
                 >
                   <MessageSquare className="h-4 w-4" />
@@ -4575,7 +4575,7 @@ function RecentMissions({ missions }: { missions: MissionState[] }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("overview.recentMissions")}</CardTitle>
-        <Link className="text-sm text-primary" to="/missions">
+        <Link className="text-sm text-primary" to="/admin/missions">
           {t("overview.viewAll")}
         </Link>
       </CardHeader>
