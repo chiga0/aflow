@@ -25,6 +25,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, StatusBadge } from "./ui";
 import {
   extractPermissionRequest,
+  permissionEventId,
   resolvedPermissionIds,
   runtimeApi,
   type RuntimeEvent,
@@ -327,6 +328,7 @@ function ActiveRunLink({ run }: { run: RunState }) {
   const eventList = events.data?.events ?? [];
   const permission = dockPendingPermission(eventList);
   const preview = dockRunPreview(eventList) ?? run.spec.prompt;
+  const status = dockRunStatus(run.status, eventList);
   return (
     <Link
       className="grid gap-1 rounded-md border border-border p-2 text-sm hover:bg-muted"
@@ -339,7 +341,7 @@ function ActiveRunLink({ run }: { run: RunState }) {
           {permission ? (
             <Badge tone="warn">{t("dock.permission")}</Badge>
           ) : null}
-          <StatusBadge status={run.status} />
+          <StatusBadge status={status} />
         </div>
       </div>
       <div className="line-clamp-1 text-xs text-muted-foreground">
@@ -351,10 +353,56 @@ function ActiveRunLink({ run }: { run: RunState }) {
 }
 
 function dockPendingPermission(events: RuntimeEvent[]) {
+  if (events.some((event) => dockTerminalStatus(event.type))) {
+    return undefined;
+  }
   const resolved = resolvedPermissionIds(events);
+  const submitted = dockSubmittedPermissionIds(events);
   return events
     .map(extractPermissionRequest)
-    .find((request) => request && !resolved.has(request.permission_id));
+    .find(
+      (request) =>
+        request &&
+        !resolved.has(request.permission_id) &&
+        !submitted.has(request.permission_id),
+    );
+}
+
+function dockSubmittedPermissionIds(events: RuntimeEvent[]) {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.type !== "permission.resolve_requested") {
+      continue;
+    }
+    const id = permissionEventId(event);
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function dockRunStatus(status: string, events: RuntimeEvent[]) {
+  for (const event of [...events].reverse()) {
+    const terminal = dockTerminalStatus(event.type);
+    if (terminal) {
+      return terminal;
+    }
+  }
+  return status;
+}
+
+function dockTerminalStatus(eventType: string) {
+  if (eventType === "run.completed") {
+    return "completed";
+  }
+  if (eventType === "run.failed") {
+    return "failed";
+  }
+  if (eventType === "run.cancelled") {
+    return "cancelled";
+  }
+  return undefined;
 }
 
 function dockRunPreview(events: RuntimeEvent[]) {
@@ -395,6 +443,7 @@ function stringValue(value: unknown) {
 
 export const __shellTestUtils = {
   dockPendingPermission,
+  dockRunStatus,
   dockRunPreview,
   eventPreviewText,
 };

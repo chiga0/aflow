@@ -662,10 +662,8 @@ export function extractPermissionRequest(
   if (event.type !== "permission.requested") {
     return null;
   }
-  const rawId =
-    event.data.permission_id ??
-    nestedValue(event.data.raw, "data", "requestId");
-  if (typeof rawId !== "string" || !rawId.trim()) {
+  const rawId = permissionEventId(event);
+  if (!rawId) {
     return null;
   }
   const options =
@@ -702,16 +700,29 @@ export function extractPermissionRequest(
   };
 }
 
+export function permissionEventId(event: RuntimeEvent) {
+  return (
+    stringValue(event.data.permission_id) ??
+    stringValue(event.data.permissionId) ??
+    stringValue(event.data.request_id) ??
+    stringValue(event.data.requestId) ??
+    stringValue(nestedValue(event.data.raw, "data", "permission_id")) ??
+    stringValue(nestedValue(event.data.raw, "data", "permissionId")) ??
+    stringValue(nestedValue(event.data.raw, "data", "request_id")) ??
+    stringValue(nestedValue(event.data.raw, "data", "requestId")) ??
+    stringValue(nestedValue(event.data.raw, "permission_id")) ??
+    stringValue(nestedValue(event.data.raw, "requestId"))
+  );
+}
+
 export function resolvedPermissionIds(events: RuntimeEvent[]) {
   const ids = new Set<string>();
   for (const event of events) {
     if (event.type !== "permission.resolved") {
       continue;
     }
-    const id =
-      event.data.permission_id ??
-      nestedValue(event.data.raw, "data", "requestId");
-    if (typeof id === "string") {
+    const id = permissionEventId(event);
+    if (id) {
       ids.add(id);
     }
   }

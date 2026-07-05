@@ -78,8 +78,15 @@ test("manages runs, permissions, profiles, and operations", async ({
       "Live runner output from the mocked SSE stream. SSE daemon chunk.",
     ),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  const promptRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/session/run_1/prompt"),
+  );
   await page.getByLabel("Continue chat").fill("Please continue");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByLabel("Continue chat").press("Enter");
+  await promptRequest;
   await page.getByRole("button", { name: "Retry notification" }).click();
   await page.getByRole("button", { name: "Approve" }).first().click();
   await expect(page.getByText("final-report.md")).toBeVisible();

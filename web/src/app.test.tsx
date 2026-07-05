@@ -830,8 +830,9 @@ describe("AgentFlow console", () => {
     await user.click(screen.getByRole("button", { name: "Download Report" }));
     expect(click).toHaveBeenCalled();
     expect(screen.getByText("final-report.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
     await user.type(screen.getByLabelText("Continue chat"), "Please continue");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.keyboard("{Enter}");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/session/run_1/prompt",
@@ -1795,6 +1796,33 @@ describe("AgentFlow console", () => {
       ]),
     ).toHaveLength(0);
     expect(
+      __testUtils.pendingPermissionRequests([
+        event(
+          "permission.requested",
+          43,
+          { raw: { data: { requestId: "perm_qwen" } } },
+          now,
+        ),
+        event(
+          "permission.resolve_requested",
+          44,
+          { requestId: "perm_qwen" },
+          now,
+        ),
+      ]),
+    ).toHaveLength(0);
+    expect(
+      __testUtils.pendingPermissionRequests([
+        event(
+          "permission.requested",
+          45,
+          { permission_id: "perm_completed" },
+          now,
+        ),
+        event("run.completed", 46, {}, now),
+      ]),
+    ).toHaveLength(0);
+    expect(
       __testUtils.permissionDecisionPayload(
         { id: "proceed_once", label: "Allow" },
         "reason",
@@ -2081,6 +2109,16 @@ describe("AgentFlow console", () => {
         [],
       ).phase,
     ).toBe("等待权限审批");
+    expect(
+      __testUtils.runTaskProgress(
+        { ...run, status: "running" },
+        [
+          event("permission.requested", 39.15, { requestId: "perm_done" }, now),
+          event("run.completed", 39.16, {}, now),
+        ],
+        [],
+      ).phase,
+    ).toBe("已完成");
     expect(
       __testUtils.runTaskProgress(
         { ...run, status: "running" },
@@ -2445,6 +2483,23 @@ describe("AgentFlow console", () => {
         event("permission.resolved", 2, { permission_id: "perm_1" }, now),
       ]),
     ).toBeUndefined();
+    expect(
+      __shellTestUtils.dockPendingPermission([
+        event("permission.requested", 1, { raw: { data: { requestId: "perm_2" } } }, now),
+        event("permission.resolve_requested", 2, { requestId: "perm_2" }, now),
+      ]),
+    ).toBeUndefined();
+    expect(
+      __shellTestUtils.dockPendingPermission([
+        event("permission.requested", 1, { permission_id: "perm_3" }, now),
+        event("run.completed", 2, {}, now),
+      ]),
+    ).toBeUndefined();
+    expect(
+      __shellTestUtils.dockRunStatus("running", [
+        event("run.completed", 2, {}, now),
+      ]),
+    ).toBe("completed");
     expect(
       __shellTestUtils.dockRunPreview([
         event("input.accepted", 1, { prompt_preview: "operator prompt" }, now),

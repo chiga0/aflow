@@ -49,6 +49,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 
@@ -75,6 +76,7 @@ import {
   backupHref,
   extractPermissionRequest,
   missionArtifactHref,
+  permissionEventId,
   resolvedPermissionIds,
   runtimeApi,
   sessionEventStreamHref,
@@ -1875,7 +1877,7 @@ function RunDetailPage() {
   return (
     <Page title={t("runs.detail")} subtitle={runId}>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid gap-4">
+        <div className="grid min-w-0 gap-4">
           <LiveRunnerPanel
             connectionStatus={live.status}
             daemonEvents={live.events}
@@ -2107,7 +2109,19 @@ function LiveRunnerPanel({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextPrompt = prompt.trim();
-    if (!nextPrompt || ended) {
+    if (!nextPrompt || ended || submitInput.isPending) {
+      return;
+    }
+    submitInput.mutate(nextPrompt);
+  };
+
+  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    const nextPrompt = prompt.trim();
+    if (!nextPrompt || ended || submitInput.isPending) {
       return;
     }
     submitInput.mutate(nextPrompt);
@@ -2128,7 +2142,7 @@ function LiveRunnerPanel({
   }, [filteredTranscript.length, latest?.id]);
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <div className="flex min-w-0 items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
@@ -2242,17 +2256,18 @@ function LiveRunnerPanel({
               </span>
             ) : null}
           </div>
-          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <Textarea
               className="min-h-20 resize-y"
               disabled={ended || submitInput.isPending}
               id={`run-input-${runId}`}
               onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={handlePromptKeyDown}
               placeholder={t("live.inputPlaceholder")}
               value={prompt}
             />
             <Button
-              className="self-end"
+              className="w-full self-end sm:w-auto"
               disabled={!prompt.trim() || ended || submitInput.isPending}
               type="submit"
               variant="primary"
@@ -4801,6 +4816,9 @@ function mergeDaemonEvents(current: DaemonEvent[], incoming: DaemonEvent[]) {
 }
 
 function pendingPermissionRequests(events: RuntimeEvent[]) {
+  if (events.some((event) => isTerminalEvent(event.type))) {
+    return [];
+  }
   const resolved = resolvedPermissionIds(events);
   const submitted = permissionResolveRequestedIds(events);
   const seen = new Set<string>();
@@ -4826,10 +4844,7 @@ function permissionResolveRequestedIds(events: RuntimeEvent[]) {
     if (event.type !== "permission.resolve_requested") {
       continue;
     }
-    const permissionId =
-      stringValue(event.data.permission_id) ??
-      stringValue(event.data.request_id) ??
-      stringValue(event.data.requestId);
+    const permissionId = permissionEventId(event);
     if (permissionId) {
       submitted.add(permissionId);
     }
@@ -4897,6 +4912,42 @@ function runTaskProgress(
     : run?.status
       ? `run.${run.status}`
       : "waiting";
+  const terminalStatus = effectiveTerminalStatus(run?.status, events);
+  if (terminalStatus === "completed") {
+    const finalArtifact =
+      artifacts.find((artifact) => artifact.name.includes("final")) ??
+      artifacts.at(0);
+    return {
+      goal,
+      phase: "已完成",
+      status: "Runner 已完成本次执行。",
+      nextAction: finalArtifact
+        ? `查看产物 ${finalArtifact.name} 或下载审计包。`
+        : "下载事件和审计包完成复盘。",
+      tone: "ok",
+      evidence,
+    };
+  }
+  if (terminalStatus === "failed") {
+    return {
+      goal,
+      phase: "失败",
+      status: "执行器或适配器报告失败。",
+      nextAction: "查看错误事件、诊断信息和审计包后重试。",
+      tone: "bad",
+      evidence,
+    };
+  }
+  if (terminalStatus === "cancelled") {
+    return {
+      goal,
+      phase: "已取消",
+      status: "Run 已停止，不会再产生新的模型输出。",
+      nextAction: "如需继续，请创建新的 Run。",
+      tone: "warn",
+      evidence,
+    };
+  }
   if (pending.length) {
     return {
       goal,
@@ -4937,38 +4988,13 @@ function runTaskProgress(
       evidence,
     };
   }
-  if (run?.status === "completed") {
-    const finalArtifact =
-      artifacts.find((artifact) => artifact.name.includes("final")) ??
-      artifacts.at(0);
-    return {
-      goal,
-      phase: "已完成",
-      status: "Runner 已完成本次执行。",
-      nextAction: finalArtifact
-        ? `查看产物 ${finalArtifact.name} 或下载审计包。`
-        : "下载事件和审计包完成复盘。",
-      tone: "ok",
-      evidence,
-    };
-  }
-  if (run?.status === "failed" || latest?.type.endsWith(".failed")) {
+  if (latest?.type.endsWith(".failed")) {
     return {
       goal,
       phase: "失败",
       status: "执行器或适配器报告失败。",
       nextAction: "查看错误事件、诊断信息和审计包后重试。",
       tone: "bad",
-      evidence,
-    };
-  }
-  if (run?.status === "cancelled") {
-    return {
-      goal,
-      phase: "已取消",
-      status: "Run 已停止，不会再产生新的模型输出。",
-      nextAction: "如需继续，请创建新的 Run。",
-      tone: "warn",
       evidence,
     };
   }
@@ -6357,6 +6383,24 @@ function isTerminalEvent(eventType: string) {
   return ["run.completed", "run.failed", "run.cancelled"].includes(eventType);
 }
 
+function effectiveTerminalStatus(status: string | undefined, events: RuntimeEvent[]) {
+  if (isTerminal(status)) {
+    return status;
+  }
+  for (const event of [...events].reverse()) {
+    if (event.type === "run.completed") {
+      return "completed";
+    }
+    if (event.type === "run.failed") {
+      return "failed";
+    }
+    if (event.type === "run.cancelled") {
+      return "cancelled";
+    }
+  }
+  return undefined;
+}
+
 function isTerminalDaemonEvent(eventType: string) {
   return ["turn_complete", "turn_error", "prompt_cancelled"].includes(
     eventType,
@@ -6401,6 +6445,7 @@ export const __testUtils = {
   downloadText,
   emptyProfile,
   emptyToNull,
+  effectiveTerminalStatus,
   filterLabel,
   filterTranscript,
   formatBytes,

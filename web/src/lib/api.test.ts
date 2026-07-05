@@ -6,6 +6,7 @@ import {
   backupHref,
   extractPermissionRequest,
   missionArtifactHref,
+  permissionEventId,
   resolvedPermissionIds,
   runEventStreamHref,
   runtimeApi,
@@ -74,10 +75,31 @@ describe("api helpers", () => {
     const ids = resolvedPermissionIds([
       event("permission.resolved", { permission_id: "perm_1" }),
       event("permission.resolved", { raw: { data: { requestId: "perm_2" } } }),
+      event("permission.resolved", { requestId: "perm_3" }),
       event("permission.requested", { permission_id: "perm_3" }),
     ]);
 
-    expect([...ids]).toEqual(["perm_1", "perm_2"]);
+    expect([...ids]).toEqual(["perm_1", "perm_2", "perm_3"]);
+  });
+
+  it("normalizes permission ids across runtime and qwen event shapes", () => {
+    expect(
+      permissionEventId(event("permission.requested", { permission_id: "a" })),
+    ).toBe("a");
+    expect(
+      permissionEventId(event("permission.requested", { permissionId: "b" })),
+    ).toBe("b");
+    expect(
+      permissionEventId(event("permission.requested", { request_id: "c" })),
+    ).toBe("c");
+    expect(
+      permissionEventId(event("permission.requested", { requestId: "d" })),
+    ).toBe("d");
+    expect(
+      permissionEventId(
+        event("permission.requested", { raw: { data: { requestId: "e" } } }),
+      ),
+    ).toBe("e");
   });
 
   it("wraps runtime endpoints", async () => {
