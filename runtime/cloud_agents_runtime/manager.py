@@ -929,6 +929,8 @@ class RunManager:
             run_threads = list(self._run_threads)
         for thread in run_threads:
             thread.join(timeout=2)
+        for adapter in self.adapters.values():
+            adapter.shutdown()
         self.executor_registry.shutdown()
         self.store.close()
 

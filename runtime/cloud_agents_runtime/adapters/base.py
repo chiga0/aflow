@@ -26,6 +26,9 @@ class RuntimeAdapter(ABC):
     def cancel(self, run: RunState, reason: str | None, store: RunStore) -> None:
         raise NotImplementedError
 
+    def shutdown(self) -> None:
+        return None
+
     def resolve_permission(
         self,
         run: RunState,

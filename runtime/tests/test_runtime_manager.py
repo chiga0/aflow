@@ -254,8 +254,8 @@ class RunManagerTest(unittest.TestCase):
                 self.assertEqual(snapshot["workers"][0]["capacity"], 1)
                 self.assertEqual(snapshot["workers"][0]["active_count"], 1)
 
-                self.wait_for_status(manager, first.run_id, "completed")
-                self.wait_for_status(manager, second.run_id, "completed")
+                self.wait_for_status(manager, first.run_id, "completed", timeout=6)
+                self.wait_for_status(manager, second.run_id, "completed", timeout=6)
                 second_events = [event.type for event in manager.store.events_since(second.run_id)]
                 self.assertIn("run.queued", second_events)
                 self.assertIn("lease.claimed", second_events)

@@ -17,6 +17,7 @@ class FakeAdapter(RuntimeAdapter):
         self.delay_seconds = delay_seconds
         self._cancelled: set[str] = set()
         self._lock = threading.Lock()
+        self._threads: list[threading.Thread] = []
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -46,12 +47,23 @@ class FakeAdapter(RuntimeAdapter):
             args=(run.run_id, prompt_number, prompt, dict(run.spec.metadata), store),
             daemon=True,
         )
+        with self._lock:
+            self._threads = [thread for thread in self._threads if thread.is_alive()]
+            self._threads.append(thread)
         thread.start()
 
     def cancel(self, run: RunState, reason: str | None, store: RunStore) -> None:
         with self._lock:
             self._cancelled.add(run.run_id)
         store.append_event(run.run_id, "run.cancelled", {"reason": reason or "cancelled"})
+
+    def shutdown(self) -> None:
+        with self._lock:
+            threads = list(self._threads)
+        for thread in threads:
+            thread.join(timeout=max(1.0, self.delay_seconds * 20))
+        with self._lock:
+            self._threads = [thread for thread in self._threads if thread.is_alive()]
 
     def _complete_prompt(
         self,
