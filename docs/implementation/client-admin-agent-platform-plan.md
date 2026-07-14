@@ -1,757 +1,906 @@
-# Client/Admin 分离与多 Agent 平台化方案
+# AgentFlow V2 绿色地架构方案
 
 > 日期：2026-07-15  
-> 状态：设计方案与实施审计稿  
-> 范围：Client 用户端、Admin 管理端、自动 Agent 分派、DAG 编排、统一 Agent 协议、安全权限、审计回放、执行单元注册、数据库持久化、测试策略。  
-> 目标：在现有 AgentFlow runtime 能力上，把产品升级为“用户直接发起任务，后台稳定调度多 Agent 并可审计治理”的平台。
+> 状态：V2 目标架构设计稿  
+> 设计立场：V2 是一个新的生产级 Agent 平台设计，v1 只是可借鉴资产池，不是实现约束。必要时可以推翻 v1 的接口、模块和数据模型。  
+> 参考材料：本仓库 v1 现状、本地 DeerFlow 仓库、`/Users/chigao/Downloads/final-report.md` 中的 AI Agent 技术全景调研。
 
-## 0. 结论
+## 0. 重新定调
 
-本项目不建议重写成一个全新的 Node.js 后端。推荐路线是：
+上一版方案的问题是从 v1 出发，问“现有 Run/Mission/Worker 怎么演进”。这不是 V2 应该回答的问题。
 
-```text
-后端控制面：继续以 Python 为主，逐步从当前 stdlib HTTP runtime 演进到可选 FastAPI ASGI 层。
-前端：继续 React + Tailwind + shadcn 风格，拆成 Client App 与 Admin App 两个清晰入口。
-执行协议：内部 ACP-first，A2A 作为外部 Agent-to-Agent gateway，MCP 作为 Agent-to-Tool gateway。
-编排模型：mission -> plan -> dag_run -> agent_task -> run，所有子 Agent 都是可审计 SAEU run。
-持久化：SQLite 继续支撑本地/单机，生产目标迁移到 Postgres + artifact object store。
-UI Chat：Client 端任务详情采用 qwen-code WebShell compatible transcript，通过现有 `/session/*` BFF 消费 `DaemonEvent` projection。
-```
-
-这条路线最少推翻现有成果。AgentFlow 已有 Run/Mission/Profile/Worker/Executor/Permission/Artifact/Audit/Task BFF/Admin pages；缺的是更清晰的产品分离、真正的自动 planner/supervisor、更多 Agent CLI adapter、可版本化 workflow DAG、生产级持久化和完整测试门禁。
-
-## 1. 当前基线
-
-### 1.1 已有能力
-
-当前仓库已经落地：
-
-| 能力 | 现状 | 可复用程度 |
-| --- | --- | --- |
-| Run Manager | `POST /runs`、SSE events、cancel、input、permission | 高 |
-| Mission | sequential/fanout/custom task DAG，profile snapshot，review gate | 高 |
-| Task Workspace BFF | `/tasks` 将 run/mission 投影成用户任务 | 高 |
-| Worker/Execution Unit | heartbeat、claim、drain/resume/retry、capacity | 高 |
-| Executor Registry | shared/per-run/container qwen executor lease | 高 |
-| 权限与审计 | permission events、notifications、audit bundle | 高 |
-| UI Projection | RuntimeEvent -> qwen daemon compatible `DaemonEvent` | 高 |
-| 用户与访问 | owner/operator/auditor/member、session cookie、API token foundation | 中 |
-| Web Console | 用户工作台 + Admin 页面在同一个 React app | 中 |
-| 持久化 | SQLite + JSONL artifacts | 中 |
-
-### 1.2 主要缺口
-
-| 缺口 | 影响 | 优先级 |
-| --- | --- | --- |
-| Client/Admin 仍在同一 app 文件和同一导航体系中 | 用户端体验和后台治理边界不够硬 | P0 |
-| 复杂任务仍依赖人工选择 single/mission，缺少自动 planner/supervisor | 无法“快速分发简单或复杂任务” | P0 |
-| Profile 还不是完整的安全继承和 adapter 选择策略 | 难以统一 qwen/codex/claude/opencode | P0 |
-| Mission DAG 缺少显式版本化 `plan`、`dag_run`、retry policy、evaluation policy | 复杂任务可恢复性不足 | P0 |
-| 用户认证仍缺完整账号生命周期、CSRF、tenant/project 成员模型 | 多用户部署风险 | P0 |
-| 前端未真正接入 qwen-code WebShell 组件包 | Chat 渲染仍是自研近似层 | P1 |
-| SQLite schema 缺少生产迁移路径和索引/查询模型 | 审计查询、租户隔离、并发扩展受限 | P1 |
-| E2E 还未覆盖真实 Client/Admin 分端、移动端和失败重试 | 回归风险 | P1 |
-
-## 2. 外部调研要点
-
-### 2.1 DeerFlow
-
-本地 DeerFlow 仓库：`/Users/chigao/Documents/codebase/github/deer-flow`。
-
-可借鉴点：
-
-- 默认产品心智是 super agent harness，而不是运维控制台。
-- 前端入口围绕 Chat、Workspace、Uploads、Artifacts。
-- 后端使用 LangGraph-compatible API、SSE streaming、thread state、sandbox、skills、memory。
-- lead agent 可以动态拉起 sub-agents；sub-agent 有独立上下文、工具、超时和结构化结果。
-- `config.example.yaml` 中有 `subagents`、`custom_agents`、`acp_agents`、skills、MCP server 等配置边界。
-- 认证设计强调 fail-closed AuthMiddleware、CSRF、用户路径隔离、memory/agent per-user isolation。
-
-不直接照搬点：
-
-- DeerFlow 的 sub-agent 是单 harness 内部能力；AgentFlow 需要跨 worker、跨 executor、跨 workspace、可审计、可恢复。
-- DeerFlow 当前更像“一个 super agent runtime”；AgentFlow 应保留 control-plane/worker/executor 的分布式边界。
-
-### 2.2 LangGraph / LangSmith Agent Server
-
-LangGraph 文档强调 persistence 对长期 agent 的价值：checkpointer 负责 thread-scoped state，store 负责跨 thread 的长期记忆；生产要避免内存 saver，使用 SQLite/Postgres 等持久化后端。Streaming API 支持多种 stream mode，并支持断线后用 last event id 恢复。参考：[LangGraph Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)、[LangGraph Streaming API](https://docs.langchain.com/langsmith/streaming)。
-
-对 AgentFlow 的启发：
-
-- 不要只依赖 JSONL 文件；需要 DB 中可查询的 canonical event store。
-- UI streaming 必须支持 resumable reconnect。
-- workflow state 和长期 memory 要分开。
-
-### 2.3 CrewAI Flows
-
-CrewAI Flows 将多步骤 AI workflow 建模为 event-driven flow，支持 state management、conditional/loop/branching 和 persistence。参考：[CrewAI Flows](https://docs.crewai.com/en/concepts/flows)。
-
-对 AgentFlow 的启发：
-
-- planner/supervisor 的输出应是显式 flow/DAG，不只是自然语言计划。
-- 任务 state 需要结构化 schema，避免复杂 mission 只靠事件推断。
-
-### 2.4 Airflow
-
-Airflow 的 Dag 把 workflow 所需信息封装起来：tasks、dependencies、schedule、callbacks、retry、timeout。Airflow 文档明确 Dag 不关心 task 内部做什么，只关心执行顺序、重试、超时等编排规则。参考：[Airflow Dags](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html)。
-
-对 AgentFlow 的启发：
-
-- AgentFlow 不需要直接引入完整 Airflow，但应借鉴 Dag/DagRun/TaskInstance 的概念。
-- Agent 内部细节通过 run events 暴露；编排层只管理依赖、重试、状态、artifact contract。
-
-### 2.5 ACP / A2A / MCP
-
-- ACP 适合 Client-to-Agent 控制，尤其是 coding agent session、prompt、streaming、permission。参考：[Agent Client Protocol](https://agentclientprotocol.com/get-started/introduction)。
-- A2A 适合外部 Agent-to-Agent 互操作，Agent Card、task status、artifact exchange。参考：[A2A specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md)。
-- MCP 适合 Agent-to-Tool，把工具、资源、prompt 暴露给 Agent。参考：[Model Context Protocol specification](https://modelcontextprotocol.io/specification/2025-06-18)。
-
-对 AgentFlow 的决策：
+V2 应先回答：
 
 ```text
-内部执行器控制：ACP-first。
-外部系统互操作：A2A gateway。
-工具与数据连接：MCP gateway。
-UI 渲染：qwen daemon compatible event projection，不污染内部 canonical events。
+如果今天从零设计一个面向用户、企业治理、多 Agent 编排、长任务执行、可审计可恢复的 Agent 平台，它应该是什么样？
 ```
 
-## 3. 产品分端设计
+因此本文采用绿色地设计：
 
-### 3.1 双端边界
+- 先定义目标产品和系统能力。
+- 再定义分层架构、领域模型、协议边界和数据事实源。
+- 最后才评估 v1 哪些实现可以搬迁、哪些应该废弃、哪些只作为验证材料。
 
-```mermaid
-flowchart LR
-  Browser["Browser / Mobile"]
-  Client["Client App<br/>/app"]
-  Admin["Admin App<br/>/admin"]
-  BFF["Runtime BFF"]
-  Control["Control Plane"]
-  Workers["Execution Units"]
-  Store["DB + Artifact Store"]
+## 1. V2 一句话定义
 
-  Browser --> Client
-  Browser --> Admin
-  Client --> BFF
-  Admin --> BFF
-  BFF --> Control
-  Control --> Workers
-  Control --> Store
-```
-
-| 端 | 用户 | 核心任务 | 默认暴露内容 |
-| --- | --- | --- | --- |
-| Client | member、业务用户、开发者 | 发任务、聊天、看进度、处理权限、取结果 | Task、Chat、DAG 总览、Artifacts、Approvals |
-| Admin | owner、operator、auditor | 运维、审计、配置、用户、租户、worker、成本 | Runs、Missions、Workers、Executors、Audit、Access、Ops |
-
-### 3.2 Client 信息架构
-
-| 页面 | 路由 | 设计要求 |
-| --- | --- | --- |
-| 首页/工作台 | `/app` | 一个主输入框，快速模式、复杂模式、文件/仓库入口、最近任务 |
-| 任务列表 | `/app/tasks` | 进行中、等待我处理、已完成、失败，移动端优先卡片 |
-| 任务详情 | `/app/tasks/:taskId` | 左侧 qwen WebShell Chat，右侧/下方 DAG、Artifacts、权限卡 |
-| DAG 总览 | 任务详情内 tab 或 sheet | 简化 DAG：节点角色、状态、进度、产物，不展示 worker/executor id |
-| 结果中心 | `/app/tasks/:taskId/result` | final answer、报告、diff、文件、评估结果 |
-| 项目空间 | `/app/projects/:projectId` | 项目上下文、默认策略、成员可见任务 |
-| 个人设置 | `/app/settings` | 通知、语言、会话、个人 token、IM 绑定 |
-
-移动端原则：
-
-- 首屏只放任务输入、活跃任务、待审批。
-- 任务详情采用 bottom sheet/tabs：Chat、Progress、Result。
-- 权限审批卡必须固定在 Chat composer 上方。
-- DAG 图在移动端退化为垂直 timeline，不强行展示复杂 graph。
-
-### 3.3 Admin 信息架构
-
-| 页面 | 路由 | 设计要求 |
-| --- | --- | --- |
-| Overview | `/admin` | 健康、队列、失败率、预算、告警 |
-| Tenants/Projects | `/admin/projects` | 租户内项目、成员、默认 policy |
-| Users | `/admin/users` | 邀请、禁用、角色、重置密码、会话 |
-| Policies | `/admin/policies` | 安全、审批、网络、工具、模型、资源 |
-| Agent Profiles | `/admin/profiles` | 内置/团队/个人 profile，版本化 |
-| Orchestration | `/admin/orchestration` | planner policy、DAG 模板、retry/eval policy |
-| Runs/Missions | `/admin/runs`、`/admin/missions` | 事实源运行详情和排障 |
-| Workers/Executors | `/admin/units`、`/admin/executors` | 注册、drain/resume、资源、水位、lease |
-| Audit | `/admin/audit` | 事件查询、权限决策、artifact、replay |
-| Ops | `/admin/operations` | backup、drills、monitor、deployment revision |
-
-### 3.4 前端落地方式
-
-当前 `web/src/app.tsx` 已经很大，建议分三步拆：
+AgentFlow V2 是一个面向个人和组织的长任务 Agent 操作系统：
 
 ```text
-web/src/apps/client/*
-web/src/apps/admin/*
-web/src/features/task-chat/*
-web/src/features/orchestration/*
-web/src/features/access/*
-web/src/features/ops/*
-web/src/lib/api/*
+Client 端让用户用自然语言、文件、仓库或 IM 入口提交目标；
+Planner Brain 自动判断任务复杂度，生成计划、角色、DAG、权限和产物契约；
+Orchestrator 可靠调度多个 Agent，在隔离执行单元中运行 qwen-code、Codex CLI、Claude Code、OpenCode 或其他 Agent runtime；
+Admin 端负责租户、用户、策略、执行单元、审计、成本、评估和运维；
+系统用持久事件、产物、检查点和回放保证客户端崩溃、worker 重启或任务失败时仍可恢复。
 ```
 
-短期仍可共用一个 Vite app 和一个 router，但 route tree、layout、query hooks、页面组件必须拆分。中期可以做两个 entry chunk：
+## 2. 设计目标
 
-```text
-/app/*    -> Client shell
-/admin/*  -> Admin shell
-```
+### 2.1 必须实现的目标
 
-## 4. 自动 Agent 分派与编排
-
-### 4.1 核心对象
-
-```mermaid
-flowchart TB
-  Task["User Task"]
-  Planner["Planner / Brain"]
-  Plan["Plan vN"]
-  DagRun["DagRun"]
-  AgentTask["AgentTask"]
-  Run["SAEU Run"]
-  Artifact["Artifact Contract"]
-  Eval["Evaluation"]
-
-  Task --> Planner
-  Planner --> Plan
-  Plan --> DagRun
-  DagRun --> AgentTask
-  AgentTask --> Run
-  Run --> Artifact
-  Artifact --> Eval
-  Eval --> DagRun
-```
-
-新增或强化模型：
-
-| 模型 | 说明 |
+| 目标 | V2 要求 |
 | --- | --- |
-| `Task` | 用户可见任务，承载 owner/project/tenant |
-| `Plan` | planner 输出的版本化计划，包含 DAG、角色、上下文和验收标准 |
-| `DagRun` | 某个 plan 的一次执行实例 |
-| `AgentTask` | DAG 节点，绑定 profile、adapter strategy、artifact contract、eval policy |
-| `Run` | 实际执行单元，当前已有 |
-| `ArtifactContract` | 子 Agent 必须产出的文件、schema、质量要求 |
-| `Evaluation` | 自动或人工评估产出物是否满足 contract |
+| Client/Admin 分离 | Client 面向普通用户和移动端；Admin 面向 owner/operator/auditor |
+| 登录和认证 | 所有用户入口默认登录，服务端注入身份，不信任客户端 user/project metadata |
+| 快速分发任务 | 用户不需要理解 run/worker/executor；只选择目标、上下文和期望质量 |
+| 自动分派 | Brain 自动决定 simple、workflow、multi-agent、human-gated 等执行形态 |
+| 多 Agent 编排 | 支持 prompt chaining、routing、parallelization、orchestrator-workers、evaluator-optimizer |
+| 任意 Agent CLI | qwen-code、Codex CLI、Claude Code、OpenCode 等通过统一 Agent Runtime Adapter 接入 |
+| 实时可见 | 单 Agent 像本地 chat/webshell；整体任务能看 DAG、节点状态、产物和阻塞原因 |
+| 安全继承 | tenant/project/profile/task/run 层层继承策略，deny 优先，子层默认不能放宽 |
+| 过程留痕 | 所有 plan、事件、工具调用、权限、产物、评估、重试都可审计 |
+| 可回放和重试 | 支持 UI replay、state replay、audit replay、失败自动重试和人工恢复 |
+| 产物系统 | 子 Agent 必须有目标、输入、产出物 contract 和评估规则 |
+| 持久化 | 后台任务不依赖浏览器生命周期，进程重启后可恢复 |
+| 执行单元发现 | docker、ECS/VPS、本机 workspace、Kubernetes pod 都可注册和被调度 |
+| 测试门禁 | 后端、前端、集成、E2E 关键路径覆盖率 90%+ |
 
-### 4.2 Planner / Brain 职责
+### 2.2 不以 v1 为边界
 
-Planner 是“复杂任务的大脑”，可以先规则化，后 Agent 化。
+V2 不承诺保留：
 
-职责：
+- v1 的 HTTP route 形状。
+- v1 的 `Run`/`Mission` 命名作为产品主模型。
+- v1 的单体 `server.py`。
+- v1 的 SQLite-only 存储模型。
+- v1 的单 React app 巨文件结构。
+- v1 的内存态调度和轻量 mission DAG 实现。
 
-- 判断任务复杂度：simple、assisted、orchestrated。
-- 将复杂目标拆成 DAG。
-- 为每个 AgentTask 指定 profile、目标、上下文、输入 artifact、输出 contract。
-- 选择并行、串行、fanout/fanin、review gate、human gate。
-- 生成 retry/eval/timeout 策略。
-- 在执行中根据事件和评估结果调整 plan，形成 `plan v2`。
+V2 可以继承：
 
-不允许：
+- 事件溯源和 JSONL artifact 思路。
+- qwen daemon compatible UI projection 的经验。
+- worker heartbeat/claim 的调度验证。
+- permission/audit/review gate 的领域经验。
+- 当前测试里已经覆盖的边缘场景 fixture。
 
-- 绕过权限系统直接给子 Agent 高权限。
-- 让多个 coder 写同一个 workspace。
-- 只输出自然语言计划而不写结构化 DAG。
-- 修改历史 plan；只能创建新版本。
+## 3. 调研输入到设计原则
 
-### 4.3 自动分派策略
+`final-report.md` 把 Agent 系统拆成四个概念域：多 Agent 编排、复杂 Agent、企业级 Agent、长任务 Agent。V2 的架构必须同时覆盖四者。
 
-```text
-simple:
-  一个 agent_task，默认 coder/researcher profile。
+| 调研结论 | V2 设计原则 |
+| --- | --- |
+| 多 Agent 编排关注协调、通信、任务分解 | 编排层必须显式建模 Plan、DAG、AgentTask、Dependency、Handoff |
+| 复杂 Agent 关注推理、规划、反思、记忆 | Brain 层独立于执行层，支持规划、重规划、评估、长期记忆 |
+| 企业级 Agent 关注安全、治理、可观测性、合规 | Identity、Policy、Audit、Cost、Observability 是一等模块 |
+| 长任务 Agent 需要持久状态、容错和恢复 | 所有长任务必须 durable execution，不依赖进程内状态 |
+| Anthropic 收敛出 5 种编排模式 | Orchestration DSL 必须覆盖 chaining/routing/parallel/evaluator/orchestrator-workers |
+| MCP + A2A 成为双层协议标准 | MCP 用于 Agent-to-Tool，A2A 用于 Agent-to-Agent 和外部互操作 |
+| HITL 是长期架构特征，不是过渡态 | 权限、人类审批和人工覆写必须是核心状态机 |
+| OWASP LLM 风险突出，尤其提示注入和过度授权 | 所有工具、网络、文件、secret、部署操作必须受 policy gate 管控 |
+| 图工作流、事件驱动、handoff 成为主流 | V2 的核心运行时采用事件驱动 DAG/Flow，而不是隐式聊天链 |
 
-assisted:
-  planner 生成简短 plan，但仍以一个主 run 执行；必要时附加 reviewer/tester。
+## 4. 总体架构
 
-orchestrated:
-  planner 生成完整 DAG，多个 agent_task 进入队列，按依赖调度。
-```
-
-复杂度判断信号：
-
-- prompt 长度和目标数量。
-- 是否涉及代码仓库、文件上传、外部系统。
-- 是否要求“调研 + 实现 + 测试 + 审查 + 发布”多阶段。
-- 用户选择快速/标准/深度。
-- 项目 policy 要求必须 review/test。
-
-### 4.4 DAG 调度 MVP
-
-第一版不引入完整 Airflow 服务；在 `MissionManager` 基础上实现轻量 DAG engine：
-
-| 能力 | MVP | 后续 |
-| --- | --- | --- |
-| DAG schema | JSON plan，nodes/edges | DSL + visual editor |
-| 调度 | ready nodes 入队 | priority queue |
-| 重试 | per-node max_attempts/backoff | retry class + dead letter |
-| 超时 | per-node timeout | heartbeat-aware timeout |
-| fanout/fanin | 支持 | 支持 map/reduce |
-| 条件分支 | 简单 condition | 表达式/LLM router |
-| pause/resume | human gate | durable workflow signals |
-| 可视化 | Task detail DAG projection | Admin orchestration debugger |
-
-当流程需要定时、长期等待外部信号、海量任务 backfill 时，再评估引入 Temporal 或 Airflow-like service。当前更适合先做内置 lightweight DagRun，因为 AgentFlow 的任务是用户即时触发、强审计、强权限、强 artifact contract，不是传统 ETL 调度。
-
-## 5. Agent Runtime 与统一协议
-
-### 5.1 适配层
-
-所有 Agent CLI 都通过统一 SAEU Adapter 接入：
-
-```text
-qwen-code     -> qwen serve REST/SSE 起步，ACP endpoint 优先
-codex cli     -> ACP wrapper 或 native adapter
-claude code   -> ACP wrapper
-opencode      -> native event adapter 或 ACP wrapper
-custom agent  -> 实现 ACP server 或 RuntimeAdapter
-```
-
-Adapter contract：
-
-```text
-create_session(run_spec, workspace, policy) -> adapter_run_id
-send_input(adapter_run_id, prompt)
-stream_events(adapter_run_id) -> native events
-resolve_permission(adapter_run_id, permission_id, decision)
-cancel(adapter_run_id)
-collect_artifacts(adapter_run_id)
-```
-
-Adapter 输出必须转换为 canonical `RuntimeEvent`，再由 `ui_projection.py` 转成 qwen WebShell compatible `DaemonEvent`。
-
-### 5.2 实时可观测性
-
-用户端需要两层实时视图：
-
-| 视图 | 数据源 | 目的 |
-| --- | --- | --- |
-| 单 Agent Chat | `/session/{run_id}/events` | 像本地单 Agent chat 一样看消息、工具、权限 |
-| 整体 DAG | `/tasks/{task_id}/graph/events` 或 task events | 看节点状态、依赖、进度、产物、失败原因 |
-
-Admin 端再展示第三层：
-
-| 视图 | 数据源 | 目的 |
-| --- | --- | --- |
-| Audit/Debug | canonical events、raw events、executor logs | 排障、审计、回放 |
-
-### 5.3 WebShell 组件策略
-
-短期：
-
-- 继续使用现有 `DaemonEvent` projection 和自研 transcript rendering。
-- 补齐 qwen WebShell fixture conformance test。
-
-中期：
-
-- vendor 或 npm 引入 qwen-code WebUI 的稳定组件边界。
-- 建立 `web/src/features/task-chat/qwen-webshell-adapter.tsx`。
-- 前端只处理 layout、permission action slot、artifact side panel；transcript block 交给 WebShell。
-
-硬约束：
-
-- 浏览器不能直接连 qwen serve。
-- WebShell 只消费 BFF 的 `/session/*`。
-- WebShell projection 是 UI cache，不是审计事实源。
-
-## 6. 安全、权限与继承
-
-### 6.1 租户模型
-
-建议数据层统一：
-
-```text
-tenant
-project
-membership
-auth_user
-role_binding
-policy
-task
-run
-agent_profile
-worker_registration
-api_token
-```
-
-单租户部署时也创建默认 tenant，避免未来迁移痛苦。
-
-### 6.2 Policy 继承
+### 4.1 逻辑分层
 
 ```mermaid
 flowchart TB
-  TenantPolicy["Tenant Policy"]
-  ProjectPolicy["Project Policy"]
-  ProfilePolicy["Profile Policy"]
-  TaskPolicy["Task Overrides"]
-  RunPolicy["Resolved Run Policy"]
+  subgraph Experience["Experience Layer"]
+    Client["Client App<br/>Web / Mobile / IM"]
+    Admin["Admin Console"]
+  end
 
-  TenantPolicy --> ProjectPolicy
-  ProjectPolicy --> ProfilePolicy
-  ProfilePolicy --> TaskPolicy
-  TaskPolicy --> RunPolicy
+  subgraph Edge["API & Realtime Edge"]
+    Gateway["API Gateway / BFF"]
+    Realtime["Realtime Gateway<br/>SSE / WebSocket"]
+  end
+
+  subgraph Platform["Platform Control Plane"]
+    Identity["Identity & Tenant"]
+    Policy["Policy Engine"]
+    Brain["Planner Brain"]
+    Orchestrator["Durable Orchestrator"]
+    Runtime["Agent Runtime Control"]
+    Artifact["Artifact Service"]
+    Audit["Audit & Replay"]
+    Observability["Observability & Cost"]
+  end
+
+  subgraph Protocols["Protocol Gateways"]
+    A2A["A2A Gateway"]
+    MCP["MCP Gateway"]
+    AgentAdapter["Agent Runtime Adapters"]
+  end
+
+  subgraph Execution["Execution Plane"]
+    Scheduler["Execution Scheduler"]
+    Units["Execution Units"]
+    Executors["Agent Executors<br/>qwen / codex / claude / opencode"]
+    Sandbox["Sandbox / Workspace"]
+  end
+
+  subgraph Data["State & Storage"]
+    Postgres["Postgres<br/>facts / state / events"]
+    Redis["Redis / Queue Cache"]
+    ObjectStore["Artifact Object Store"]
+    VectorStore["Memory / Vector Store"]
+  end
+
+  Client --> Gateway
+  Admin --> Gateway
+  Gateway --> Identity
+  Gateway --> Policy
+  Gateway --> Brain
+  Gateway --> Orchestrator
+  Realtime --> Audit
+  Brain --> Orchestrator
+  Orchestrator --> Runtime
+  Runtime --> AgentAdapter
+  Runtime --> Scheduler
+  Scheduler --> Units
+  Units --> Executors
+  Executors --> Sandbox
+  Executors --> MCP
+  A2A --> Gateway
+  Runtime --> Audit
+  Artifact --> ObjectStore
+  Audit --> Postgres
+  Orchestrator --> Postgres
+  Brain --> VectorStore
+  Observability --> Postgres
 ```
 
-继承规则：
+### 4.2 物理部署形态
 
-- deny 优先于 allow。
-- resource limit 取更严格值。
-- approval requirement 只能收紧，不能由子层放宽，除非 owner 显式授权。
-- network、filesystem、secrets、deploy、git push 属于高风险域，默认 ask/deny。
-- 每个 run 保存 `resolved_policy.json`，历史审计不受后续 policy 修改影响。
+V2 不应是一个进程解决一切。推荐拆成三类服务：
 
-### 6.3 权限类型
-
-| 权限 | 默认 | 说明 |
+| 服务 | 职责 | 推荐技术 |
 | --- | --- | --- |
-| read workspace | allow | 受 project scope 限制 |
-| write workspace | ask/allow | 取决于 profile |
-| shell | ask | 命令风险分级 |
-| network | ask/deny | 可配置 egress allowlist |
-| secrets | deny | 通过 scoped secret broker 注入 |
-| git push / deploy | ask + owner/operator | 高风险 |
-| external MCP | ask/deny | 取决于 tool trust |
-| cost over budget | block | 需要 owner override |
+| Control Plane API | 身份、租户、任务、策略、Admin API、Client BFF | Python FastAPI 或等价 ASGI |
+| Orchestrator Worker | Durable workflow、DAG 调度、重试、补偿、HITL signal | Temporal Python SDK 起步，或内置 durable engine 后续替换 |
+| Execution Worker | 认领 AgentTask，启动 executor，上传事件和产物 | Python daemon + container/process sandbox |
 
-### 6.4 认证和账户生命周期
+辅助服务：
 
-需要补齐：
+| 服务 | 职责 |
+| --- | --- |
+| Realtime Gateway | SSE/WebSocket，支持 Last-Event-ID 和移动端重连 |
+| Artifact Service | 产物上传、下载、预览、hash、权限校验 |
+| Protocol Gateway | A2A/MCP/Agent adapter northbound/southbound |
+| Observability Service | tracing、metrics、成本、LLM-as-judge 分数、告警 |
 
-- HttpOnly session cookie。
-- CSRF double-submit。
-- 登录限速。
-- owner 首次 setup。
-- 用户邀请/禁用/重置密码。
-- token_version，改密码废弃旧 session。
-- session/device 列表。
-- API token scope 和过期时间。
-- Project membership。
+## 5. 产品架构
 
-DeerFlow 的认证设计可以作为直接参考：fail-closed AuthMiddleware、ContextVar 注入真实用户、服务端剥离客户端传来的 owner/user metadata。
+### 5.1 Client 端
 
-## 7. 审计、回放、重试与产物系统
+Client 是默认入口。它不展示 worker、executor、lease、raw event、runtime id。
 
-### 7.1 事实源
+| 页面 | 目的 | 桌面端 | 移动端 |
+| --- | --- | --- | --- |
+| Home | 快速提交任务 | 输入框 + 文件/仓库 + 模式选择 + 最近任务 | 单输入框 + 快速 chips + 活跃任务 |
+| Tasks | 任务收件箱 | 表格/列表 + 筛选 | 卡片流 |
+| Task Detail | 跟踪执行 | Chat/WebShell + DAG + artifacts 三栏或双栏 | Chat / Progress / Result 三 tab |
+| Approvals | 等待我处理 | 权限卡、风险摘要、批量处理 | 固定顶部/底部待处理入口 |
+| Results | 消费结果 | 报告、patch、文件、评估、下载 | 摘要优先，产物折叠 |
+| Project | 项目上下文 | 文件、仓库、历史、成员 | 简化设置 |
 
-```text
-Postgres tables:
-  tasks
-  plans
-  dag_runs
-  agent_tasks
-  runs
-  run_events
-  permission_requests
-  permission_decisions
-  artifacts
-  evaluations
-  worker_events
+Client 端交互原则：
 
-Artifact store:
-  raw_events.jsonl
-  ui_daemon_events.jsonl
-  diagnostics.json
-  workspace_snapshot_ref
-  diff.patch
-  final_report.md
-  evaluation.json
+- 用户只说目标，系统自动选择 simple/workflow/multi-agent。
+- 所有权限请求必须出现在 Chat 主线和待审批入口。
+- DAG 是解释层，不要求用户理解 runtime。
+- 复杂任务给“当前谁在做什么、还差什么、为什么卡住”。
+- 移动端以读进度、补充消息、审批为主，不承担复杂配置。
+
+### 5.2 Admin 端
+
+Admin 是治理和运维入口。
+
+| 页面 | 目的 |
+| --- | --- |
+| Overview | 租户健康、任务吞吐、失败率、成本、队列、告警 |
+| Users & Tenants | 用户、项目、角色、成员、邀请、禁用、session |
+| Policy Center | 工具、网络、文件、secret、模型、预算、审批策略 |
+| Agent Catalog | Agent runtime 类型、profile、skills、capabilities、版本 |
+| Orchestration | DAG 模板、Brain 策略、评估器、重试和 gate |
+| Execution Units | docker/ECS/local/k8s 注册、容量、水位、drain/resume |
+| Runs & Attempts | 底层执行详情、日志、重试、worker/executor 诊断 |
+| Audit & Replay | 事件检索、权限审计、artifact lineage、回放 |
+| Cost & Quality | token/cost 归因、LLM-as-judge、任务完成率 |
+| Ops | backup、restore、drill、deployment revision、monitor |
+
+## 6. 核心领域模型
+
+V2 的产品主模型不是 v1 的 `run`，而是 `Task`。
+
+```mermaid
+erDiagram
+  Tenant ||--o{ Project : owns
+  Project ||--o{ Task : contains
+  Task ||--o{ Plan : versions
+  Plan ||--o{ DagRun : executes
+  DagRun ||--o{ AgentTask : contains
+  AgentTask ||--o{ Attempt : retries
+  Attempt ||--|| RunSession : controls
+  AgentTask ||--o{ ArtifactContract : requires
+  Attempt ||--o{ RuntimeEvent : emits
+  Attempt ||--o{ Artifact : produces
+  Artifact ||--o{ Evaluation : checked_by
+  Tenant ||--o{ Policy : defines
+  Project ||--o{ Policy : overrides
+  AgentProfile ||--o{ AgentTask : selected_by
+  ExecutionUnit ||--o{ Attempt : runs
 ```
 
-原则：
+### 6.1 Task
 
-- `run_events` 是事实源。
-- raw native events 是排障证据。
-- UI daemon events 是可重建缓存。
-- artifact 大对象不塞 DB，只在 DB 记录 hash、size、content_type、storage_uri。
-
-### 7.2 子 Agent 产物 contract
-
-每个 AgentTask 必须有：
+用户可见任务。
 
 ```json
 {
-  "goal": "Implement the API endpoint",
-  "inputs": ["artifact://plan.md"],
-  "required_artifacts": [
+  "task_id": "task_...",
+  "tenant_id": "tenant_...",
+  "project_id": "project_...",
+  "created_by": "user_...",
+  "goal": "帮我完成一个复杂研发任务",
+  "mode": "auto",
+  "status": "running",
+  "priority": "normal",
+  "visibility": "project",
+  "source": {"type": "web", "thread_id": "client_thread_..."}
+}
+```
+
+### 6.2 Plan
+
+Brain 输出的版本化计划。Plan 是 V2 的关键事实，不是临时提示词。
+
+```json
+{
+  "plan_id": "plan_...",
+  "task_id": "task_...",
+  "version": 1,
+  "strategy": "orchestrator_workers",
+  "summary": "调研、设计、实现、测试、审计并产出报告",
+  "nodes": [
+    {
+      "id": "research",
+      "agent_profile": "researcher",
+      "goal": "调研现有方案并产出 evidence.md",
+      "inputs": [],
+      "outputs": ["evidence.md"],
+      "policy": {"network": "ask", "write_workspace": "deny"}
+    },
+    {
+      "id": "implementation",
+      "agent_profile": "coder",
+      "depends_on": ["research"],
+      "outputs": ["diff.patch", "implementation-notes.md"]
+    },
+    {
+      "id": "review",
+      "agent_profile": "reviewer",
+      "depends_on": ["implementation"],
+      "outputs": ["review.json"]
+    }
+  ],
+  "edges": [
+    {"from": "research", "to": "implementation"},
+    {"from": "implementation", "to": "review"}
+  ],
+  "gates": [
+    {"after": "review", "type": "human_approval", "when": "critical_findings"}
+  ]
+}
+```
+
+### 6.3 DagRun / AgentTask / Attempt
+
+| 模型 | 含义 |
+| --- | --- |
+| `DagRun` | 某个 Plan 的一次执行 |
+| `AgentTask` | DAG 节点运行态，绑定 profile、上下文、artifact contract |
+| `Attempt` | AgentTask 的一次尝试；重试不会覆盖旧 attempt |
+| `RunSession` | 具体 Agent runtime 会话，例如 qwen/codex/claude/opencode |
+
+### 6.4 ArtifactContract
+
+每个子 Agent 必须带 contract。
+
+```json
+{
+  "agent_task_id": "node_implementation",
+  "required": [
     {"name": "diff.patch", "type": "patch", "required": true},
     {"name": "implementation-notes.md", "type": "markdown", "required": true}
   ],
   "evaluation": {
-    "checks": ["artifact_exists", "tests_passed", "review_gate"],
+    "checks": ["exists", "schema", "tests_passed", "review_gate"],
     "min_score": 0.8
   }
 }
 ```
 
-Supervisor 只在 artifact contract 满足后才推进 downstream。
+## 7. Brain 与编排设计
 
-### 7.3 失败重试
+### 7.1 Brain 不是普通 worker
 
-重试分层：
+Brain 是 V2 的任务理解和编排控制层，负责选择执行模式、生成 Plan、重规划和汇总结果。
 
-| 失败 | 策略 |
-| --- | --- |
-| worker lease expired | reclaim queued run |
-| transient adapter/network | retry same AgentTask |
-| permission denied | mark blocked/cancel downstream |
-| artifact contract missing | retry with explicit repair prompt |
-| review high risk | block and require human override |
-| test failed | spawn fix task or retry coder |
-| budget exceeded | block owner approval |
+Brain 的输入：
 
-每次重试都产生新的 run attempt，不能覆盖旧 run。
+- 用户目标。
+- 项目上下文。
+- 上传文件和仓库信息。
+- 租户/项目 policy。
+- 可用 AgentProfile。
+- 可用 ExecutionUnit 能力。
+- 历史任务和 memory。
 
-### 7.4 回放模式
+Brain 的输出：
 
-| 模式 | 目的 |
-| --- | --- |
-| UI replay | 复现用户看到的 Chat/DAG 流 |
-| State replay | 从 canonical events 重建 task/run/mission 状态 |
-| Audit replay | 输出权限、工具、artifact、policy 时间线 |
-| Tool replay | 用录制的 tool I/O fixture 做回归 |
-| Planner replay | 固定 planner input，比较 plan DAG 差异 |
+- Plan vN。
+- DAG。
+- 每个 AgentTask 的目标、上下文、profile、工具、产物 contract。
+- 重试、评估和 human gate 策略。
 
-## 8. 执行单元发现与注册
+### 7.2 五种编排模式
 
-### 8.1 Execution Unit 类型
+V2 必须原生支持调研报告提到的五种收敛模式。
 
-| 类型 | 示例 | 注册方式 |
+| 模式 | V2 表达 | 适用 |
 | --- | --- | --- |
-| local workspace | 本机隔离 worktree | local worker heartbeat |
-| Docker instance | per-run container | worker metadata declares container strategy |
-| ECS/VPS | remote worker daemon | one-time registration token |
-| NAS | persistent low-cost worker | labels + resource policy |
-| Kubernetes pod | dynamic executor | future provisioner |
+| Prompt Chaining | DAG 线性链 | 文档、代码生成、固定流程 |
+| Routing | Brain route node | 客服、分类、不同工具链 |
+| Parallelization | 多个并行 AgentTask + reduce node | 多视角调研、多模块审查 |
+| Orchestrator-Workers | Brain 动态生成 worker nodes | 复杂研发、多文件改造 |
+| Evaluator-Optimizer | generator/evaluator loop | 测试修复、审查修复、报告优化 |
 
-### 8.2 注册协议
+### 7.3 自动任务分级
 
-Worker registration 应包含：
+```text
+Level 1: single-agent
+  一个 AgentTask，一个 RunSession。
+
+Level 2: workflow
+  固定模板 DAG，例如 research -> write -> review。
+
+Level 3: orchestrated
+  Brain 动态拆分、并行、评估、重试。
+
+Level 4: autonomous with HITL
+  Agent 可长时间自主推进，但高风险操作必须审批。
+```
+
+V2 不追求 Level 5 自改进 Agent 作为默认能力。自改进工具创建必须在 Admin 显式开启并隔离。
+
+### 7.4 Durable Orchestrator
+
+调度层必须是 durable execution。
+
+推荐：
+
+- 第一生产版直接采用 Temporal，或实现接口兼容的轻量 durable engine。
+- 不把长期 DAG 状态放在进程内。
+- 所有外部等待都建模为 signal：permission decision、worker heartbeat、artifact uploaded、evaluation completed。
+
+关键能力：
+
+| 能力 | 要求 |
+| --- | --- |
+| crash recovery | 控制面或 worker 崩溃后恢复 DagRun |
+| retry policy | per-node retry、backoff、最大尝试次数 |
+| compensation | 下游失败时执行补偿或标记人工处理 |
+| pause/resume | 权限、人类 gate、预算 gate |
+| query | Client/Admin 查询 DAG 当前状态 |
+| signal | 人工审批、取消、追加输入、外部 webhook |
+
+## 8. Agent Runtime 与协议
+
+### 8.1 协议边界
+
+调研报告认为 MCP + A2A 正成为双层标准，并提到 ACP 向 A2A 过渡。V2 的设计应避免押注单一私有协议。
+
+| 关系 | 协议 | V2 用法 |
+| --- | --- | --- |
+| Client/Admin -> Platform | HTTPS REST + SSE/WebSocket | 自有 BFF，不暴露 executor token |
+| Platform -> Agent Runtime | Agent Runtime Adapter | 统一生命周期，不要求所有 CLI 原生同协议 |
+| Agent -> Tool/Data | MCP | 工具、资源、prompt、数据库、SaaS |
+| Platform/Agent -> External Agent | A2A | 外部 Agent 发现、任务委派、artifact 交换 |
+| qwen/codex/claude/opencode CLI | Native/ACP wrapper/A2A bridge | 适配到统一 Agent Runtime Contract |
+
+内部不要把 ACP、A2A、qwen daemon event、OpenCode event 当事实源。事实源是 V2 canonical event。
+
+### 8.2 Agent Runtime Contract
+
+任意 Agent CLI 只要能被包装成下面能力，就能接入：
+
+```text
+prepare(workspace, resolved_policy, agent_profile)
+start_session(prompt, context_refs) -> session_id
+stream_events(session_id, cursor) -> native events
+send_input(session_id, input)
+request_cancel(session_id)
+resolve_permission(session_id, permission_id, decision)
+collect_artifacts(session_id)
+shutdown(session_id)
+```
+
+Adapter 必须输出：
+
+- canonical runtime events。
+- raw native events artifact。
+- diagnostics。
+- artifact refs。
+- capability declaration。
+
+### 8.3 Runtime 支持矩阵
+
+| Runtime | 接入策略 | 备注 |
+| --- | --- | --- |
+| qwen-code | qwen serve / daemon event / future protocol bridge | Chat/WebShell golden path |
+| Codex CLI | wrapper + structured transcript parser | 统一 permission 和 artifact contract |
+| Claude Code | wrapper + OAuth/credential isolation | 不暴露原始 credential 到 worker 外 |
+| OpenCode | native event adapter | 可借鉴其强类型 session events |
+| External A2A Agent | A2A gateway -> AgentTask | 作为黑盒 Agent，有较弱 workspace 控制 |
+| Custom Agent | SDK 实现 Agent Runtime Contract | 最干净的长期接口 |
+
+## 9. Client Chat 与 DAG 可视化
+
+### 9.1 单 Agent 视图
+
+Client 任务详情里，每个 AgentTask 可以展开为本地 Agent chat 风格：
+
+- user prompt。
+- assistant streaming。
+- reasoning status，不泄露敏感 chain-of-thought。
+- tool call。
+- shell output。
+- permission request。
+- artifact created。
+- terminal state。
+
+qwen-code WebShell 可以作为 Chat 渲染组件参考或直接依赖，但它不是内部事实源。
+
+```text
+Native event -> Canonical RuntimeEvent -> UI Event Projection -> WebShell transcript
+```
+
+### 9.2 整体 DAG 视图
+
+DAG 视图展示：
+
+- 节点名称、角色、状态。
+- 当前执行节点。
+- 阻塞原因。
+- 产物完成度。
+- 重试次数。
+- 评估结论。
+- 人工 gate。
+
+移动端降级为 timeline：
+
+```text
+已完成 调研 -> 运行中 实现 -> 等待 审查 -> 待审批 发布
+```
+
+## 10. 安全与治理
+
+### 10.1 身份和租户
+
+V2 从第一天建模：
+
+```text
+Tenant
+Project
+User
+Membership
+RoleBinding
+Policy
+Session
+ApiToken
+WorkerToken
+```
+
+原则：
+
+- 默认所有 API 需要身份。
+- 服务端注入 `tenant_id/project_id/actor_id`。
+- 客户端传来的 owner/user/project metadata 一律剥离或校验。
+- API token 和 worker token 必须 scoped、可过期、可撤销。
+- 普通用户访问其他人的 task 返回 404，避免资源存在性泄漏。
+
+### 10.2 Policy 继承
+
+```mermaid
+flowchart TB
+  System["System Baseline"]
+  Tenant["Tenant Policy"]
+  Project["Project Policy"]
+  Profile["Agent Profile Policy"]
+  Task["Task Policy"]
+  Run["Resolved Attempt Policy"]
+
+  System --> Tenant --> Project --> Profile --> Task --> Run
+```
+
+规则：
+
+- deny 优先。
+- 资源限制取最严格值。
+- 子层不能放宽父层要求，除非有显式 owner override event。
+- 所有 resolved policy 写入 attempt artifact 和 DB。
+
+### 10.3 高风险域
+
+| 域 | 默认 |
+| --- | --- |
+| shell | ask |
+| network egress | ask/deny，支持 allowlist |
+| write workspace | ask/allow，按 profile |
+| secret read | deny，通过 secret broker |
+| git push | ask + owner/operator |
+| deploy | ask + owner/operator + environment policy |
+| external MCP tool | ask/deny，按 trust level |
+| browser automation | ask，高风险站点 deny |
+
+### 10.4 Prompt Injection 防线
+
+V2 不假设可以完全解决间接提示注入，必须做分层缓解：
+
+- 不可信文档进入 tainted context。
+- tainted context 不能提升权限。
+- tool call 必须经过 policy gate。
+- secret 永不进入普通 prompt；只通过 scoped broker。
+- network egress 和 file write 按任务/域隔离。
+- artifact 进入结果前做敏感信息扫描。
+- 高风险工具调用展示原始输入来源和风险摘要。
+
+## 11. 持久化、审计和回放
+
+### 11.1 数据存储
+
+推荐 V2 默认生产存储：
+
+| 存储 | 用途 |
+| --- | --- |
+| Postgres | 任务、计划、DAG、事件索引、权限、审计、配置 |
+| Object Store | artifact、raw logs、workspace snapshots、reports |
+| Redis | 短期 cache、rate limit、realtime fanout，不做事实源 |
+| Vector Store | 长期 memory、项目知识、历史经验检索 |
+
+SQLite 可以保留为本地开发/单用户模式，但不是 V2 架构中心。
+
+### 11.2 Canonical Events
+
+事件是事实源。所有状态可由事件重建。
+
+事件类别：
+
+| 类别 | 示例 |
+| --- | --- |
+| task | `task.created`、`task.cancelled` |
+| plan | `plan.proposed`、`plan.approved`、`plan.revised` |
+| dag | `dag.started`、`node.ready`、`node.blocked` |
+| runtime | `attempt.started`、`agent.message.delta`、`tool.started` |
+| permission | `permission.requested`、`permission.resolved`、`permission.applied` |
+| artifact | `artifact.created`、`artifact.validated` |
+| evaluation | `evaluation.completed`、`gate.blocked` |
+| worker | `unit.heartbeat`、`lease.claimed`、`lease.expired` |
+| cost | `budget.quoted`、`budget.exceeded` |
+
+### 11.3 回放
+
+| 回放 | 用途 |
+| --- | --- |
+| UI replay | 重放用户看到的 Chat 和 DAG timeline |
+| State replay | 从事件重建 Task/DagRun/Attempt 状态 |
+| Audit replay | 权限、工具、产物、策略、成本审计 |
+| Tool replay | 用录制 tool I/O 做回归，不重新执行工具 |
+| Planner replay | 固定输入比较 Plan 差异，评估 Brain 漂移 |
+
+## 12. 执行平面
+
+### 12.1 Execution Unit
+
+执行单元是资源和隔离边界，不等同于 Agent。
+
+| 类型 | 例子 | 特性 |
+| --- | --- | --- |
+| local workspace | 本机隔离 worktree | 开发体验好 |
+| process sandbox | per-run process | 快，隔离弱 |
+| docker container | per-run container | 默认生产最小隔离 |
+| ECS/VPS worker | 远程机器 | 成本可控 |
+| Kubernetes pod | 动态弹性 | 企业/规模化 |
+
+### 12.2 Worker 注册
+
+Execution Unit 注册时声明：
 
 ```json
 {
-  "worker_id": "hk-2c2g-a",
-  "tenant_id": "tenant_default",
-  "project_ids": ["default"],
+  "unit_id": "hk-ecs-a",
+  "tenant_scope": ["tenant_default"],
+  "project_scope": ["project_default"],
   "labels": {"region": "hk", "tier": "sandbox"},
-  "resources": {"cpu": 2, "memory_mb": 2048, "disk_mb": 40000},
+  "resources": {"cpu": 4, "memory_mb": 8192, "disk_mb": 100000},
   "adapters": ["qwen", "codex", "claude", "opencode"],
-  "features": ["artifacts", "permissions", "workspace_git", "container"],
-  "sandbox": {"type": "docker", "network": "egress-proxy"},
-  "executor": {"strategies": ["shared", "per_run_process", "container"]}
+  "sandbox": ["docker", "process"],
+  "features": ["permissions", "artifacts", "workspace_snapshot", "mcp"]
 }
 ```
 
-控制面根据 worker metadata、project policy、profile requirement 做 placement。
+Scheduler 按以下条件 placement：
 
-## 9. 后端技术路线
+- tenant/project scope。
+- adapter support。
+- profile requirement。
+- resource limit。
+- data residency。
+- current load。
+- trust tier。
 
-### 9.1 推荐：Python 控制面
+## 13. 记忆与上下文
 
-选择 Python 的原因：
+V2 的 memory 分层：
 
-- 当前 AgentFlow runtime 已是 Python，迁移成本最低。
-- LangGraph、CrewAI、Airflow/Temporal Python SDK、agent eval 生态更成熟。
-- SQLite/Postgres、SSE、worker daemon、CLI process control 都适合 Python。
-- qwen/codex/claude/opencode CLI 适配主要是进程和流式事件处理，不需要 Node 后端。
-
-Node.js 保留在前端和必要的 ACP wrapper/npm tool 安装层，不作为主控制面。
-
-### 9.2 演进方式
-
-| 阶段 | 后端形态 | 说明 |
+| 类型 | 作用 | 存储 |
 | --- | --- | --- |
-| 当前 | stdlib ThreadingHTTPServer | POC 小而可审计 |
-| P1 | 保持 stdlib，先拆 domain/service/store | 降低风险 |
-| P2 | 引入 DB migration abstraction | SQLite/Postgres 双后端 |
-| P3 | 可选 FastAPI ASGI gateway | 登录、CSRF、OpenAPI、WebSocket 更自然 |
-| P4 | worker/control plane 分进程 | HA 和横向扩展 |
+| working memory | 单次 AgentTask prompt/context | run context |
+| short-term memory | 一个 Task/DagRun 内共享摘要 | Postgres + artifact |
+| long-term memory | 用户/项目偏好、经验 | Vector Store + structured facts |
+| episodic memory | 历史任务经验和反思 | event summary + vector |
+| procedural memory | skills、SOP、DAG 模板 | Agent Catalog |
 
-不要在 Client/Admin 分离的第一步同时重写后端框架。先稳定模型、路由、测试，再替换 transport。
+上下文原则：
 
-## 10. 实施路线
+- 子 Agent 默认只拿与目标相关的最小上下文。
+- Brain 负责 context packing。
+- 大型仓库和文档走 RAG/GraphRAG，而不是全量塞 prompt。
+- 任何来自外部文档的上下文都带 taint label。
 
-### Phase 0：方案冻结与 schema tests
+## 14. 评估与质量
 
-- 新增本方案文档和 ADR。
-- 定义 `Task/Plan/DagRun/AgentTask/ArtifactContract/Evaluation` dataclass。
-- 增加 JSON schema fixtures。
-- 测试：schema validation、policy merge、plan DAG validation。
+每个 AgentTask 产物必须评估：
 
-### Phase 1：Client/Admin 硬分离
+| 评估类型 | 示例 |
+| --- | --- |
+| contract | required artifacts 是否存在、schema 是否通过 |
+| execution | 测试命令、lint、构建 |
+| review | reviewer agent 或 LLM-as-judge |
+| policy | 是否违反权限、secret、网络策略 |
+| human | 人工 gate |
 
-- route 从 `/`、`/admin/*` 收敛为 `/app/*`、`/admin/*`，根路径按 session role redirect。
-- 拆 `web/src/app.tsx` 为 client/admin/features。
-- 普通 member 不加载 Admin nav；直接访问 admin 返回 403/redirect。
-- 移动端 task detail 改为 Chat/Progress/Result tabs。
-- 测试：React unit + Playwright desktop/mobile。
+全局指标：
 
-### Phase 2：认证与租户 foundation
+- task completion rate。
+- first-pass success。
+- retry rate。
+- human intervention rate。
+- cost per task。
+- latency p50/p95。
+- artifact acceptance rate。
+- security block rate。
 
-- tenant/project/membership 表。
-- owner setup、user invite、disable、reset password、token_version、CSRF。
-- task/run/mission 统一写 `tenant_id/project_id/created_by`。
-- 测试：越权访问 404/403、CSRF、session invalidation、project filtering。
+## 15. 后端技术选择
 
-### Phase 3：Planner / Brain MVP
+### 15.1 推荐栈
 
-- `POST /tasks` 默认进入 planner decision。
-- simple 任务走单 run。
-- complex 任务生成 plan v1 + DagRun。
-- Planner 可先规则化：基于 goal/mode/project policy 产出 DAG。
-- Admin 可查看 plan JSON 和 DAG。
-- 测试：simple/complex 分派、fanout/fanin、invalid DAG、plan versioning。
+V2 推荐 Python-first，但不是因为 v1 是 Python，而是因为目标域适合：
 
-### Phase 4：Artifact contract + evaluation gate
+| 层 | 推荐 |
+| --- | --- |
+| API | FastAPI / ASGI |
+| Durable workflow | Temporal Python SDK 或兼容抽象 |
+| DB | Postgres + Alembic |
+| Queue/cache | Redis |
+| Artifact | S3-compatible object store + local filesystem dev mode |
+| Worker | Python daemon，负责 process/container/CLI control |
+| Frontend | React + Tailwind + shadcn 风格 |
+| Realtime | SSE 起步，WebSocket 可选 |
 
-- AgentTask 必须声明 required artifacts。
-- run 完成后检查 artifact contract。
-- reviewer/tester/release gate 作为 evaluation。
-- 缺 artifact 自动 repair retry。
-- 测试：artifact missing、schema invalid、review block、human override。
+Node.js 适合作为：
 
-### Phase 5：多 Agent CLI adapter
+- 前端构建和 UI。
+- 某些 Agent CLI wrapper。
+- npm-based ACP/A2A/MCP adapter。
 
-- 抽象 ACP adapter interface。
-- Codex/Claude/OpenCode 至少先实现 fake/native fixture adapter。
-- qwen adapter 作为 golden conformance。
-- UI projection 对非 qwen agent 生成一致 WebShell transcript。
-- 测试：adapter conformance、permission mapping、cancel、reconnect、raw/canonical replay。
+Node.js 不建议作为主控制面，因为 V2 重点是 durable workflow、Python Agent 生态、CLI/sandbox 控制、评估与数据处理。
 
-### Phase 6：Postgres + artifact store
+### 15.2 可替换性
 
-- 引入 repository abstraction 和 migration。
-- SQLite 保留本地模式；Postgres 作为生产推荐。
-- artifact store 支持 filesystem 起步，预留 S3-compatible URI。
-- 测试：migration、index query、event replay、backup/restore。
+架构必须避免框架锁死：
 
-### Phase 7：执行单元注册与调度增强
+- Brain 可以是规则、LLM、LangGraph、CrewAI Flow 或自研 planner。
+- Orchestrator 可以是 Temporal 或内置 engine。
+- Agent adapter 可以接 qwen/codex/claude/opencode/custom。
+- Artifact store 可以本地或 S3。
+- Vector store 可以 pgvector、Qdrant、Milvus。
 
-- worker registration UI 完整化。
-- placement policy：adapter、labels、resources、tenant/project scope。
-- worker capability conformance。
-- 测试：claim matching、drain/resume/retry、stale worker、capacity、resource rejection。
+## 16. v1 资产处置
 
-### Phase 8：可选 durable workflow backend
+| v1 资产 | V2 决策 |
+| --- | --- |
+| `ui_projection.py` | 可迁移为 UI Projection Service 的初版 |
+| qwen adapter | 可作为 qwen runtime adapter 参考，不保留原 route 约束 |
+| worker heartbeat/claim | 可作为 Execution Unit protocol seed |
+| permission/review gate | 领域模型可复用，数据模型重建 |
+| SQLite store | 本地 dev mode 可参考，生产事实源改 Postgres |
+| `server.py` 单体 HTTP | 不迁移，改 API/Service/Repository 分层 |
+| React `app.tsx` | 不继续扩张，拆 Client/Admin/features |
+| `/runs` `/missions` | Admin/debug 可兼容，Client 不暴露 |
+| tests fixtures | 高价值，迁移成 V2 conformance tests |
 
-- 如果 lightweight DagRun 已经出现长等待、外部 signal、复杂补偿，再引入 Temporal。
-- Airflow 更适合定时/批处理，不建议作为第一默认后端。
+## 17. V2 实施路线
 
-## 11. 测试与质量门禁
+### Phase 0：Architecture Baseline
 
-目标：全局覆盖率 > 90%，并且关键风险用集成/E2E 覆盖，不只追求行覆盖。
+- 冻结本设计。
+- 定义 ADR：V2 greenfield、Task-first、durable workflow、Postgres-first。
+- 定义 OpenAPI/JSON schema：Task、Plan、DagRun、AgentTask、Attempt、Policy、Artifact。
 
-### 11.1 后端
+### Phase 1：New Skeleton
+
+- 新建 `control_plane` 分层应用，不在 v1 `server.py` 上继续堆。
+- 建立 FastAPI、Postgres migration、repository、service、domain 分层。
+- 建立 React `/app` 和 `/admin` 双入口骨架。
+- 保留 v1 runtime 作为 legacy adapter，供过渡验证。
+
+### Phase 2：Identity/Tenant/Policy
+
+- tenant/project/user/membership/session/api token。
+- CSRF、登录限速、token_version。
+- policy inheritance engine。
+- Admin 用户和策略管理。
+
+### Phase 3：Task/Plan/DagRun
+
+- Client 创建 Task。
+- Brain deterministic MVP 生成 Plan。
+- Durable Orchestrator 执行 DagRun。
+- 支持 chaining/routing/parallel/evaluator/orchestrator-workers 的 schema。
+
+### Phase 4：Agent Runtime Adapter
+
+- qwen-code golden adapter。
+- fake adapter for tests。
+- codex/claude/opencode adapter conformance。
+- canonical event schema。
+- WebShell-compatible UI projection。
+
+### Phase 5：Artifact/Evaluation/HITL
+
+- ArtifactContract。
+- Evaluation pipeline。
+- Permission gate。
+- Human approval and override。
+- retry/repair loop。
+
+### Phase 6：Execution Units
+
+- worker registration。
+- placement scheduler。
+- docker/process/local workspace。
+- resource and data residency policy。
+
+### Phase 7：Audit/Replay/Observability
+
+- audit query。
+- UI/state/audit replay。
+- tracing、metrics、cost attribution。
+- backup/restore。
+
+### Phase 8：Production Hardening
+
+- HA deployment。
+- object store。
+- worker autoscaling。
+- security scanning。
+- load tests。
+- full E2E and coverage gates。
+
+## 18. 测试策略
+
+覆盖率目标：后端、前端全局 90%+，核心路径必须有集成和 E2E。
+
+### 18.1 后端
 
 | 层 | 测试 |
 | --- | --- |
-| unit | policy merge、DAG validation、artifact contract、adapter event mapping |
-| integration | task -> plan -> DagRun -> runs -> artifacts -> final result |
-| HTTP | auth/session、CSRF、project filtering、admin RBAC、SSE reconnect |
-| worker | heartbeat、claim、cancel、permission apply、artifact upload |
-| replay | events -> state、events -> UI transcript、audit bundle |
-| failure | timeout、lease expired、worker stale、adapter failed、budget exceeded |
+| domain | policy merge、DAG validation、Plan schema、ArtifactContract |
+| service | create task、plan、start dag、retry、gate、cancel |
+| adapter | qwen/codex/claude/opencode conformance |
+| persistence | migration、transaction、event replay、tenant isolation |
+| security | CSRF、RBAC、token scope、prompt injection taint |
+| workflow | crash recovery、signal、timeout、retry、compensation |
 
-### 11.2 前端
+### 18.2 前端
 
 | 层 | 测试 |
 | --- | --- |
-| unit | Client/Admin route guard、task projections、DAG status、permission card |
-| component | WebShell adapter fixtures、mobile tabs、artifact preview |
-| E2E | login、create simple task、create complex task、approval、admin audit |
-| mobile E2E | iPhone viewport：发任务、看 Chat、审批、查看结果 |
-| accessibility | keyboard navigation、focus、aria labels、contrast |
+| unit | route guard、task state projection、DAG rendering |
+| component | Chat/WebShell adapter、approval card、artifact viewer |
+| desktop E2E | login、create task、complex DAG、approval、result |
+| mobile E2E | create task、watch progress、approve、view result |
+| admin E2E | user/policy/unit/audit workflows |
 
-### 11.3 Conformance
+### 18.3 Conformance
 
-必须建立固定 fixtures：
-
-- qwen daemon events。
-- codex canonical events。
-- claude canonical events。
-- opencode canonical events。
-- permission requested/resolved/applied。
-- shell stdout/stderr。
-- artifact created。
-- failed/retry/resume。
-
-每个 adapter 必须通过：
+所有 Agent adapter 必须通过：
 
 ```text
-native events -> canonical events -> DaemonEvent -> transcript blocks
+native events -> canonical events
+canonical events -> UI projection
 canonical events -> state replay
 canonical events -> audit bundle
+permission request -> decision -> applied
+artifact contract -> evaluation -> gate
+cancel -> terminal state
 ```
 
-## 12. 多轮审计
+## 19. 架构审计
 
-### 12.1 产品审计
+### 19.1 产品审计
 
-| 风险 | 判断 | 处理 |
-| --- | --- | --- |
-| 用户端仍像后台控制台 | 高风险 | `/app` 只保留 task/chat/result，worker/executor 全部移到 `/admin` |
-| 移动端 DAG 太复杂 | 高风险 | 移动端用 timeline，不强行展示 graph |
-| 简单任务被复杂配置吓退 | 高风险 | 默认 auto，用户只选“快速/标准/深度” |
-| 权限审批被藏起来 | 高风险 | 权限卡固定在 composer 上方，并在任务列表标记“等待我处理” |
+| 风险 | 处理 |
+| --- | --- |
+| 用户被运维概念淹没 | Client 只暴露 Task/Chat/Progress/Result |
+| 移动端不可用 | 移动端 timeline + tabs，不展示复杂 Admin graph |
+| 简单任务路径太重 | Brain 允许 single-agent fast path |
+| 复杂任务黑盒 | DAG + Chat + artifact + blocked reason |
 
-### 12.2 架构审计
+### 19.2 架构审计
 
-| 风险 | 判断 | 处理 |
-| --- | --- | --- |
-| 一次性重写后端框架 | 高风险 | 先拆模型和服务，后续再可选 FastAPI |
-| 直接引入 Airflow 过重 | 中高风险 | 先内置 lightweight DagRun，保留 Temporal/Airflow adapter 口 |
-| 子 Agent 作为 runtime 内部 subagent 不可审计 | 高风险 | 平台 DAG 中的每个 AgentTask 都映射为 SAEU run |
-| Qwen WebShell schema 反向污染内部事件 | 高风险 | canonical RuntimeEvent 是事实源，DaemonEvent 只是 projection |
+| 风险 | 处理 |
+| --- | --- |
+| 过度依赖 v1 | V2 新骨架，v1 只作为 legacy adapter |
+| 过早自研 workflow engine | 推荐 Temporal 或可替换 durable engine 抽象 |
+| 协议锁死 | 内部用 canonical event 和 Runtime Contract，协议只是 adapter |
+| 所有 Agent 都当黑盒 | 黑盒 A2A Agent 可接入，但内部 AgentTask 优先用可审计 runtime |
 
-### 12.3 安全审计
+### 19.3 安全审计
 
-| 风险 | 判断 | 处理 |
-| --- | --- | --- |
-| 客户端伪造 user/project metadata | 高风险 | 服务端注入身份，剥离客户端 owner/user 字段 |
-| policy override 放宽权限 | 高风险 | deny 优先，子层只能收紧 |
-| worker token 泄漏 | 高风险 | scoped token、过期、可撤销、只显示一次 |
-| 浏览器直连 qwen daemon | 高风险 | 禁止，必须走 BFF |
-| secrets 被 artifact 泄漏 | 高风险 | secret broker + artifact redaction + audit scanner |
+| 风险 | 处理 |
+| --- | --- |
+| 间接提示注入 | tainted context + policy gate + least privilege |
+| 过度授权 | deny 优先、resolved policy、HITL |
+| secret 泄漏 | secret broker、artifact scanning、prompt 禁入 |
+| worker token 泄漏 | scoped、可撤销、短期、只显示一次 |
+| 浏览器直连 executor | 禁止，必须走 BFF |
 
-### 12.4 协议审计
+### 19.4 可实施性审计
 
-| 风险 | 判断 | 处理 |
-| --- | --- | --- |
-| ACP/A2A/MCP 边界混乱 | 中高风险 | ACP 控制 Agent，A2A 对外互操作，MCP 接工具 |
-| Agent CLI 事件能力不一致 | 高风险 | adapter conformance + canonical event schema |
-| permission option 不统一 | 中风险 | Runtime decision 固定 approve/deny/cancel，原 option_id 进 metadata |
-| SSE 断线丢事件 | 高风险 | Last-Event-ID + replay from canonical events |
+| 风险 | 处理 |
+| --- | --- |
+| 范围过大 | 按 Phase 0-8 分层交付 |
+| 从零重写失控 | v1 作为 legacy adapter，先跑通端到端骨架 |
+| Temporal 引入成本 | Orchestrator 抽象，允许先内置轻量 engine |
+| Adapter 难统一 | conformance tests 先行 |
+| 90% 覆盖拖慢迭代 | domain/service/adapter fixture 测试优先，E2E 覆盖关键路径 |
 
-### 12.5 可实施性审计
+## 20. 最终验收标准
 
-| 风险 | 判断 | 处理 |
-| --- | --- | --- |
-| 目标太大导致长期不可交付 | 高风险 | Phase 1 只做分端，Phase 3 才做 planner |
-| 测试成本过高 | 中风险 | fixture conformance + 关键 E2E，覆盖率门禁不降 |
-| Postgres 迁移影响本地体验 | 中风险 | SQLite/Postgres 双后端，先 repository abstraction |
-| WebShell 包不稳定 | 中风险 | 先 projection fixture，vendor 版本 pin，保留 fallback renderer |
-
-## 13. 第一批可执行任务
-
-建议第一批 PR 不超过以下范围：
-
-1. 新增 `Task/Plan/DagRun/AgentTask` 设计 schema 和验证测试。
-2. 前端 route/layout 拆分为 `/app` 与 `/admin`，不重写业务逻辑。
-3. 普通 member 访问 `/admin` 的 guard 和 E2E。
-4. 移动端 Client task detail tabs。
-5. Planner MVP 只做 deterministic rules，不接 LLM。
-
-这样可以快速验证产品边界，同时不碰最危险的 adapter 和 DB migration。
-
-## 14. 最终验收标准
+V2 不是“v1 页面改漂亮”。V2 完成时应满足：
 
 | 领域 | 验收 |
 | --- | --- |
-| Client | 用户登录后能在移动/桌面端发起简单或复杂任务，看 Chat、DAG、权限、结果 |
-| Admin | owner/operator/auditor 能分别管理用户、policy、worker、audit、ops |
-| Orchestration | 复杂任务自动生成 DAG，子 Agent 有目标、上下文、产物、评估 |
-| Protocol | qwen/codex/claude/opencode 至少通过统一 adapter conformance |
-| Security | policy 继承、RBAC、CSRF、token scope、worker scope 有测试 |
-| Audit | 任意 task 可导出完整 audit bundle，并可 UI/state replay |
-| Persistence | 后台任务不依赖客户端，进程重启后可恢复状态 |
-| Tests | 后端和前端全局覆盖率均保持 90%+，关键 E2E 覆盖桌面和移动端 |
+| Client | 用户在桌面和移动端登录后能提交目标、查看 Chat/DAG/结果、处理权限 |
+| Admin | 管理员能管理用户、租户、策略、Agent、执行单元、审计和成本 |
+| Brain | 能自动选择 single/workflow/multi-agent，并产出版本化 Plan |
+| Orchestration | DAG 可持久执行，支持重试、暂停、恢复、人工 gate |
+| Runtime | qwen/codex/claude/opencode 通过统一 contract 接入 |
+| Security | 最小权限、policy 继承、CSRF/RBAC、secret 隔离和 prompt injection 防线有测试 |
+| Audit | 任意任务能导出完整事件、权限、工具、产物、评估和回放材料 |
+| Persistence | 浏览器关闭、worker 重启、控制面重启不丢任务事实 |
+| Quality | 测试覆盖率 90%+，关键 Client/Admin/mobile/workflow/adapter E2E 通过 |
 
