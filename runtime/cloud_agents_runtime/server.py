@@ -74,6 +74,38 @@ def make_handler(
             if path == "/health":
                 self.write_json({"ok": True, "version": __version__})
                 return
+            if path == "/v2/capabilities":
+                self.write_json(manager.v2.capabilities())
+                return
+            if path == "/v2/tasks":
+                self.write_json({"tasks": manager.v2.list_tasks()})
+                return
+            if len(parts) == 3 and parts[0] == "v2" and parts[1] == "tasks":
+                try:
+                    self.write_json(manager.v2.get_task(unquote(parts[2])))
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "events.json"
+            ):
+                try:
+                    self.write_json({"events": manager.v2.events(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if path == "/v2/admin/overview":
+                self.write_json(manager.v2.admin_overview())
+                return
+            if path == "/v2/admin/execution-units":
+                self.write_json({"units": manager.v2.execution_units()})
+                return
+            if path == "/v2/admin/channels":
+                self.write_json({"channels": manager.v2.channels()})
+                return
             if path == "/capabilities":
                 self.write_json(manager.capabilities())
                 return
@@ -421,6 +453,51 @@ def make_handler(
             parts = split_path(path)
             try:
                 payload = self.read_json()
+                if len(parts) == 2 and parts[0] == "v2" and parts[1] == "tasks":
+                    try:
+                        task = manager.v2.create_task(
+                            payload,
+                            principal=self.principal_id(),
+                            idempotency_key=self.headers.get("idempotency-key"),
+                        )
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(task, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "messages"
+                ):
+                    try:
+                        event = manager.v2.append_message(
+                            unquote(parts[2]),
+                            str(payload.get("message") or payload.get("prompt") or ""),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json({"event": event}, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "execution-units"
+                ):
+                    try:
+                        unit = manager.v2.register_execution_unit(payload)
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(unit, status=HTTPStatus.CREATED)
+                    return
                 if path == "/acp":
                     response, status = handle_acp_jsonrpc(manager, payload)
                     self.write_json(response, status=status)
@@ -1117,10 +1194,14 @@ def spa_redirect_target(path: str, headers: Any) -> str | None:
     hash_path: str | None = None
     if (
         parts[0]
-        in {"workspace", "overview", "units", "executors", "profiles", "access", "operations"}
+        in {"workspace", "overview", "units", "executors", "profiles", "access", "operations", "v2"}
         and len(parts) == 1
     ):
         hash_path = f"/{parts[0]}"
+    elif parts[0] == "v2" and len(parts) == 2 and parts[1] == "admin":
+        hash_path = "/v2/admin"
+    elif parts[0] == "v2" and len(parts) == 3 and parts[1] == "tasks":
+        hash_path = "/" + "/".join(parts)
     elif parts[0] in {"runs", "missions", "tasks"} and len(parts) <= 2:
         hash_path = "/" + "/".join(parts)
     if not hash_path:
@@ -1166,6 +1247,16 @@ def required_scope_for(method: str, path: str) -> str | None:
         return None
     if parts[0] == "auth":
         return "access:read" if method == "GET" else "access:write"
+    if parts[0] == "v2":
+        if len(parts) >= 2 and parts[1] == "admin":
+            return "access:read" if method == "GET" else "access:write"
+        if method == "GET":
+            if len(parts) >= 4 and parts[3] == "events.json":
+                return "events:read"
+            return "tasks:read"
+        if len(parts) >= 4 and parts[3] == "messages":
+            return "tasks:write"
+        return "tasks:create"
     if parts[0] == "workers":
         return "workers:read" if method == "GET" else "workers:write"
     if parts[0] == "permissions":

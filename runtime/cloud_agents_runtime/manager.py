@@ -23,6 +23,7 @@ from .ops import BetaOpsConfig, OperationsManager
 from .resources import ResourceLimitConfig, ResourcePolicyResolver
 from .store import RunStore
 from .ui_projection import project_events
+from .v2_control_plane import V2ControlPlane
 from .workspace import WorkspaceAllocator
 
 
@@ -48,6 +49,7 @@ class RunManager:
         heartbeat_enabled: bool = False,
     ):
         self.store = RunStore(artifact_root)
+        self.v2 = V2ControlPlane(artifact_root / "v2")
         self.executor_registry = ExecutorRegistry(self.store, ExecutorConfig.from_env())
         self.workspace_allocator = WorkspaceAllocator(artifact_root)
         self.resource_resolver = ResourcePolicyResolver(resource_config)

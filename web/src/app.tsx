@@ -101,6 +101,7 @@ import {
 } from "./lib/api";
 import { LanguageProvider, useI18n, type I18nKey } from "./lib/i18n";
 import { downloadJson } from "./lib/utils";
+import { V2AdminPage, V2ClientPage, V2TaskPage } from "./v2";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +117,21 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: WorkspacePage,
+});
+const v2Route = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2",
+  component: V2ClientPage,
+});
+const v2TaskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2/tasks/$taskId",
+  component: V2TaskPage,
+});
+const v2AdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2/admin",
+  component: V2AdminPage,
 });
 const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -230,6 +246,9 @@ const adminOperationsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  v2Route,
+  v2TaskRoute,
+  v2AdminRoute,
   taskDetailRoute,
   adminOverviewRoute,
   adminOverviewAliasRoute,

@@ -375,6 +375,112 @@ export interface AuthSession {
   auth_mode?: string;
 }
 
+export interface V2Progress {
+  completed_steps: number;
+  running_steps: number;
+  total_steps: number;
+  percent: number;
+}
+
+export interface V2AgentTask {
+  agent_task_id: string;
+  task_id: string;
+  plan_id: string;
+  role: string;
+  title: string;
+  goal: string;
+  status: string;
+  adapter: string;
+  order_index: number;
+  depends_on: string[];
+  artifact_contract: Record<string, unknown>;
+  result: Record<string, unknown>;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at: string;
+}
+
+export interface V2Plan {
+  plan_id: string;
+  task_id: string;
+  version: number;
+  status: string;
+  strategy: string;
+  graph: {
+    strategy: string;
+    nodes: Array<{ id: string; title: string; depends_on: string[] }>;
+  };
+  artifact_contract: Record<string, unknown>;
+  agent_tasks: V2AgentTask[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Task {
+  task_id: string;
+  tenant_id: string;
+  project_id: string;
+  created_by: string;
+  title: string;
+  goal: string;
+  mode: string;
+  status: string;
+  priority: string;
+  channel: string;
+  adapter: string;
+  created_at: string;
+  updated_at: string;
+  progress: V2Progress;
+  plan: V2Plan | null;
+  result?: {
+    summary: string;
+    artifacts: Array<Record<string, unknown>>;
+    evaluation: Record<string, unknown>;
+  } | null;
+  events?: V2Event[];
+}
+
+export interface V2Event {
+  event_id: string;
+  task_id: string;
+  sequence: number;
+  type: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface V2ExecutionUnit {
+  unit_id: string;
+  kind: string;
+  status: string;
+  labels: Record<string, unknown>;
+  resources: Record<string, unknown>;
+  adapters: string[];
+  features: string[];
+  heartbeat_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Channel {
+  channel_id: string;
+  platform: string;
+  status: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2AdminOverview {
+  generated_at: string;
+  tasks: { total: number; by_status: Record<string, number> };
+  agent_tasks: { total: number; by_status: Record<string, number> };
+  execution_units: V2ExecutionUnit[];
+  channels: V2Channel[];
+  reliability: Record<string, string>;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -403,6 +509,34 @@ export const runtimeApi = {
       body: JSON.stringify({}),
     }),
   health: () => api<{ ok: boolean; version: string }>("health"),
+  v2Capabilities: () => api<Record<string, unknown>>("v2/capabilities"),
+  v2Tasks: () => api<{ tasks: V2Task[] }>("v2/tasks"),
+  v2Task: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}`),
+  v2TaskEvents: (taskId: string) =>
+    api<{ events: V2Event[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/events.json`,
+    ),
+  v2CreateTask: (payload: Record<string, unknown>) =>
+    api<V2Task>("v2/tasks", {
+      method: "POST",
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    }),
+  v2SubmitMessage: (taskId: string, message: string) =>
+    api<{ event: V2Event }>(`v2/tasks/${encodeURIComponent(taskId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  v2AdminOverview: () => api<V2AdminOverview>("v2/admin/overview"),
+  v2ExecutionUnits: () =>
+    api<{ units: V2ExecutionUnit[] }>("v2/admin/execution-units"),
+  v2Channels: () => api<{ channels: V2Channel[] }>("v2/admin/channels"),
+  v2RegisterExecutionUnit: (payload: Record<string, unknown>) =>
+    api<V2ExecutionUnit>("v2/admin/execution-units", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   capabilities: () => api<Capabilities>("capabilities"),
   metrics: () => api<Metrics>("metrics.json"),
   costStatus: () => api<CostStatus>("cost/status"),

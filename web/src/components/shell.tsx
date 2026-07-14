@@ -170,9 +170,12 @@ export function Shell() {
           </div>
           <div className="flex items-center gap-1">
             {isAdmin ? (
-              <LinkButton to="/" label={t("nav.userApp")} />
+              <LinkButton to="/v2" label={t("nav.userApp")} />
             ) : canUseAdmin ? (
               <LinkButton to="/admin" label={t("nav.admin")} />
+            ) : null}
+            {!isAdmin && pathname !== "/v2" ? (
+              <LinkButton to="/v2" label="V2" />
             ) : null}
             <DocsLink />
             <LanguageToggle />
@@ -282,6 +285,12 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function isAdminPath(pathname: string) {
+  if (pathname === "/v2" || pathname.startsWith("/v2/tasks")) {
+    return false;
+  }
+  if (pathname === "/v2/admin") {
+    return true;
+  }
   return pathname.startsWith("/admin") && pathname !== "/admin-login"
     ? true
     : pathname !== "/" && !pathname.startsWith("/tasks");
