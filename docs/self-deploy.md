@@ -70,7 +70,7 @@ cat /Users/chigao/Documents/works/ecs/aliyun-hongkong.pem
 | Variable | 推荐值 | 含义 |
 | --- | --- | --- |
 | `RUNTIME_DEPLOY_ENABLED` | `1` | 允许 push main 自动部署 |
-| `RUNTIME_APP_DIR` | `/opt/agent-research` | VPS 上的应用目录 |
+| `RUNTIME_APP_DIR` | `/opt/agentflow` | VPS 上的应用目录 |
 | `RUNTIME_STATE_DIR` | `/var/lib/cloud-agents-runtime` | artifact、SQLite、backup 等状态目录 |
 | `QWEN_EXECUTOR_STRATEGY` | `shared` | qwen executor 策略，低配机器先用 shared |
 
@@ -119,6 +119,8 @@ http://<RUNTIME_PUBLIC_HOST>/cloud-agents/
 - 小 VPS：worker 或公网 Nginx 边缘。
 
 完整教程见：[本地电脑或 NAS 作为 AgentFlow 主控的部署教程](implementation/local-nas-control-plane-deployment.md)。
+
+如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[AgentFlow 从部署到可用产品的完整教程](deployment-runbook.md)。
 
 关键原则：
 

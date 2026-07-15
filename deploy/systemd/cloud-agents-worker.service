@@ -5,9 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/agent-research
+WorkingDirectory=/opt/agentflow
 EnvironmentFile=/etc/cloud-agents-worker.env
-ExecStart=/usr/bin/python3 -m runtime.cloud_agents_runtime.worker
+Environment=PYTHONPATH=/opt/agentflow/runtime
+ExecStart=/usr/bin/python3 -m cloud_agents_runtime.worker
 Restart=always
 RestartSec=5
 User=cloudagents

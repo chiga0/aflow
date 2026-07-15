@@ -82,7 +82,7 @@ qwen --version
 ```bash
 sudo mkdir -p /opt/agentflow
 sudo chown "$USER":"$USER" /opt/agentflow
-git clone https://github.com/chiga0/agent-research.git /opt/agentflow
+git clone https://github.com/chiga0/agent-flow.git /opt/agentflow
 cd /opt/agentflow
 ```
 
@@ -209,8 +209,8 @@ PYTHONPATH=runtime python3 scripts/smoke_v2_control_plane.py \
 浏览器入口：
 
 ```text
-http://127.0.0.1:8765/#/v2
-http://127.0.0.1:8765/#/v2/admin
+http://127.0.0.1:8765/#/
+http://127.0.0.1:8765/#/admin
 ```
 
 ### Docker Compose 部署

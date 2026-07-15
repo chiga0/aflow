@@ -56,7 +56,7 @@ RUN_MANAGER_BOOTSTRAP_PASSWORD="$(
 ### 服务器常用路径
 
 ```text
-/opt/agent-research
+/opt/agentflow
 /etc/cloud-agents-runtime.env
 /etc/cloud-agents-worker.env
 /var/lib/cloud-agents-runtime

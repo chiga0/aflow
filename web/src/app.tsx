@@ -5407,7 +5407,7 @@ function workerNoSourceDeployCommand(registration: WorkerRegistration) {
     shellEnvAssignment("RUN_WORKER_TOKEN", token),
     shellEnvAssignment("RUN_WORKER_ID", registration.worker_id),
     `RUN_WORKER_CAPACITY${"="}${registration.capacity}`,
-    'bash -c \'tmp=$(mktemp); curl -fsSL https://raw.githubusercontent.com/chiga0/agent-research/main/scripts/deploy_worker_vps.sh -o "$tmp"; bash "$tmp" root@<worker-ip> /path/to/key.pem\'',
+    'bash -c \'tmp=$(mktemp); curl -fsSL https://raw.githubusercontent.com/chiga0/agent-flow/main/scripts/deploy_worker_vps.sh -o "$tmp"; bash "$tmp" root@<worker-ip> /path/to/key.pem\'',
   ].join(" \\\n  ");
 }
 

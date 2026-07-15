@@ -2648,7 +2648,7 @@ describe("AgentFlow console", () => {
         metadata: {},
         deploy_command: "local-source-command",
       }),
-    ).toContain("raw.githubusercontent.com/chiga0/agent-research");
+    ).toContain("raw.githubusercontent.com/chiga0/agent-flow");
     expect(
       __testUtils.workerBadges({
         worker_id: "worker",

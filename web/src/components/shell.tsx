@@ -242,7 +242,7 @@ function DocsLink() {
     <a
       aria-label={t("common.docs")}
       className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-transparent px-2 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:px-3 sm:text-sm"
-      href="https://chiga0.github.io/agent-research/architecture/"
+      href="https://chiga0.github.io/agent-flow/architecture/"
       rel="noreferrer"
       target="_blank"
     >

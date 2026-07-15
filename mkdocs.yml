@@ -1,8 +1,8 @@
 site_name: AgentFlow
 site_description: AgentFlow is an Agent orchestration system for long-running cloud execution, governance, auditability, and recovery.
-site_url: https://chiga0.github.io/agent-research/
-repo_url: https://github.com/chiga0/agent-research
-repo_name: chiga0/agent-research
+site_url: https://chiga0.github.io/agent-flow/
+repo_url: https://github.com/chiga0/agent-flow
+repo_name: chiga0/agent-flow
 
 theme:
   name: shadcn
@@ -16,11 +16,18 @@ nav:
       - 认识 AgentFlow: getting-started.md
       - 核心概念: concepts.md
       - 架构与术语: architecture.md
+      - 从部署到可用产品: deployment-runbook.md
+      - IM 机器人接入: channel-integrations.md
+      - 执行单元注册与调度: execution-units.md
+      - 架构走读: architecture-walkthrough.md
       - 使用管理台: user-guide.md
       - 自我部署: self-deploy.md
       - 排障手册: troubleshooting.md
   - 运维与审计:
       - AgentFlow 操作手册: implementation/operation-manual.md
+      - 从部署到可用产品: deployment-runbook.md
+      - IM 机器人接入: channel-integrations.md
+      - 执行单元注册与调度: execution-units.md
       - 产品可用性审计: implementation/product-usability-audit.md
       - 方案审计与 Review 记录: implementation/review-and-audit-record.md
       - 本地或 NAS 主控部署教程: implementation/local-nas-control-plane-deployment.md
@@ -29,6 +36,7 @@ nav:
   - 架构设计:
       - 架构总览: implementation/index.md
       - AgentFlow 架构与术语: architecture.md
+      - AgentFlow 架构走读: architecture-walkthrough.md
       - Client/Admin 分离与多 Agent 平台化方案: implementation/client-admin-agent-platform-plan.md
       - AgentFlow V2 产品与架构整体方案: implementation/v2-product-architecture.md
       - AgentFlow V2 C/B 双端产品重设计: implementation/v2-c-b-product-redesign.md
