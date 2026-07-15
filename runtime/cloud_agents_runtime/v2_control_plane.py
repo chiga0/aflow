@@ -391,14 +391,22 @@ class V2ControlPlane:
                 raise ValueError("task is already running")
             now = utc_now()
             self._db.execute(
-                "UPDATE v2_agent_tasks SET status = ?, result_json = ?, updated_at = ? WHERE task_id = ?",
+                """
+                UPDATE v2_agent_tasks
+                SET status = ?, result_json = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
                 ("queued", json_dumps({}), now, task_id),
             )
             self._set_task_status_locked(task_id, "queued")
             current = self._workflow_run(task_id)
             attempt = 1 if current is None else int(current["attempt"]) + 1
             self._db.execute(
-                "UPDATE v2_workflow_runs SET status = ?, attempt = ?, updated_at = ? WHERE task_id = ?",
+                """
+                UPDATE v2_workflow_runs
+                SET status = ?, attempt = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
                 ("queued", attempt, now, task_id),
             )
             self._append_event_locked(
