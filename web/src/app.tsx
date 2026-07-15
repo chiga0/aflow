@@ -13,15 +13,11 @@ import {
   createRouter,
   Link,
   RouterProvider,
-  useNavigate,
   useParams,
 } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import {
   AlertTriangle,
-  CheckCircle2,
-  CircleDot,
-  Clock3,
   Copy,
   Cpu,
   Download,
@@ -94,14 +90,16 @@ import {
   type PermissionRequest,
   type RuntimeEvent,
   type RunState,
-  type TaskEvent,
-  type TaskState,
   type WorkerInfo,
   type WorkerRegistration,
 } from "./lib/api";
 import { LanguageProvider, useI18n, type I18nKey } from "./lib/i18n";
 import { downloadJson } from "./lib/utils";
-import { V2AdminPage, V2ClientPage, V2TaskPage } from "./v2";
+import {
+  ProductAdminPage,
+  ProductClientPage,
+  ProductTaskPage,
+} from "./product";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,92 +114,42 @@ const rootRoute = createRootRoute({ component: Shell });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: WorkspacePage,
-});
-const v2Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/v2",
-  component: V2ClientPage,
-});
-const v2TaskRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/v2/tasks/$taskId",
-  component: V2TaskPage,
-});
-const v2AdminRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/v2/admin",
-  component: V2AdminPage,
-});
-const overviewRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/overview",
-  component: OverviewPage,
+  component: ProductClientPage,
 });
 const adminOverviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
-  component: OverviewPage,
+  component: ProductAdminPage,
 });
 const adminOverviewAliasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/overview",
-  component: OverviewPage,
-});
-const runsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/runs",
-  component: RunsPage,
+  component: ProductAdminPage,
 });
 const adminRunsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/runs",
   component: RunsPage,
 });
-const runDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/runs/$runId",
-  component: RunDetailPage,
-});
 const adminRunDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/runs/$runId",
   component: RunDetailPage,
-});
-const unitsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/units",
-  component: UnitsPage,
 });
 const adminUnitsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/units",
   component: UnitsPage,
 });
-const executorsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/executors",
-  component: ExecutorsPage,
-});
 const adminExecutorsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/executors",
   component: ExecutorsPage,
 });
-const missionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/missions",
-  component: MissionsPage,
-});
 const adminMissionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/missions",
   component: MissionsPage,
-});
-const missionDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/missions/$missionId",
-  component: MissionDetailPage,
 });
 const adminMissionDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -211,32 +159,17 @@ const adminMissionDetailRoute = createRoute({
 const taskDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks/$taskId",
-  component: TaskDetailPage,
-});
-const profilesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/profiles",
-  component: ProfilesPage,
+  component: ProductTaskPage,
 });
 const adminProfilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/profiles",
   component: ProfilesPage,
 });
-const accessRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/access",
-  component: AccessPage,
-});
 const adminAccessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/access",
   component: AccessPage,
-});
-const operationsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/operations",
-  component: OperationsPage,
 });
 const adminOperationsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -246,9 +179,6 @@ const adminOperationsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  v2Route,
-  v2TaskRoute,
-  v2AdminRoute,
   taskDetailRoute,
   adminOverviewRoute,
   adminOverviewAliasRoute,
@@ -261,16 +191,6 @@ const routeTree = rootRoute.addChildren([
   adminProfilesRoute,
   adminAccessRoute,
   adminOperationsRoute,
-  overviewRoute,
-  runsRoute,
-  runDetailRoute,
-  unitsRoute,
-  executorsRoute,
-  missionsRoute,
-  missionDetailRoute,
-  profilesRoute,
-  accessRoute,
-  operationsRoute,
 ]);
 
 export const router = createRouter({ routeTree, history: createHashHistory() });
@@ -418,746 +338,6 @@ function LoginPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function WorkspacePage() {
-  const { t } = useI18n();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const tasks = useQuery({ queryKey: ["tasks"], queryFn: runtimeApi.tasks });
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: runtimeApi.capabilities,
-  });
-  const adapters = Object.keys(capabilities.data?.adapters ?? { fake: {} });
-  const [goal, setGoal] = useState("");
-  const [promptSeed, setPromptSeed] = useState(0);
-  const running = (tasks.data?.tasks ?? []).filter((task) =>
-    ["queued", "running", "blocked"].includes(task.status),
-  ).length;
-  const attention = (tasks.data?.tasks ?? []).filter(
-    (task) => task.needs_attention,
-  ).length;
-  const completed = (tasks.data?.tasks ?? []).filter(
-    (task) => task.status === "completed",
-  ).length;
-  const attentionTasks = (tasks.data?.tasks ?? []).filter(
-    (task) => task.needs_attention,
-  );
-  const activeTasks = (tasks.data?.tasks ?? []).filter((task) =>
-    ["queued", "running", "blocked"].includes(task.status),
-  );
-  const createTask = useMutation({
-    mutationFn: runtimeApi.createTask,
-    onSuccess: async (task) => {
-      setGoal("");
-      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      await navigate({
-        to: "/tasks/$taskId",
-        params: { taskId: task.task_id },
-      });
-    },
-  });
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmed = goal.trim();
-    if (!trimmed) {
-      return;
-    }
-    createTask.mutate({
-      goal: trimmed,
-      mode: "mission",
-      adapter: preferredTaskAdapter(adapters),
-      strategy: "sequential",
-    });
-  };
-  const quickPrompts = [
-    t("workspace.quickResearch"),
-    t("workspace.quickPlan"),
-    t("workspace.quickReview"),
-  ];
-
-  return (
-    <div className="mx-auto grid w-full max-w-7xl gap-5">
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid min-h-[calc(100vh-9rem)] content-center gap-5">
-          <div className="grid gap-3">
-            <div className="text-sm font-medium text-primary">
-              {t("workspace.userMode")}
-            </div>
-            <h1 className="max-w-3xl text-3xl font-semibold tracking-normal sm:text-5xl">
-              {t("workspace.chatTitle")}
-            </h1>
-          </div>
-          <form
-            className="grid gap-3 rounded-lg border border-border bg-card p-3 shadow-sm"
-            onSubmit={submit}
-          >
-            <label className="sr-only" htmlFor="consumer-task-input">
-              {t("workspace.goal")}
-            </label>
-            <Textarea
-              key={promptSeed}
-              className="min-h-36 resize-y border-0 bg-transparent text-base shadow-none focus-visible:ring-0"
-              id="consumer-task-input"
-              placeholder={t("workspace.chatPlaceholder")}
-              value={goal}
-              onChange={(event) => setGoal(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.shiftKey) {
-                  return;
-                }
-                event.preventDefault();
-                const form = event.currentTarget.form;
-                form?.requestSubmit();
-              }}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-              <div className="flex flex-wrap gap-2">
-                {quickPrompts.map((prompt) => (
-                  <Button
-                    key={prompt}
-                    size="sm"
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      setGoal(prompt);
-                      setPromptSeed((value) => value + 1);
-                    }}
-                  >
-                    {prompt}
-                  </Button>
-                ))}
-              </div>
-              <Button
-                className="w-full sm:w-auto"
-                disabled={createTask.isPending || !goal.trim()}
-                type="submit"
-                variant="primary"
-              >
-                <Send className="h-4 w-4" />
-                {createTask.isPending
-                  ? t("workspace.creating")
-                  : t("workspace.startTask")}
-              </Button>
-            </div>
-          </form>
-          {createTask.isError ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {String(createTask.error)}
-            </div>
-          ) : null}
-        </div>
-
-        <aside className="grid content-start gap-4">
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-            <Metric
-              label={t("workspace.activeTasks")}
-              value={running}
-              detail={t("workspace.activeTasksDetail")}
-            />
-            <Metric
-              label={t("workspace.needsAttention")}
-              value={attention}
-              detail={t("workspace.needsAttentionDetail")}
-            />
-            <Metric
-              label={t("workspace.completedTasks")}
-              value={completed}
-              detail={t("workspace.completedTasksDetail")}
-            />
-          </div>
-          {attentionTasks.length ? (
-            <TaskSection
-              tasks={attentionTasks}
-              title={t("workspace.needsAttention")}
-            />
-          ) : null}
-          {activeTasks.length ? (
-            <TaskSection tasks={activeTasks} title={t("workspace.activeTasks")} />
-          ) : null}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                <CardTitle>{t("workspace.recentTasks")}</CardTitle>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => tasks.refetch()}>
-                <RefreshCw className="h-4 w-4" />
-                {t("common.refresh")}
-              </Button>
-            </CardHeader>
-            <CardBody>
-              <TaskList tasks={(tasks.data?.tasks ?? []).slice(0, 6)} compact />
-            </CardBody>
-          </Card>
-        </aside>
-      </section>
-    </div>
-  );
-}
-
-function preferredTaskAdapter(adapters: string[]) {
-  return adapters.includes("qwen") ? "qwen" : adapters[0] || "fake";
-}
-
-function TaskSection({ title, tasks }: { title: string; tasks: TaskState[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <Badge tone="neutral">{tasks.length}</Badge>
-      </CardHeader>
-      <CardBody>
-        <TaskList tasks={tasks.slice(0, 4)} compact />
-      </CardBody>
-    </Card>
-  );
-}
-
-function TaskList({
-  compact = false,
-  tasks,
-}: {
-  compact?: boolean;
-  tasks: TaskState[];
-}) {
-  const { t } = useI18n();
-  if (!tasks.length) {
-    return (
-      <EmptyState
-        title={t("workspace.noTasks")}
-        detail={t("workspace.noTasksDetail")}
-      />
-    );
-  }
-  return (
-    <div className="grid gap-3">
-      {tasks.map((task) => (
-        <Link
-          key={task.task_id}
-          className="grid gap-3 rounded-md border border-border p-3 hover:bg-muted"
-          to="/tasks/$taskId"
-          params={{ taskId: task.task_id }}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="line-clamp-1 font-medium">{task.title}</div>
-              <div className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                {taskAgentLabel(task)}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {task.needs_attention ? (
-                <Badge tone="warn">{t("workspace.attention")}</Badge>
-              ) : null}
-              <StatusBadge status={task.status} />
-            </div>
-          </div>
-          <div className="line-clamp-2 text-sm text-muted-foreground">
-            {task.goal}
-          </div>
-          {compact ? null : <TaskProgressBar task={task} />}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{compact ? timeAgo(task.updated_at) : taskAgentLabel(task)}</span>
-            {!compact ? <span>{timeAgo(task.updated_at)}</span> : null}
-          </div>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function TaskDetailPage() {
-  const { taskId } = useParams({ strict: false }) as { taskId: string };
-  const { t } = useI18n();
-  const queryClient = useQueryClient();
-  const task = useQuery({
-    queryKey: ["tasks", taskId],
-    queryFn: () => runtimeApi.task(taskId),
-  });
-  const events = useQuery({
-    queryKey: ["tasks", taskId, "events"],
-    queryFn: () => runtimeApi.taskEvents(taskId),
-  });
-  const artifacts = useQuery({
-    queryKey: ["tasks", taskId, "artifacts"],
-    queryFn: () => runtimeApi.taskArtifacts(taskId),
-  });
-  const result = useQuery({
-    queryKey: ["tasks", taskId, "result"],
-    queryFn: () => runtimeApi.taskResult(taskId),
-  });
-  const cancelTask = useMutation({
-    mutationFn: () => runtimeApi.cancelTask(taskId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      await queryClient.invalidateQueries({ queryKey: ["tasks", taskId] });
-    },
-  });
-  const submitMessage = useMutation({
-    mutationFn: (message: string) =>
-      runtimeApi.submitTaskMessage(taskId, message),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["tasks", taskId, "events"],
-      });
-    },
-  });
-  const current = task.data;
-  return (
-    <Page
-      title={current?.title ?? t("workspace.taskDetail")}
-      subtitle={current?.goal ?? t("workspace.loadingTask")}
-    >
-      {current ? (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Metric
-            label={t("workspace.taskStatus")}
-            value={<StatusBadge status={current.status} />}
-            detail={taskAgentLabel(current)}
-          />
-          <Metric
-            label={t("common.progress")}
-            value={`${current.progress.percent}%`}
-            detail={`${current.progress.completed_steps}/${current.progress.total_steps}`}
-          />
-          <Metric
-            label={t("workspace.updated")}
-            value={timeAgo(current.updated_at)}
-            detail={current.kind}
-          />
-        </div>
-      ) : null}
-
-      {current ? (
-        <Card>
-          <CardBody className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                {current.result_summary ? (
-                  <div className="text-sm text-muted-foreground">
-                    {current.result_summary}
-                  </div>
-                ) : null}
-                <TaskProgressBar task={current} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={
-                    cancelTask.isPending ||
-                    ["completed", "failed", "cancelled"].includes(
-                      current.status,
-                    )
-                  }
-                  size="sm"
-                  variant="danger"
-                  onClick={() => cancelTask.mutate()}
-                >
-                  <PauseCircle className="h-4 w-4" />
-                  {t("common.cancel")}
-                </Button>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-primary" />
-              <CardTitle>{t("workspace.timeline")}</CardTitle>
-            </div>
-            <Badge tone="neutral">{events.data?.events.length ?? 0}</Badge>
-          </CardHeader>
-          <CardBody>
-            <TaskTimeline events={events.data?.events ?? []} />
-            {current?.kind === "run" ? (
-              <TaskMessageForm
-                disabled={
-                  submitMessage.isPending ||
-                  !current ||
-                  current.status !== "running"
-                }
-                onSubmit={(message) => submitMessage.mutate(message)}
-              />
-            ) : null}
-          </CardBody>
-        </Card>
-
-        <div className="grid content-start gap-4">
-          <TaskResultPanel result={result.data} />
-          <TaskArtifactsPanel
-            artifacts={artifacts.data?.artifacts ?? []}
-            task={current}
-          />
-        </div>
-      </div>
-    </Page>
-  );
-}
-
-function TaskProgressBar({ task }: { task: TaskState }) {
-  const percent = Math.max(0, Math.min(100, task.progress.percent || 0));
-  return (
-    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-      <div
-        className="h-full rounded-full bg-primary transition-all"
-        style={{ width: `${percent}%` }}
-      />
-    </div>
-  );
-}
-
-function TaskTimeline({ events }: { events: TaskEvent[] }) {
-  const { t } = useI18n();
-  if (!events.length) {
-    return (
-      <EmptyState
-        title={t("workspace.noEvents")}
-        detail={t("workspace.noEventsDetail")}
-      />
-    );
-  }
-  return (
-    <div className="grid gap-3">
-      {events.map((event) => (
-        <div
-          key={event.id}
-          className="grid grid-cols-[28px_minmax(0,1fr)] gap-3"
-        >
-          <div className="grid h-7 w-7 place-items-center rounded-full border border-border bg-background">
-            {taskEventIcon(event.status)}
-          </div>
-          <div className="min-w-0 rounded-md border border-border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-medium">{event.title}</div>
-              <div className="flex items-center gap-2">
-                <StatusBadge status={event.status} />
-                <span className="text-xs text-muted-foreground">
-                  {timeAgo(event.created_at)}
-                </span>
-              </div>
-            </div>
-            {event.body ? (
-              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
-                {event.body}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TaskMessageForm({
-  disabled,
-  onSubmit,
-}: {
-  disabled: boolean;
-  onSubmit: (message: string) => void;
-}) {
-  const { t } = useI18n();
-  const [message, setMessage] = useState("");
-  const submitCurrentMessage = () => {
-    if (!message.trim() || disabled) {
-      return;
-    }
-    onSubmit(message.trim());
-    setMessage("");
-  };
-  return (
-    <form
-      className="sticky bottom-0 mt-4 grid gap-2 border-t border-border bg-card pt-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submitCurrentMessage();
-      }}
-    >
-      <Field label={t("workspace.followUp")}>
-        <Textarea
-          className="min-h-24 resize-none"
-          disabled={disabled}
-          placeholder={t("workspace.followUpPlaceholder")}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submitCurrentMessage();
-            }
-          }}
-        />
-      </Field>
-      <Button
-        className="w-full sm:w-fit"
-        disabled={disabled || !message.trim()}
-        type="submit"
-        variant="primary"
-      >
-        <Send className="h-4 w-4" />
-        {t("live.send")}
-      </Button>
-    </form>
-  );
-}
-
-function TaskResultPanel({ result }: { result?: { summary?: string | null } }) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-primary" />
-          <CardTitle>{t("common.result")}</CardTitle>
-        </div>
-      </CardHeader>
-      <CardBody>
-        {result?.summary ? (
-          <div className="whitespace-pre-wrap text-sm">{result.summary}</div>
-        ) : (
-          <EmptyState
-            title={t("workspace.noResult")}
-            detail={t("workspace.noResultDetail")}
-          />
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
-function TaskArtifactsPanel({
-  task,
-  artifacts,
-}: {
-  task?: TaskState;
-  artifacts: ArtifactInfo[];
-}) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("common.artifacts")}</CardTitle>
-        <Badge tone="neutral">{artifacts.length}</Badge>
-      </CardHeader>
-      <CardBody className="grid gap-2">
-        {artifacts.map((artifact) => {
-          const href = taskArtifactHref(task, artifact.name);
-          return (
-            <div
-              key={artifact.name}
-              className="grid gap-2 rounded-md border border-border p-3 text-sm"
-            >
-              <div className="break-words font-medium">{artifact.name}</div>
-              <div className="text-xs text-muted-foreground">
-                {formatBytes(artifact.size_bytes)}
-              </div>
-              {href ? (
-                <LinkButton href={href} size="sm">
-                  <Download className="h-4 w-4" />
-                  {t("common.download")}
-                </LinkButton>
-              ) : null}
-            </div>
-          );
-        })}
-        {!artifacts.length ? (
-          <EmptyState title={t("runs.noArtifacts")} />
-        ) : null}
-      </CardBody>
-    </Card>
-  );
-}
-
-function taskArtifactHref(task: TaskState | undefined, artifactName: string) {
-  if (task?.source.run_id) {
-    return artifactHref(task.source.run_id, artifactName);
-  }
-  if (task?.source.mission_id) {
-    return missionArtifactHref(task.source.mission_id, artifactName);
-  }
-  return undefined;
-}
-
-function taskEventIcon(status: string) {
-  if (status === "completed") {
-    return <CheckCircle2 className="h-4 w-4 text-success" />;
-  }
-  if (status === "queued") {
-    return <Clock3 className="h-4 w-4 text-warning" />;
-  }
-  if (status === "failed" || status === "cancelled" || status === "blocked") {
-    return <AlertTriangle className="h-4 w-4 text-destructive" />;
-  }
-  return <CircleDot className="h-4 w-4 text-primary" />;
-}
-
-function taskAgentLabel(task: TaskState) {
-  const adapter = stringValue(task.agent_summary.adapter);
-  const activeAgent = stringValue(task.agent_summary.active_agent);
-  const strategy = stringValue(task.agent_summary.strategy);
-  return (
-    [activeAgent, adapter, strategy].filter(Boolean).join(" · ") || task.kind
-  );
-}
-
-function OverviewPage() {
-  const { t } = useI18n();
-  const health = useQuery({ queryKey: ["health"], queryFn: runtimeApi.health });
-  const metrics = useQuery({
-    queryKey: ["metrics"],
-    queryFn: runtimeApi.metrics,
-  });
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: runtimeApi.capabilities,
-  });
-  const runs = useQuery({ queryKey: ["runs"], queryFn: runtimeApi.runs });
-  const missions = useQuery({
-    queryKey: ["missions"],
-    queryFn: runtimeApi.missions,
-  });
-
-  return (
-    <Page title={t("overview.title")} subtitle={t("overview.subtitle")}>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label={t("overview.runtime")}
-          value={health.data?.ok ? t("common.healthy") : t("common.checking")}
-          detail={health.data?.version}
-        />
-        <Metric
-          label={t("overview.runs")}
-          value={metrics.data?.runs.total ?? "-"}
-          detail={statusLine(metrics.data?.runs.by_status)}
-        />
-        <Metric
-          label={t("overview.missions")}
-          value={metrics.data?.missions.total ?? "-"}
-          detail={statusLine(metrics.data?.missions.by_status)}
-        />
-        <Metric
-          label={t("overview.permissions")}
-          value={metrics.data?.permissions.pending ?? "-"}
-          detail={`${metrics.data?.permissions.stalled ?? 0} ${t("overview.stalledSuffix")}`}
-        />
-      </div>
-
-      <GettingStartedPanel />
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("overview.queue")}</CardTitle>
-            <Badge tone={metrics.data?.queue.stale_workers ? "warn" : "ok"}>
-              {metrics.data?.queue.active_workers ?? 0}{" "}
-              {t("overview.activeSuffix")}
-            </Badge>
-          </CardHeader>
-          <CardBody className="grid gap-3 md:grid-cols-3">
-            <Metric
-              label={t("overview.queued")}
-              value={metrics.data?.queue.counts.queued ?? 0}
-            />
-            <Metric
-              label={t("overview.running")}
-              value={metrics.data?.queue.counts.running ?? 0}
-            />
-            <Metric
-              label={t("overview.staleWorkers")}
-              value={metrics.data?.queue.stale_workers ?? 0}
-            />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("overview.adapters")}</CardTitle>
-            <Badge tone="info">
-              {Object.keys(capabilities.data?.adapters ?? {}).length}
-            </Badge>
-          </CardHeader>
-          <CardBody className="grid gap-2">
-            {Object.entries(capabilities.data?.adapters ?? {}).map(
-              ([id, adapter]) => (
-                <div
-                  key={id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border p-2"
-                >
-                  <span className="font-medium">{adapter.name || id}</span>
-                  <StatusBadge status={adapter.status ?? "available"} />
-                </div>
-              ),
-            )}
-          </CardBody>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <RecentRuns runs={runs.data?.runs ?? []} />
-        <RecentMissions missions={missions.data?.missions ?? []} />
-      </div>
-    </Page>
-  );
-}
-
-function GettingStartedPanel() {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("overview.getStarted")}</CardTitle>
-        <a
-          className="text-sm text-primary"
-          href="https://chiga0.github.io/agent-research/architecture/"
-          rel="noreferrer"
-          target="_blank"
-        >
-          {t("overview.checkDocs")}
-        </a>
-      </CardHeader>
-      <CardBody className="grid gap-3 md:grid-cols-3">
-        <Link
-          className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/admin/runs"
-        >
-          <div className="flex items-center gap-2 font-medium">
-            <Play className="h-4 w-4 text-primary" />
-            {t("overview.checkFake")}
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {t("overview.checkFakeDetail")}
-          </div>
-        </Link>
-        <Link
-          className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/admin/runs"
-        >
-          <div className="flex items-center gap-2 font-medium">
-            <MessageSquare className="h-4 w-4 text-primary" />
-            {t("overview.checkQwen")}
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {t("overview.checkQwenDetail")}
-          </div>
-        </Link>
-        <Link
-          className="rounded-md border border-border p-3 hover:bg-muted"
-          to="/admin/units"
-        >
-          <div className="flex items-center gap-2 font-medium">
-            <Server className="h-4 w-4 text-primary" />
-            {t("overview.checkWorker")}
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {t("overview.checkWorkerDetail")}
-          </div>
-        </Link>
-      </CardBody>
-    </Card>
   );
 }
 
@@ -4185,23 +3365,6 @@ function RunList({ runs }: { runs: RunState[] }) {
   );
 }
 
-function RecentRuns({ runs }: { runs: RunState[] }) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("overview.recentRuns")}</CardTitle>
-        <Link className="text-sm text-primary" to="/admin/runs">
-          {t("overview.viewAll")}
-        </Link>
-      </CardHeader>
-      <CardBody>
-        <RunList runs={runs.slice(0, 5)} />
-      </CardBody>
-    </Card>
-  );
-}
-
 function MissionList({ missions }: { missions: MissionState[] }) {
   const { t } = useI18n();
   if (!missions.length) {
@@ -4583,23 +3746,6 @@ function MissionArtifactPanel({
             )}
           </div>
         ) : null}
-      </CardBody>
-    </Card>
-  );
-}
-
-function RecentMissions({ missions }: { missions: MissionState[] }) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("overview.recentMissions")}</CardTitle>
-        <Link className="text-sm text-primary" to="/admin/missions">
-          {t("overview.viewAll")}
-        </Link>
-      </CardHeader>
-      <CardBody>
-        <MissionList missions={missions.slice(0, 3)} />
       </CardBody>
     </Card>
   );

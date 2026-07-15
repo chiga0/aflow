@@ -95,7 +95,7 @@ const adapterOptions = [
   { value: "fake", label: "fake", icon: <CheckCircle2 className="h-4 w-4" /> },
 ];
 
-export function V2ClientPage() {
+export function ProductClientPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [goal, setGoal] = useState("");
@@ -118,7 +118,7 @@ export function V2ClientPage() {
       setGoal("");
       await queryClient.invalidateQueries({ queryKey: ["v2", "tasks"] });
       await navigate({
-        to: "/v2/tasks/$taskId",
+        to: "/tasks/$taskId",
         params: { taskId: task.task_id },
       });
     },
@@ -145,7 +145,7 @@ export function V2ClientPage() {
       mode,
       channel,
       adapter,
-      metadata: { product_surface: "v2-client" },
+      metadata: { product_surface: "client" },
     });
   };
 
@@ -153,7 +153,7 @@ export function V2ClientPage() {
     <div className="mx-auto grid w-full max-w-7xl gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-primary">AgentFlow V2</div>
+          <div className="text-sm font-medium text-primary">AgentFlow</div>
           <h1 className="mt-1 text-3xl font-semibold tracking-normal">
             Client Workspace
           </h1>
@@ -162,13 +162,6 @@ export function V2ClientPage() {
           <Badge tone={active.length ? "warn" : "ok"}>
             {active.length ? `${active.length} active` : "ready"}
           </Badge>
-          <Link
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted"
-            to="/v2/admin"
-          >
-            <ShieldCheck className="h-4 w-4" />
-            Admin
-          </Link>
         </div>
       </div>
 
@@ -406,7 +399,7 @@ function channelStatus(channels: V2AdminOverview["channels"], platform: string) 
   );
 }
 
-export function V2TaskPage() {
+export function ProductTaskPage() {
   const { taskId } = useParams({ strict: false }) as { taskId: string };
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
@@ -485,10 +478,10 @@ export function V2TaskPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <Link className="text-primary hover:underline" to="/v2">
+            <Link className="text-primary hover:underline" to="/">
               Client Workspace
             </Link>
-            <Link className="text-primary hover:underline" to="/v2/admin">
+            <Link className="text-primary hover:underline" to="/admin">
               Admin
             </Link>
           </div>
@@ -802,7 +795,7 @@ function ReplayList({ replays }: { replays: V2Replay[] }) {
   );
 }
 
-export function V2AdminPage() {
+export function ProductAdminPage() {
   const queryClient = useQueryClient();
   const [channelPlatform, setChannelPlatform] = useState("feishu");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -872,14 +865,14 @@ export function V2AdminPage() {
     <div className="mx-auto grid w-full max-w-7xl gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-primary">AgentFlow V2</div>
+          <div className="text-sm font-medium text-primary">AgentFlow</div>
           <h1 className="mt-1 text-2xl font-semibold tracking-normal">
             Admin Control Plane
           </h1>
         </div>
         <Link
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted"
-          to="/v2"
+          to="/"
         >
           Client
         </Link>
@@ -978,7 +971,7 @@ function TaskGrid({ tasks }: { tasks: V2Task[] }) {
     return (
       <EmptyState
         title="No tasks yet"
-        detail="Create a task to see the V2 control plane run end to end."
+        detail="Create a task to see the control plane run end to end."
       />
     );
   }
@@ -999,7 +992,7 @@ function TaskTrackItem({ task }: { task: V2Task }) {
   return (
     <Link
       className="grid gap-3 rounded-md border border-border bg-card p-3 hover:bg-muted md:grid-cols-[minmax(0,1fr)_220px]"
-      to="/v2/tasks/$taskId"
+      to="/tasks/$taskId"
       params={{ taskId: task.task_id }}
     >
       <div className="min-w-0">

@@ -14,41 +14,13 @@ test("signs in from the responsive login page", async ({ page, isMobile }) => {
   await page.getByLabel("密码").fill("secret");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(
-    page.getByRole("heading", {
-      name: "把需求交给 AgentFlow，剩下的进展在这里跟踪。",
-    }),
+    page.getByRole("heading", { name: "Client Workspace" }),
   ).toBeVisible();
 });
 
-test("creates a task from the user workspace", async ({ page }) => {
+test("creates a task from the client workspace", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByLabel("你想完成什么？").fill("整理 V2 交付审计清单");
-  await page.getByRole("button", { name: "开始任务" }).click();
-
-  await expect(
-    page.getByRole("heading", { name: "整理 V2 交付审计清单" }),
-  ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "实时进展" })).toBeVisible();
-  await expect(page.getByText("Task accepted")).toBeVisible();
-  await expect(page.getByText("V2 checklist started").first()).toBeVisible();
-  await expect(page.getByText("workspace-result.md")).toBeVisible();
-  await expect(page.getByText("run.created")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "发送" })).toBeVisible();
-  const followUpRequest = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" &&
-      request.url().includes("/tasks/run_workspace_created/messages"),
-  );
-  await page.getByLabel("追加消息").fill("请继续完善清单");
-  await page.getByLabel("追加消息").press("Enter");
-  await followUpRequest;
-});
-
-test("uses the V2 client and admin control-plane surfaces", async ({ page }) => {
-  await page.goto("/");
-
-  await page.getByRole("link", { name: "V2" }).click();
   await expect(
     page.getByRole("heading", { name: "Client Workspace" }),
   ).toBeVisible();
@@ -56,7 +28,43 @@ test("uses the V2 client and admin control-plane surfaces", async ({ page }) => 
     .getByPlaceholder(
       "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
     )
-    .fill("Ship the V2 control plane");
+    .fill("整理交付审计清单");
+  const createRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().includes("/v2/tasks"),
+  );
+  await page.getByRole("button", { name: "Start" }).click();
+  await createRequest;
+
+  await expect(
+    page.getByRole("heading", { name: "Ship the control plane" }),
+  ).toBeVisible();
+  await expect(page.getByText("Plan DAG")).toBeVisible();
+  await expect(page.getByText("Qwen WebShell")).toBeVisible();
+  await expect(page.getByText("Canonical Events")).toBeVisible();
+  const followUpRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/v2/tasks/task_v2_1/messages"),
+  );
+  await page
+    .getByPlaceholder("Add context or a follow-up instruction")
+    .fill("请继续完善清单");
+  await page.getByRole("button", { name: "Send" }).click();
+  await followUpRequest;
+});
+
+test("uses the client and admin control-plane surfaces", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("heading", { name: "Client Workspace" }),
+  ).toBeVisible();
+  await page
+    .getByPlaceholder(
+      "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
+    )
+    .fill("Ship the control plane");
   await page.getByRole("button", { name: /Multi-agent/ }).click();
   await page.getByRole("button", { name: /Feishu/ }).click();
   await page.getByRole("button", { name: /qwen-code/ }).click();
@@ -73,7 +81,7 @@ test("uses the V2 client and admin control-plane surfaces", async ({ page }) => 
   });
 
   await expect(
-    page.getByRole("heading", { name: "Ship the V2 control plane" }),
+    page.getByRole("heading", { name: "Ship the control plane" }),
   ).toBeVisible();
   await expect(page.getByText("Plan DAG")).toBeVisible();
   await expect(page.getByText("Canonical Events")).toBeVisible();
@@ -94,7 +102,7 @@ test("uses the V2 client and admin control-plane surfaces", async ({ page }) => 
   await page.getByRole("button", { name: "Send" }).click();
   await messageRequest;
 
-  await page.getByRole("link", { name: "Admin" }).click();
+  await page.getByRole("link", { name: /Admin|管理后台/ }).first().click();
   await expect(
     page.getByRole("heading", { name: "Admin Control Plane" }),
   ).toBeVisible();
@@ -108,9 +116,7 @@ test("hides backend navigation for a member user", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", {
-      name: "把需求交给 AgentFlow，剩下的进展在这里跟踪。",
-    }),
+    page.getByRole("heading", { name: "Client Workspace" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: /管理后台/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /运行/ })).toHaveCount(0);
@@ -124,18 +130,13 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", {
-      name: "把需求交给 AgentFlow，剩下的进展在这里跟踪。",
-    }),
+    page.getByRole("heading", { name: "Client Workspace" }),
   ).toBeVisible();
-  await page.getByLabel("切换语言").click();
+  await page.getByRole("link", { name: /Admin|管理后台/ }).click();
   await expect(
-    page.getByRole("heading", {
-      name: "Give AgentFlow a request and track the work here.",
-    }),
+    page.getByRole("heading", { name: "Admin Control Plane" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Admin" }).click();
-  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await page.getByLabel(/Toggle language|切换语言/).click();
   await navigate(page, /Runs/);
   await page.getByLabel("Prompt").fill("Browser smoke run");
   await page.getByRole("button", { name: "Start" }).click();
@@ -297,8 +298,8 @@ async function mockRuntime(
   const createdWorkspaceTask = {
     task_id: "run_workspace_created",
     kind: "run",
-    title: "整理 V2 交付审计清单",
-    goal: "整理 V2 交付审计清单",
+    title: "整理交付审计清单",
+    goal: "整理交付审计清单",
     status: "running",
     created_at: now,
     updated_at: now,
@@ -312,7 +313,7 @@ async function mockRuntime(
       visibility: "project",
     },
     source: { run_id: "run_workspace_created", mission_id: null },
-    result_summary: "V2 checklist started",
+    result_summary: "Checklist started",
     links: {
       detail: "/tasks/run_workspace_created",
       source: "/runs/run_workspace_created",
@@ -356,8 +357,8 @@ async function mockRuntime(
     tenant_id: "tenant_default",
     project_id: "project_default",
     created_by: "owner@example.com",
-    title: "Ship the V2 control plane",
-    goal: "Ship the V2 control plane",
+    title: "Ship the control plane",
+    goal: "Ship the control plane",
     mode: "multi-agent",
     status: "completed",
     priority: "normal",
@@ -594,7 +595,7 @@ async function mockRuntime(
           sequence: 1,
           type: "task.accepted",
           title: "Task accepted",
-          body: "V2 checklist started",
+          body: "Checklist started",
           status: "queued",
           created_at: now,
           source_event_type: "run.created",
@@ -610,7 +611,7 @@ async function mockRuntime(
     "tasks/run_workspace_created/result": {
       task_id: "run_workspace_created",
       status: "running",
-      summary: "V2 checklist started",
+      summary: "Checklist started",
       artifacts: [
         { name: "workspace-result.md", size_bytes: 64, updated_at: now },
       ],
@@ -655,7 +656,7 @@ async function mockRuntime(
           sequence: 1,
           type: "task.created",
           actor: "system",
-          payload: { title: "Ship the V2 control plane" },
+          payload: { title: "Ship the control plane" },
           created_at: now,
         },
         {
@@ -678,7 +679,7 @@ async function mockRuntime(
           data: {
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "V2 webshell ready" },
+              content: { type: "text", text: "Webshell ready" },
             },
           },
           _meta: {
@@ -1207,6 +1208,6 @@ async function navigate(page: Page, name: RegExp) {
     await direct.click();
     return;
   }
-  await page.getByLabel("Open navigation").click();
+  await page.getByLabel(/Open navigation|打开导航/).click();
   await page.getByRole("link", { name }).last().click();
 }
