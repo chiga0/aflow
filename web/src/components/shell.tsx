@@ -84,52 +84,6 @@ const navItems = [
   },
 ] as const;
 
-const legacyAdminItems = [
-  {
-    to: "/overview",
-    labelKey: "nav.overview",
-    icon: Activity,
-    roles: ["owner", "operator", "auditor"],
-  },
-  {
-    to: "/runs",
-    labelKey: "nav.runs",
-    icon: ClipboardList,
-    roles: ["owner", "operator", "auditor"],
-  },
-  {
-    to: "/units",
-    labelKey: "nav.units",
-    icon: Network,
-    roles: ["owner", "operator", "auditor"],
-  },
-  {
-    to: "/executors",
-    labelKey: "nav.executors",
-    icon: Server,
-    roles: ["owner", "operator", "auditor"],
-  },
-  {
-    to: "/missions",
-    labelKey: "nav.missions",
-    icon: Boxes,
-    roles: ["owner", "operator", "auditor"],
-  },
-  {
-    to: "/profiles",
-    labelKey: "nav.profiles",
-    icon: UserCog,
-    roles: ["owner", "operator"],
-  },
-  { to: "/access", labelKey: "nav.access", icon: Users, roles: ["owner"] },
-  {
-    to: "/operations",
-    labelKey: "nav.operations",
-    icon: ShieldCheck,
-    roles: ["owner", "operator"],
-  },
-] as const;
-
 export function Shell() {
   const [open, setOpen] = useState(false);
   const { t } = useI18n();
@@ -170,12 +124,9 @@ export function Shell() {
           </div>
           <div className="flex items-center gap-1">
             {isAdmin ? (
-              <LinkButton to="/v2" label={t("nav.userApp")} />
+              <LinkButton to="/" label={t("nav.userApp")} />
             ) : canUseAdmin ? (
               <LinkButton to="/admin" label={t("nav.admin")} />
-            ) : null}
-            {!isAdmin && pathname !== "/v2" ? (
-              <LinkButton to="/v2" label="V2" />
             ) : null}
             <DocsLink />
             <LanguageToggle />
@@ -249,10 +200,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
     select: (state) => state.location.pathname,
   });
   const roles = session.data?.principal?.roles ?? [];
-  const sourceItems = pathname.startsWith("/admin")
-    ? navItems
-    : legacyAdminItems;
-  const visibleItems = sourceItems.filter((item) => {
+  const visibleItems = navItems.filter((item) => {
     if (!("roles" in item)) {
       return true;
     }
@@ -285,15 +233,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function isAdminPath(pathname: string) {
-  if (pathname === "/v2" || pathname.startsWith("/v2/tasks")) {
-    return false;
-  }
-  if (pathname === "/v2/admin") {
-    return true;
-  }
-  return pathname.startsWith("/admin") && pathname !== "/admin-login"
-    ? true
-    : pathname !== "/" && !pathname.startsWith("/tasks");
+  return pathname.startsWith("/admin") && pathname !== "/admin-login";
 }
 
 function DocsLink() {

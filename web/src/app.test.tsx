@@ -137,8 +137,8 @@ const v2Task = {
   tenant_id: "tenant_default",
   project_id: "project_default",
   created_by: "owner@example.com",
-  title: "Ship the V2 control plane",
-  goal: "Ship the V2 control plane",
+  title: "Ship the control plane",
+  goal: "Ship the control plane",
   mode: "auto",
   status: "completed",
   priority: "normal",
@@ -263,7 +263,7 @@ const v2Events = [
     sequence: 1,
     type: "task.created",
     actor: "system",
-    payload: { title: "Ship the V2 control plane" },
+    payload: { title: "Ship the control plane" },
     created_at: new Date().toISOString(),
   },
   {
@@ -698,7 +698,7 @@ const fixtures: Record<string, unknown> = {
         status: "accepted",
         external_message_id: "msg_1",
         sender: { open_id: "ou_1" },
-        content: { text: "Ship V2" },
+        content: { text: "Ship control plane" },
         raw: {},
         task_id: "task_v2_1",
         error: null,
@@ -991,29 +991,25 @@ describe("AgentFlow console", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the user workspace and keeps the admin overview reachable", async () => {
+  it("renders the client workspace and keeps the admin control plane reachable", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", {
-        name: "把需求交给 AgentFlow，剩下的进展在这里跟踪。",
-      }),
+      await screen.findByRole("heading", { name: "Client Workspace" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("你想完成什么？")).toBeInTheDocument();
-    expect(await screen.findByText("最近任务")).toBeInTheDocument();
-    expect(screen.getAllByText("待处理").length).toBeGreaterThan(0);
-    expect(screen.queryByText("活跃运行")).not.toBeInTheDocument();
+    expect(screen.getByText("Channel Ready")).toBeInTheDocument();
+    expect(screen.getByText("Task Track")).toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "管理后台" }));
     expect(
-      await screen.findByRole("heading", { name: "概览" }),
+      await screen.findByRole("heading", { name: "Admin Control Plane" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("首次使用路径")).toBeInTheDocument();
+    expect(screen.getByText("Reliability Spine")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("切换语言"));
     expect(
-      await screen.findByRole("heading", { name: "Overview" }),
+      await screen.findByRole("heading", { name: "Admin Control Plane" }),
     ).toBeInTheDocument();
     expect(localStorage.getItem("agentflow-locale")).toBe("en");
   });
@@ -1035,81 +1031,14 @@ describe("AgentFlow console", () => {
     await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(
-      await screen.findByRole("heading", {
-        name: "把需求交给 AgentFlow，剩下的进展在这里跟踪。",
-      }),
+      await screen.findByRole("heading", { name: "Client Workspace" }),
     ).toBeInTheDocument();
   });
 
-  it("creates and inspects a user-facing task", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await switchToEnglish(user);
-
-    expect(
-      await screen.findByRole("heading", {
-        name: "Give AgentFlow a request and track the work here.",
-      }),
-    ).toBeInTheDocument();
-    await user.type(
-      screen.getByLabelText("What do you want done?"),
-      "Prepare a customer report",
-    );
-    await user.click(screen.getByRole("button", { name: "Start Task" }));
-
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/tasks",
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining("Prepare a customer report"),
-        }),
-      ),
-    );
-    expect(
-      await screen.findByRole("heading", { name: "Prepare a customer report" }),
-    ).toBeInTheDocument();
-    expect(await screen.findByText("Live Progress")).toBeInTheDocument();
-
-    await act(async () => {
-      await router.navigate({
-        to: "/tasks/$taskId",
-        params: { taskId: "run_1" },
-      });
-    });
-    expect(
-      await screen.findByText("Action needs approval"),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("permission.requested")).not.toBeInTheDocument();
-    expect(screen.queryByText("message.delta")).not.toBeInTheDocument();
-    expect(
-      screen.getAllByText("Inspecting live runner state.").length,
-    ).toBeGreaterThan(0);
-    expect(screen.getByText("final-report.md")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
-    await user.type(screen.getByLabelText("Follow up"), "Please continue");
-    await user.keyboard("{Enter}");
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/tasks/run_1/messages",
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining("Please continue"),
-        }),
-      ),
-    );
-    expect(fetch).toHaveBeenCalledWith(
-      "/tasks/run_1/cancel",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("creates and inspects a V2 task from the client workspace", async () => {
+  it("creates and inspects a task from the client workspace", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("link", { name: "V2" }));
     expect(
       await screen.findByRole("heading", { name: "Client Workspace" }),
     ).toBeInTheDocument();
@@ -1119,7 +1048,7 @@ describe("AgentFlow console", () => {
       screen.getByPlaceholderText(
         "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
       ),
-      "Ship the V2 control plane",
+      "Ship the control plane",
     );
     await user.click(screen.getByRole("button", { name: /Multi-agent/ }));
     await user.click(screen.getByRole("button", { name: /Feishu/ }));
@@ -1132,13 +1061,13 @@ describe("AgentFlow console", () => {
         expect.objectContaining({
           method: "POST",
           body: expect.stringMatching(
-            /Ship the V2 control plane.*multi-agent.*feishu.*codex/s,
+            /Ship the control plane.*multi-agent.*feishu.*codex/s,
           ),
         }),
       ),
     );
     expect(
-      await screen.findByRole("heading", { name: "Ship the V2 control plane" }),
+      await screen.findByRole("heading", { name: "Ship the control plane" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Plan DAG")).toBeInTheDocument();
     expect(screen.getByText("Durable Workflow")).toBeInTheDocument();
@@ -1179,11 +1108,9 @@ describe("AgentFlow console", () => {
     );
   });
 
-  it("does not submit an empty V2 task", async () => {
-    const user = userEvent.setup();
+  it("does not submit an empty task", async () => {
     render(<App />);
 
-    await user.click(await screen.findByRole("link", { name: "V2" }));
     fireEvent.submit(await screen.findByRole("form", { name: "New Task" }));
 
     expect(fetch).not.toHaveBeenCalledWith(
@@ -1192,12 +1119,13 @@ describe("AgentFlow console", () => {
     );
   });
 
-  it("shows the V2 admin control plane overview", async () => {
+  it("shows the admin control plane overview", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("link", { name: "V2" }));
-    await user.click(await screen.findByRole("link", { name: "Admin" }));
+    await user.click(
+      await screen.findByRole("link", { name: /Admin|管理后台/ }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Admin Control Plane" }),
@@ -1224,7 +1152,9 @@ describe("AgentFlow console", () => {
     const user = userEvent.setup();
     render(<App />);
     await switchToEnglish(user);
-    await user.click(await screen.findByRole("link", { name: "Admin" }));
+    await user.click(
+      await screen.findByRole("link", { name: /Admin|管理后台/ }),
+    );
     await user.click(await screen.findByRole("link", { name: "Runs" }));
 
     expect(
@@ -1288,7 +1218,10 @@ describe("AgentFlow console", () => {
       return element;
     });
     await act(async () => {
-      await router.navigate({ to: "/runs/$runId", params: { runId: "run_1" } });
+      await router.navigate({
+        to: "/admin/runs/$runId",
+        params: { runId: "run_1" },
+      });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1361,7 +1294,7 @@ describe("AgentFlow console", () => {
   it("shows mission detail and profile policy editor", async () => {
     const user = userEvent.setup();
     await act(async () => {
-      await router.navigate({ to: "/missions" });
+      await router.navigate({ to: "/admin/missions" });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1376,7 +1309,7 @@ describe("AgentFlow console", () => {
     expect(screen.getByText("final_report.md")).toBeInTheDocument();
 
     await act(async () => {
-      await router.navigate({ to: "/missions" });
+      await router.navigate({ to: "/admin/missions" });
     });
     await user.clear(screen.getByLabelText("Goal"));
     await user.type(
@@ -1397,7 +1330,7 @@ describe("AgentFlow console", () => {
     );
 
     await act(async () => {
-      await router.navigate({ to: "/profiles" });
+      await router.navigate({ to: "/admin/profiles" });
     });
     await screen.findByText("Planner");
     expect(screen.getByText("Runtime")).toBeInTheDocument();
@@ -1436,7 +1369,7 @@ describe("AgentFlow console", () => {
       return element;
     });
     await act(async () => {
-      await router.navigate({ to: "/access" });
+      await router.navigate({ to: "/admin/access" });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1526,7 +1459,7 @@ describe("AgentFlow console", () => {
     };
     const user = userEvent.setup();
     await act(async () => {
-      await router.navigate({ to: "/access" });
+      await router.navigate({ to: "/admin/access" });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1547,7 +1480,7 @@ describe("AgentFlow console", () => {
   it("shows executor isolation registry", async () => {
     const user = userEvent.setup();
     await act(async () => {
-      await router.navigate({ to: "/executors" });
+      await router.navigate({ to: "/admin/executors" });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1567,7 +1500,7 @@ describe("AgentFlow console", () => {
       value: { writeText },
     });
     await act(async () => {
-      await router.navigate({ to: "/units" });
+      await router.navigate({ to: "/admin/units" });
     });
     render(<App />);
     await switchToEnglish(user);
@@ -1623,7 +1556,7 @@ describe("AgentFlow console", () => {
   it("runs operations drills and creates backups", async () => {
     const user = userEvent.setup();
     await act(async () => {
-      await router.navigate({ to: "/operations" });
+      await router.navigate({ to: "/admin/operations" });
     });
     render(<App />);
     await switchToEnglish(user);
