@@ -8,7 +8,9 @@ import {
   Brain,
   CheckCircle2,
   Clock3,
+  Database,
   GitBranch,
+  KeyRound,
   Layers3,
   ListChecks,
   MessageSquare,
@@ -20,6 +22,7 @@ import {
   ShieldCheck,
   Smartphone,
   TerminalSquare,
+  Users,
   Zap,
 } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -40,12 +43,16 @@ import {
 } from "./components/ui";
 import {
   runtimeApi,
+  type DaemonEvent,
   type V2AdminOverview,
   type V2AgentTask,
   type V2Artifact,
+  type V2Channel,
+  type V2ChannelMessage,
   type V2Evaluation,
   type V2Event,
   type V2Replay,
+  type V2Tenant,
   type V2Task,
   type V2WorkflowStep,
 } from "./lib/api";
@@ -413,6 +420,11 @@ export function V2TaskPage() {
     queryFn: () => runtimeApi.v2TaskEvents(taskId),
     refetchInterval: 1500,
   });
+  const webshellEvents = useQuery({
+    queryKey: ["v2", "tasks", taskId, "webshell-events"],
+    queryFn: () => runtimeApi.v2TaskWebshellEvents(taskId),
+    refetchInterval: 1500,
+  });
   const workflow = useQuery({
     queryKey: ["v2", "tasks", taskId, "workflow"],
     queryFn: () => runtimeApi.v2TaskWorkflow(taskId),
@@ -438,6 +450,9 @@ export function V2TaskPage() {
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks"] }),
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks", taskId] }),
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks", taskId, "events"] }),
+      queryClient.invalidateQueries({
+        queryKey: ["v2", "tasks", taskId, "webshell-events"],
+      }),
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks", taskId, "workflow"] }),
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks", taskId, "artifacts"] }),
       queryClient.invalidateQueries({
@@ -551,6 +566,19 @@ export function V2TaskPage() {
           </CardBody>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <TerminalSquare className="h-4 w-4 text-primary" />
+            <CardTitle>Qwen WebShell</CardTitle>
+          </div>
+          <Badge tone="info">DaemonEvent</Badge>
+        </CardHeader>
+        <CardBody>
+          <QwenWebshellPanel events={webshellEvents.data?.events ?? []} />
+        </CardBody>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
@@ -775,10 +803,69 @@ function ReplayList({ replays }: { replays: V2Replay[] }) {
 }
 
 export function V2AdminPage() {
+  const queryClient = useQueryClient();
+  const [channelPlatform, setChannelPlatform] = useState("feishu");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [callbackToken, setCallbackToken] = useState("");
+  const [outboundText, setOutboundText] = useState("AgentFlow channel test");
+  const [tenantName, setTenantName] = useState("");
+  const [tenantUserEmail, setTenantUserEmail] = useState("");
   const overview = useQuery({
     queryKey: ["v2", "admin", "overview"],
     queryFn: runtimeApi.v2AdminOverview,
     refetchInterval: 3000,
+  });
+  const channelMessages = useQuery({
+    queryKey: ["v2", "admin", "channel-messages"],
+    queryFn: runtimeApi.v2ChannelMessages,
+    refetchInterval: 5000,
+  });
+  const configureChannel = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2ConfigureChannel(channelPlatform, {
+        webhook_url: webhookUrl,
+        callback_token: callbackToken,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["v2", "admin"] });
+    },
+  });
+  const sendChannel = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2SendChannelMessage(channelPlatform, { message: outboundText }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["v2", "admin", "channel-messages"],
+      });
+    },
+  });
+  const createTenant = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2UpsertTenant({
+        tenant_id: tenantSlug(tenantName),
+        name: tenantName,
+      }),
+    onSuccess: async () => {
+      setTenantName("");
+      await queryClient.invalidateQueries({ queryKey: ["v2", "admin"] });
+    },
+  });
+  const addTenantUser = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2UpsertTenantUser("tenant_default", {
+        email: tenantUserEmail,
+        roles: ["member"],
+      }),
+    onSuccess: async () => {
+      setTenantUserEmail("");
+      await queryClient.invalidateQueries({ queryKey: ["v2", "admin"] });
+    },
+  });
+  const discoverUnits = useMutation({
+    mutationFn: runtimeApi.v2DiscoverExecutionUnits,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["v2", "admin"] });
+    },
   });
   const data = overview.data;
   return (
@@ -802,16 +889,26 @@ export function V2AdminPage() {
         <Metric label="Tasks" value={data?.tasks.total ?? 0} />
         <Metric label="Agent Tasks" value={data?.agent_tasks.total ?? 0} />
         <Metric label="Execution Units" value={data?.execution_units.length ?? 0} />
-        <Metric label="Channels" value={data?.channels.length ?? 0} />
+        <Metric label="Tenants" value={data?.tenants.length ?? 0} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <AdminStatusCard overview={data} />
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2">
-              <Network className="h-4 w-4 text-primary" />
-              <CardTitle>Execution Units</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Network className="h-4 w-4 text-primary" />
+                <CardTitle>Execution Units</CardTitle>
+              </div>
+              <Button
+                className="h-8 px-3 text-xs"
+                onClick={() => discoverUnits.mutate()}
+                disabled={discoverUnits.isPending}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Discover
+              </Button>
             </div>
           </CardHeader>
           <CardBody className="grid gap-3">
@@ -833,6 +930,20 @@ export function V2AdminPage() {
         </Card>
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-2">
+        <HaStatusCard overview={data} />
+        <TenantAdminCard
+          tenants={data?.tenants ?? []}
+          tenantName={tenantName}
+          tenantUserEmail={tenantUserEmail}
+          onTenantName={setTenantName}
+          onTenantUserEmail={setTenantUserEmail}
+          onCreateTenant={() => createTenant.mutate()}
+          onAddTenantUser={() => addTenantUser.mutate()}
+          busy={createTenant.isPending || addTenantUser.isPending}
+        />
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -840,16 +951,22 @@ export function V2AdminPage() {
             <CardTitle>Channels</CardTitle>
           </div>
         </CardHeader>
-        <CardBody className="grid gap-3 md:grid-cols-5">
-          {(data?.channels ?? []).map((channel) => (
-            <div
-              key={channel.channel_id}
-              className="grid gap-2 rounded-md border border-border p-3 text-sm"
-            >
-              <div className="font-medium">{channel.platform}</div>
-              <StatusBadge status={channel.status} />
-            </div>
-          ))}
+        <CardBody className="grid gap-4">
+          <ChannelConfigPanel
+            channels={data?.channels ?? []}
+            messages={channelMessages.data?.messages ?? []}
+            platform={channelPlatform}
+            webhookUrl={webhookUrl}
+            callbackToken={callbackToken}
+            outboundText={outboundText}
+            onPlatform={setChannelPlatform}
+            onWebhookUrl={setWebhookUrl}
+            onCallbackToken={setCallbackToken}
+            onOutboundText={setOutboundText}
+            onConfigure={() => configureChannel.mutate()}
+            onSend={() => sendChannel.mutate()}
+            busy={configureChannel.isPending || sendChannel.isPending}
+          />
         </CardBody>
       </Card>
     </div>
@@ -967,6 +1084,42 @@ function EventTimeline({ events }: { events: V2Event[] }) {
   );
 }
 
+function QwenWebshellPanel({ events }: { events: DaemonEvent[] }) {
+  if (!events.length) {
+    return <EmptyState title="No webshell events yet" />;
+  }
+  return (
+    <div className="grid max-h-[420px] gap-3 overflow-auto rounded-md border border-border bg-muted/20 p-3">
+      {events.map((event) => {
+        const update = event.data?.update as
+          | {
+              sessionUpdate?: string;
+              content?: { text?: string };
+            }
+          | undefined;
+        const kind = String(update?.sessionUpdate ?? "session_update");
+        const text = String(update?.content?.text ?? "");
+        const isUser = kind.includes("user");
+        return (
+          <div
+            key={String(event.id)}
+            className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[78%] rounded-md border px-3 py-2 text-sm ${
+                isUser ? "border-primary bg-primary text-primary-foreground" : "bg-card"
+              }`}
+            >
+              <div className="mb-1 text-[11px] opacity-75">{kind}</div>
+              <div className="whitespace-pre-wrap">{text || "..."}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AdminStatusCard({ overview }: { overview?: V2AdminOverview }) {
   return (
     <Card>
@@ -989,6 +1142,241 @@ function AdminStatusCard({ overview }: { overview?: V2AdminOverview }) {
       </CardBody>
     </Card>
   );
+}
+
+function HaStatusCard({ overview }: { overview?: V2AdminOverview }) {
+  const ha = overview?.ha;
+  const workflow = ha?.workflow;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Database className="h-4 w-4 text-primary" />
+          <CardTitle>HA Runtime</CardTitle>
+        </div>
+      </CardHeader>
+      <CardBody className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Metric label="Profile" value={String(ha?.profile ?? "local")} />
+          <Metric
+            label="Database"
+            value={String(ha?.database?.driver ?? "sqlite")}
+            detail={ha?.database?.configured ? "configured" : "local"}
+          />
+          <Metric
+            label="Queue"
+            value={String(ha?.queue?.driver ?? "sqlite")}
+            detail={ha?.queue?.configured ? "configured" : "local"}
+          />
+        </div>
+        <div className="rounded-md border border-border p-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium">Workflow Engine</span>
+            <Badge tone="info">{String(workflow?.active_engine ?? "local")}</Badge>
+          </div>
+          <div className="mt-2 grid gap-2">
+            {(workflow?.engines ?? []).map((engine) => (
+              <div
+                key={String(engine.engine)}
+                className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
+              >
+                <span>{String(engine.engine)}</span>
+                <StatusBadge status={String(engine.status)} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function TenantAdminCard({
+  tenants,
+  tenantName,
+  tenantUserEmail,
+  onTenantName,
+  onTenantUserEmail,
+  onCreateTenant,
+  onAddTenantUser,
+  busy,
+}: {
+  tenants: V2Tenant[];
+  tenantName: string;
+  tenantUserEmail: string;
+  onTenantName: (value: string) => void;
+  onTenantUserEmail: (value: string) => void;
+  onCreateTenant: () => void;
+  onAddTenantUser: () => void;
+  busy: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          <CardTitle>Tenant Admin</CardTitle>
+        </div>
+      </CardHeader>
+      <CardBody className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="Tenant name">
+            <Input
+              value={tenantName}
+              onChange={(event) => onTenantName(event.target.value)}
+              placeholder="Acme"
+            />
+          </Field>
+          <Button
+            className="self-end"
+            onClick={onCreateTenant}
+            disabled={busy || !tenantName.trim()}
+          >
+            <KeyRound className="h-4 w-4" />
+            Create
+          </Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="Default tenant user">
+            <Input
+              value={tenantUserEmail}
+              onChange={(event) => onTenantUserEmail(event.target.value)}
+              placeholder="member@example.com"
+            />
+          </Field>
+          <Button
+            className="self-end"
+            onClick={onAddTenantUser}
+            disabled={busy || !tenantUserEmail.trim()}
+          >
+            <Users className="h-4 w-4" />
+            Add
+          </Button>
+        </div>
+        <div className="grid gap-2">
+          {tenants.map((tenant) => (
+            <div
+              key={tenant.tenant_id}
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm"
+            >
+              <span className="font-medium">{tenant.name}</span>
+              <StatusBadge status={tenant.status} />
+            </div>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function ChannelConfigPanel({
+  channels,
+  messages,
+  platform,
+  webhookUrl,
+  callbackToken,
+  outboundText,
+  onPlatform,
+  onWebhookUrl,
+  onCallbackToken,
+  onOutboundText,
+  onConfigure,
+  onSend,
+  busy,
+}: {
+  channels: V2Channel[];
+  messages: V2ChannelMessage[];
+  platform: string;
+  webhookUrl: string;
+  callbackToken: string;
+  outboundText: string;
+  onPlatform: (value: string) => void;
+  onWebhookUrl: (value: string) => void;
+  onCallbackToken: (value: string) => void;
+  onOutboundText: (value: string) => void;
+  onConfigure: () => void;
+  onSend: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 md:grid-cols-5">
+        {channelOptions.map((option) => (
+          <button
+            key={option.value}
+            className={`grid gap-2 rounded-md border p-3 text-left text-sm ${
+              platform === option.value
+                ? "border-primary bg-primary/5"
+                : "border-border hover:bg-muted"
+            }`}
+            onClick={() => onPlatform(option.value)}
+          >
+            <span className="font-medium">{option.label}</span>
+            <StatusBadge status={channelStatus(channels, option.value)} />
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+        <Field label="Webhook URL">
+          <Input
+            value={webhookUrl}
+            onChange={(event) => onWebhookUrl(event.target.value)}
+            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+          />
+        </Field>
+        <Field label="Callback token">
+          <Input
+            value={callbackToken}
+            onChange={(event) => onCallbackToken(event.target.value)}
+            placeholder="shared callback token"
+          />
+        </Field>
+        <Button className="self-end" onClick={onConfigure} disabled={busy}>
+          <ShieldCheck className="h-4 w-4" />
+          Configure
+        </Button>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+        <Field label="Outbound test">
+          <Input
+            value={outboundText}
+            onChange={(event) => onOutboundText(event.target.value)}
+          />
+        </Field>
+        <Button className="self-end" onClick={onSend} disabled={busy}>
+          <Send className="h-4 w-4" />
+          Send
+        </Button>
+      </div>
+      <div className="grid gap-2">
+        {messages.slice(0, 6).map((message) => (
+          <div
+            key={message.message_id}
+            className="grid gap-1 rounded-md border border-border px-3 py-2 text-sm"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium">
+                {message.platform} · {message.direction}
+              </span>
+              <StatusBadge status={message.status} />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {message.task_id ?? message.external_message_id}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function tenantSlug(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug ? `tenant_${slug}` : "tenant_new";
 }
 
 function ProgressBar({ percent }: { percent: number }) {

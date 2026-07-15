@@ -3,9 +3,20 @@ from __future__ import annotations
 import os
 import unittest
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest import mock
 
-from runtime.cloud_agents_runtime.v2_control_plane import V2ControlPlane, json_loads
+from runtime.cloud_agents_runtime.v2_control_plane import (
+    V2ControlPlane,
+    extract_feishu_text,
+    json_loads,
+    nested_text,
+    normalize_inbound_channel_payload,
+    outbound_channel_payload,
+    redact_secret_config,
+    v2_event_to_daemon_event,
+)
 
 
 def wait_for_status(control: V2ControlPlane, task_id: str, status: str) -> dict:
@@ -232,6 +243,225 @@ class V2ControlPlaneTest(unittest.TestCase):
         )
         self.assertEqual(overview["reliability"]["idempotency"], "enabled")
 
+    def test_channel_config_inbound_outbound_and_redaction(self):
+        with capture_http_posts() as sink:
+            control = V2ControlPlane(self.tmp_path())
+            channel = control.configure_channel(
+                "feishu",
+                {
+                    "webhook_url": sink["url"],
+                    "callback_token": "callback-secret",
+                    "app_secret": "app-secret",
+                },
+            )
+
+            self.assertEqual(channel["status"], "configured")
+            self.assertEqual(channel["config"]["webhook_url"], "<configured>")
+            self.assertEqual(channel["config"]["callback_token"], "<configured>")
+
+            with self.assertRaises(PermissionError):
+                control.receive_channel_message(
+                    "feishu",
+                    {
+                        "event": {
+                            "message": {
+                                "message_id": "msg_bad",
+                                "content": '{"text":"bad"}',
+                            }
+                        }
+                    },
+                    headers={"x-agentflow-channel-token": "wrong"},
+                )
+
+            inbound = control.receive_channel_message(
+                "feishu",
+                {
+                    "event": {
+                        "sender": {"sender_id": {"open_id": "ou_1"}},
+                        "message": {
+                            "message_id": "msg_1",
+                            "content": '{"text":"Create a weekly ops report"}',
+                        },
+                    }
+                },
+                headers={"x-agentflow-channel-token": "callback-secret"},
+            )
+            outbound = control.send_channel_message(
+                "feishu",
+                {
+                    "task_id": inbound["task"]["task_id"],
+                    "message": "Accepted by AgentFlow",
+                },
+            )
+            messages = control.channel_messages("feishu")
+
+            self.assertTrue(inbound["accepted"])
+            self.assertEqual(inbound["message"]["direction"], "inbound")
+            self.assertEqual(outbound["status"], "sent")
+            self.assertEqual(len(sink["posts"]), 1)
+            self.assertEqual(
+                sink["posts"][0]["body"]["content"]["text"],
+                "Accepted by AgentFlow",
+            )
+            self.assertEqual(
+                {message["direction"] for message in messages},
+                {"inbound", "outbound"},
+            )
+
+    def test_channel_error_paths_and_payload_normalizers(self):
+        control = V2ControlPlane(self.tmp_path())
+
+        with self.assertRaises(ValueError):
+            control.configure_channel("email", {})
+        with self.assertRaises(ValueError):
+            control.receive_channel_message("email", {"text": "nope"})
+        with self.assertRaises(ValueError):
+            control.receive_channel_message("wecom", {"Content": ""})
+        with self.assertRaises(ValueError):
+            control.send_channel_message("email", {"message": "nope"})
+        with self.assertRaises(ValueError):
+            control.send_channel_message("web", {"message": " "})
+
+        queued = control.send_channel_message("dingtalk", {"text": "hello"})
+        self.assertEqual(queued["status"], "queued")
+        failed = control.configure_channel(
+            "wecom",
+            {"webhook_url": "http://127.0.0.1:1/unreachable"},
+        )
+        self.assertEqual(failed["status"], "configured")
+        failed_message = control.send_channel_message("wecom", {"message": "hello"})
+        self.assertEqual(failed_message["status"], "failed")
+
+        dingtalk = normalize_inbound_channel_payload(
+            "dingtalk",
+            {
+                "text": {"content": "ding"},
+                "senderStaffId": "staff",
+                "conversationId": "conv",
+                "msgId": "msg_ding",
+            },
+        )
+        wecom = normalize_inbound_channel_payload(
+            "wecom",
+            {"Content": "wx", "FromUserName": "user", "MsgId": "msg_wx"},
+        )
+        generic = normalize_inbound_channel_payload(
+            "web",
+            {"message": "web", "sender": {"id": "u"}, "message_id": "m_web"},
+        )
+
+        self.assertEqual(dingtalk["text"], "ding")
+        self.assertEqual(wecom["sender"]["from_user"], "user")
+        self.assertEqual(generic["idempotency_key"], "m_web")
+        self.assertIsNone(nested_text({"text": "plain"}, ["text", "content"]))
+        self.assertEqual(extract_feishu_text({"content": "not-json"}), "not-json")
+        self.assertEqual(extract_feishu_text({"content": {"text": "dict"}}), "dict")
+        self.assertIsNone(extract_feishu_text({"content": {"other": "x"}}))
+        self.assertEqual(outbound_channel_payload("dingtalk", "x")["msgtype"], "text")
+        self.assertEqual(
+            redact_secret_config([{"token": "secret"}, {"safe": "ok"}])[0]["token"],
+            "<configured>",
+        )
+
+    def test_webshell_event_projection(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task({"goal": "Render webshell"}, principal="user_1")
+        completed = wait_for_status(control, task["task_id"], "completed")
+        control.append_message(completed["task_id"], "follow up", principal="user_1")
+
+        events = control.webshell_events(completed["task_id"])
+        self.assertTrue(events)
+        self.assertEqual(events[0]["type"], "session_update")
+        self.assertEqual(events[0]["_meta"]["source"], "agentflow-v2-webshell")
+        with self.assertRaises(KeyError):
+            control.webshell_events("missing")
+
+        projected = v2_event_to_daemon_event(
+            {
+                "task_id": "task",
+                "sequence": 9,
+                "type": "task.completed",
+                "payload": {"summary": "done"},
+                "created_at": "2026-07-15T00:00:00Z",
+            }
+        )
+        self.assertIn("done", projected["data"]["update"]["content"]["text"])
+
+    def test_admin_tenant_rbac_ha_and_unit_discovery(self):
+        control = V2ControlPlane(self.tmp_path())
+        old_units = os.environ.get("V2_EXECUTION_UNITS_JSON")
+        old_database = os.environ.get("V2_DATABASE_URL")
+        old_queue = os.environ.get("V2_QUEUE_URL")
+        old_temporal = os.environ.get("TEMPORAL_ADDRESS")
+        try:
+            os.environ["V2_EXECUTION_UNITS_JSON"] = (
+                '[{"unit_id":"ecs-prod-a","kind":"ecs","adapters":["qwen","codex"],'
+                '"labels":{"region":"cn-hangzhou"}},{"unit_id":"nas-local","kind":"nas",'
+                '"adapters":["fake"],"resources":{"memory_mb":4096}}]'
+            )
+            os.environ["V2_DATABASE_URL"] = "postgresql://user:pass@db/agentflow"
+            os.environ["V2_QUEUE_URL"] = "redis://redis:6379/0"
+            os.environ["TEMPORAL_ADDRESS"] = "temporal:7233"
+
+            tenant = control.upsert_tenant(
+                {
+                    "tenant_id": "tenant_acme",
+                    "name": "Acme",
+                    "settings": {"channels": ["web", "feishu"]},
+                },
+                principal="owner@example.com",
+            )
+            user = control.upsert_tenant_user(
+                "tenant_acme",
+                {"email": "ops@example.com", "roles": ["operator"]},
+            )
+            policy = control.upsert_rbac_policy(
+                "tenant_acme",
+                {"role": "operator", "permissions": ["tasks:*", "channels:*"]},
+            )
+            discovery = control.discover_execution_units()
+            ha = control.ha_config()
+            workflow = control.workflow_engine_status()
+
+            self.assertEqual(tenant["name"], "Acme")
+            self.assertEqual(user["roles"], ["operator"])
+            self.assertEqual(policy["permissions"], ["tasks:*", "channels:*"])
+            self.assertEqual(len(discovery["discovered"]), 2)
+            self.assertTrue(ha["database"]["configured"])
+            self.assertTrue(ha["queue"]["configured"])
+            self.assertEqual(workflow["active_engine"], "temporal")
+        finally:
+            restore_env("V2_EXECUTION_UNITS_JSON", old_units)
+            restore_env("V2_DATABASE_URL", old_database)
+            restore_env("V2_QUEUE_URL", old_queue)
+            restore_env("TEMPORAL_ADDRESS", old_temporal)
+
+        with self.assertRaises(ValueError):
+            control.upsert_tenant({"tenant_id": " ", "name": " "}, principal="owner")
+        with self.assertRaises(ValueError):
+            control.upsert_tenant_user("tenant_acme", {})
+        with self.assertRaises(ValueError):
+            control.upsert_tenant_user("tenant_acme", {"email": "bad", "roles": "member"})
+        with self.assertRaises(ValueError):
+            control.upsert_rbac_policy("tenant_acme", {"permissions": ["tasks:read"]})
+        with self.assertRaises(ValueError):
+            control.upsert_rbac_policy(
+                "tenant_acme",
+                {"role": "member", "permissions": "tasks:read"},
+            )
+
+        old_units = os.environ.get("V2_EXECUTION_UNITS_JSON")
+        try:
+            os.environ["V2_EXECUTION_UNITS_JSON"] = "{}"
+            with self.assertRaises(ValueError):
+                control.discover_execution_units()
+            os.environ["V2_EXECUTION_UNITS_JSON"] = "[1]"
+            with self.assertRaises(ValueError):
+                control.discover_execution_units()
+        finally:
+            restore_env("V2_EXECUTION_UNITS_JSON", old_units)
+
+
     def test_append_message_writes_canonical_event(self):
         control = V2ControlPlane(self.tmp_path())
         task = control.create_task({"goal": "Review logs"}, principal="user_1")
@@ -334,6 +564,44 @@ def restore_env(key: str, value: str | None) -> None:
         os.environ.pop(key, None)
     else:
         os.environ[key] = value
+
+
+class CaptureHandler(BaseHTTPRequestHandler):
+    posts: list[dict] = []
+
+    def do_POST(self):
+        import json
+
+        length = int(self.headers.get("content-length", "0") or "0")
+        body = self.rfile.read(length)
+        self.__class__.posts.append(
+            {
+                "path": self.path,
+                "body": json.loads(body.decode("utf-8")),
+            }
+        )
+        self.send_response(200)
+        self.send_header("content-length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, *_args):
+        return
+
+
+class capture_http_posts:
+    def __enter__(self):
+        CaptureHandler.posts = []
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), CaptureHandler)
+        self.thread = Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        host, port = self.server.server_address
+        return {"url": f"http://{host}:{port}/bot", "posts": CaptureHandler.posts}
+
+    def __exit__(self, *_args):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=1)
 
 
 if __name__ == "__main__":

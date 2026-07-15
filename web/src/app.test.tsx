@@ -379,6 +379,32 @@ const v2Overview = {
       updated_at: new Date().toISOString(),
     },
   ],
+  tenants: [
+    {
+      tenant_id: "tenant_default",
+      name: "Default Tenant",
+      status: "active",
+      settings: { plan: "local" },
+      created_by: "system",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  ha: {
+    profile: "local-2c2g",
+    database: { driver: "sqlite", configured: false },
+    queue: { driver: "sqlite-lease", configured: false },
+    workers: { horizontal_scale: false, concurrency: 1 },
+    workflow: {
+      active_engine: "local-sqlite-dag",
+      engines: [
+        { engine: "local-sqlite-dag", status: "available" },
+        { engine: "temporal", status: "available" },
+      ],
+    },
+    backup: { enabled: true, target: "local-artifacts" },
+    resource_fit: { two_c_two_g: true },
+  },
   reliability: {
     idempotency: "enabled",
     event_source: "sqlite:v2_events",
@@ -654,6 +680,7 @@ const fixtures: Record<string, unknown> = {
   "v2/tasks": { tasks: [v2Task, v2FallbackTask] },
   "v2/tasks/task_v2_1": v2Task,
   "v2/tasks/task_v2_1/events.json": { events: v2Events },
+  "v2/tasks/task_v2_1/webshell/events.json": { events: daemonEvents },
   "v2/tasks/task_v2_1/workflow": v2Workflow,
   "v2/tasks/task_v2_1/artifacts": v2Artifacts,
   "v2/tasks/task_v2_1/evaluations": v2Evaluations,
@@ -661,6 +688,73 @@ const fixtures: Record<string, unknown> = {
   "v2/admin/overview": v2Overview,
   "v2/admin/execution-units": { units: v2Overview.execution_units },
   "v2/admin/channels": { channels: v2Overview.channels },
+  "v2/admin/channel-messages": {
+    messages: [
+      {
+        message_id: "chmsg_1",
+        channel_id: "channel_feishu",
+        platform: "feishu",
+        direction: "inbound",
+        status: "accepted",
+        external_message_id: "msg_1",
+        sender: { open_id: "ou_1" },
+        content: { text: "Ship V2" },
+        raw: {},
+        task_id: "task_v2_1",
+        error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/tenants": { tenants: v2Overview.tenants },
+  "v2/admin/tenants/tenant_default/users": {
+    users: [
+      {
+        tenant_id: "tenant_default",
+        user_id: "owner@example.com",
+        email: "owner@example.com",
+        roles: ["owner"],
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/tenants/tenant_default/rbac": {
+    policies: [
+      {
+        tenant_id: "tenant_default",
+        role: "owner",
+        permissions: ["*"],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/ha": v2Overview.ha,
+  "v2/admin/workflow-engines": v2Overview.ha.workflow,
+  "v2/admin/execution-units/discover": {
+    units: v2Overview.execution_units,
+    discovered: [],
+  },
+  "v2/admin/channels/feishu/config": v2Overview.channels[1],
+  "v2/admin/channels/feishu/send": {
+    message_id: "chmsg_2",
+    channel_id: "channel_feishu",
+    platform: "feishu",
+    direction: "outbound",
+    status: "queued",
+    external_message_id: "",
+    sender: { system: "agentflow" },
+    content: { msg_type: "text", content: { text: "AgentFlow channel test" } },
+    raw: {},
+    task_id: null,
+    error: "webhook_url is not configured",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  "v2/admin/tenants/tenant_acme": v2Overview.tenants[0],
   runs: { runs: [run] },
   "runs/run_1": run,
   "runs/run_1/events.json": { events },
@@ -1110,8 +1204,20 @@ describe("AgentFlow console", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Reliability Spine")).toBeInTheDocument();
     expect(screen.getByText("local-dev")).toBeInTheDocument();
-    expect(screen.getByText("feishu")).toBeInTheDocument();
+    expect(screen.getByText("Feishu")).toBeInTheDocument();
     expect(screen.getByText("sqlite:v2_events")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Discover" }));
+    await user.type(screen.getByLabelText("Webhook URL"), "https://bot.example");
+    await user.type(screen.getByLabelText("Callback token"), "token");
+    await user.click(screen.getByRole("button", { name: "Configure" }));
+    await user.clear(screen.getByLabelText("Outbound test"));
+    await user.type(screen.getByLabelText("Outbound test"), "hello channel");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.type(screen.getByLabelText("Tenant name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.type(screen.getByLabelText("Default tenant user"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Add" }));
   });
 
   it("creates a run from the Runs page", async () => {

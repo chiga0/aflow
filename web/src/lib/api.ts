@@ -534,12 +534,73 @@ export interface V2Channel {
   updated_at: string;
 }
 
+export interface V2ChannelMessage {
+  message_id: string;
+  channel_id: string;
+  platform: string;
+  direction: string;
+  status: string;
+  external_message_id: string;
+  sender: Record<string, unknown>;
+  content: Record<string, unknown>;
+  raw: Record<string, unknown>;
+  task_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Tenant {
+  tenant_id: string;
+  name: string;
+  status: string;
+  settings: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2TenantUser {
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  roles: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2RbacPolicy {
+  tenant_id: string;
+  role: string;
+  permissions: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2HaConfig {
+  profile: string;
+  database: Record<string, unknown>;
+  queue: Record<string, unknown>;
+  workers: Record<string, unknown>;
+  workflow: V2WorkflowEngineStatus;
+  backup: Record<string, unknown>;
+  resource_fit: Record<string, unknown>;
+}
+
+export interface V2WorkflowEngineStatus {
+  active_engine: string;
+  engines: Array<Record<string, unknown>>;
+}
+
 export interface V2AdminOverview {
   generated_at: string;
   tasks: { total: number; by_status: Record<string, number> };
   agent_tasks: { total: number; by_status: Record<string, number> };
   execution_units: V2ExecutionUnit[];
   channels: V2Channel[];
+  tenants: V2Tenant[];
+  ha: V2HaConfig;
   reliability: Record<string, string>;
 }
 
@@ -578,6 +639,10 @@ export const runtimeApi = {
   v2TaskEvents: (taskId: string) =>
     api<{ events: V2Event[] }>(
       `v2/tasks/${encodeURIComponent(taskId)}/events.json`,
+    ),
+  v2TaskWebshellEvents: (taskId: string) =>
+    api<{ events: DaemonEvent[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/webshell/events.json`,
     ),
   v2TaskWorkflow: (taskId: string) =>
     api<{ run: V2WorkflowRun | null; steps: V2WorkflowStep[] }>(
@@ -620,11 +685,67 @@ export const runtimeApi = {
   v2ExecutionUnits: () =>
     api<{ units: V2ExecutionUnit[] }>("v2/admin/execution-units"),
   v2Channels: () => api<{ channels: V2Channel[] }>("v2/admin/channels"),
+  v2ChannelMessages: () =>
+    api<{ messages: V2ChannelMessage[] }>("v2/admin/channel-messages"),
+  v2Tenants: () => api<{ tenants: V2Tenant[] }>("v2/admin/tenants"),
+  v2TenantUsers: (tenantId: string) =>
+    api<{ users: V2TenantUser[] }>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
+    ),
+  v2RbacPolicies: (tenantId: string) =>
+    api<{ policies: V2RbacPolicy[] }>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`,
+    ),
+  v2HaConfig: () => api<V2HaConfig>("v2/admin/ha"),
+  v2WorkflowEngines: () =>
+    api<V2WorkflowEngineStatus>("v2/admin/workflow-engines"),
   v2RegisterExecutionUnit: (payload: Record<string, unknown>) =>
     api<V2ExecutionUnit>("v2/admin/execution-units", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  v2DiscoverExecutionUnits: () =>
+    api<{ units: V2ExecutionUnit[]; discovered: V2ExecutionUnit[] }>(
+      "v2/admin/execution-units/discover",
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
+  v2ConfigureChannel: (platform: string, payload: Record<string, unknown>) =>
+    api<V2Channel>(`v2/admin/channels/${encodeURIComponent(platform)}/config`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2SendChannelMessage: (platform: string, payload: Record<string, unknown>) =>
+    api<V2ChannelMessage>(
+      `v2/admin/channels/${encodeURIComponent(platform)}/send`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  v2UpsertTenant: (payload: Record<string, unknown>) =>
+    api<V2Tenant>("v2/admin/tenants", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2UpsertTenantUser: (tenantId: string, payload: Record<string, unknown>) =>
+    api<V2TenantUser>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  v2UpsertRbacPolicy: (tenantId: string, payload: Record<string, unknown>) =>
+    api<V2RbacPolicy>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
   capabilities: () => api<Capabilities>("capabilities"),
   metrics: () => api<Metrics>("metrics.json"),
   costStatus: () => api<CostStatus>("cost/status"),

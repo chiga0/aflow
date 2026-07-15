@@ -100,7 +100,7 @@ test("uses the V2 client and admin control-plane surfaces", async ({ page }) => 
   ).toBeVisible();
   await expect(page.getByText("Reliability Spine")).toBeVisible();
   await expect(page.getByText("local-dev")).toBeVisible();
-  await expect(page.getByText("feishu")).toBeVisible();
+  await expect(page.getByText("Feishu")).toBeVisible();
 });
 
 test("hides backend navigation for a member user", async ({ page }) => {
@@ -499,6 +499,32 @@ async function mockRuntime(
         updated_at: now,
       },
     ],
+    tenants: [
+      {
+        tenant_id: "tenant_default",
+        name: "Default Tenant",
+        status: "active",
+        settings: { plan: "local" },
+        created_by: "system",
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    ha: {
+      profile: "local-2c2g",
+      database: { driver: "sqlite", configured: false },
+      queue: { driver: "sqlite-lease", configured: false },
+      workers: { horizontal_scale: false, concurrency: 1 },
+      workflow: {
+        active_engine: "local-sqlite-dag",
+        engines: [
+          { engine: "local-sqlite-dag", status: "available" },
+          { engine: "temporal", status: "available" },
+        ],
+      },
+      backup: { enabled: true, target: "local-artifacts" },
+      resource_fit: { two_c_two_g: true },
+    },
     reliability: {
       idempotency: "enabled",
       event_source: "sqlite:v2_events",
@@ -643,9 +669,31 @@ async function mockRuntime(
         },
       ],
     },
+    "v2/tasks/task_v2_1/webshell/events.json": {
+      events: [
+        {
+          id: 1,
+          v: 1,
+          type: "session_update",
+          data: {
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "V2 webshell ready" },
+            },
+          },
+          _meta: {
+            serverTimestamp: now,
+            runtimeRunId: "task_v2_1",
+            runtimeSequence: 1,
+            runtimeEventType: "agent.message",
+          },
+        },
+      ],
+    },
     "v2/admin/overview": v2Overview,
     "v2/admin/execution-units": { units: v2Overview.execution_units },
     "v2/admin/channels": { channels: v2Overview.channels },
+    "v2/admin/channel-messages": { messages: [] },
     runs: { runs },
     "runs/run_1": run,
     "runs/run_1/events.json": {
