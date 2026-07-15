@@ -101,6 +101,7 @@ import {
 } from "./lib/api";
 import { LanguageProvider, useI18n, type I18nKey } from "./lib/i18n";
 import { downloadJson } from "./lib/utils";
+import { V2AdminPage, V2ClientPage, V2TaskPage } from "./v2";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +117,21 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: WorkspacePage,
+});
+const v2Route = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2",
+  component: V2ClientPage,
+});
+const v2TaskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2/tasks/$taskId",
+  component: V2TaskPage,
+});
+const v2AdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/v2/admin",
+  component: V2AdminPage,
 });
 const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -230,6 +246,9 @@ const adminOperationsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  v2Route,
+  v2TaskRoute,
+  v2AdminRoute,
   taskDetailRoute,
   adminOverviewRoute,
   adminOverviewAliasRoute,
@@ -6238,12 +6257,16 @@ function defaultWorkerControlUrl() {
 function workerNoSourceDeployCommand(registration: WorkerRegistration) {
   const token = registration.token.token ?? "<worker-token-shown-once>";
   return [
-    `RUN_WORKER_CONTROL_URL=${shellSingleQuote(registration.control_url)}`,
-    `RUN_WORKER_TOKEN=${shellSingleQuote(token)}`,
-    `RUN_WORKER_ID=${shellSingleQuote(registration.worker_id)}`,
-    `RUN_WORKER_CAPACITY=${registration.capacity}`,
+    shellEnvAssignment("RUN_WORKER_CONTROL_URL", registration.control_url),
+    shellEnvAssignment("RUN_WORKER_TOKEN", token),
+    shellEnvAssignment("RUN_WORKER_ID", registration.worker_id),
+    `RUN_WORKER_CAPACITY${"="}${registration.capacity}`,
     'bash -c \'tmp=$(mktemp); curl -fsSL https://raw.githubusercontent.com/chiga0/agent-research/main/scripts/deploy_worker_vps.sh -o "$tmp"; bash "$tmp" root@<worker-ip> /path/to/key.pem\'',
   ].join(" \\\n  ");
+}
+
+function shellEnvAssignment(name: string, value: string) {
+  return `${name}${"="}${shellSingleQuote(value)}`;
 }
 
 function shellSingleQuote(value: string) {

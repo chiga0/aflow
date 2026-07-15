@@ -375,6 +375,235 @@ export interface AuthSession {
   auth_mode?: string;
 }
 
+export interface V2Progress {
+  completed_steps: number;
+  running_steps: number;
+  total_steps: number;
+  percent: number;
+}
+
+export interface V2AgentTask {
+  agent_task_id: string;
+  task_id: string;
+  plan_id: string;
+  role: string;
+  title: string;
+  goal: string;
+  status: string;
+  adapter: string;
+  order_index: number;
+  depends_on: string[];
+  artifact_contract: Record<string, unknown>;
+  result: Record<string, unknown>;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at: string;
+}
+
+export interface V2Plan {
+  plan_id: string;
+  task_id: string;
+  version: number;
+  status: string;
+  strategy: string;
+  graph: {
+    strategy: string;
+    nodes: Array<{ id: string; title: string; depends_on: string[] }>;
+  };
+  artifact_contract: Record<string, unknown>;
+  agent_tasks: V2AgentTask[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Task {
+  task_id: string;
+  tenant_id: string;
+  project_id: string;
+  created_by: string;
+  title: string;
+  goal: string;
+  mode: string;
+  status: string;
+  priority: string;
+  channel: string;
+  adapter: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  progress: V2Progress;
+  plan: V2Plan | null;
+  result?: {
+    summary: string;
+    artifacts: Array<Record<string, unknown>>;
+    evaluation: Record<string, unknown>;
+  } | null;
+  events?: V2Event[];
+}
+
+export interface V2Event {
+  event_id: string;
+  task_id: string;
+  sequence: number;
+  type: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface V2WorkflowRun {
+  workflow_run_id: string;
+  task_id: string;
+  status: string;
+  engine: string;
+  config: Record<string, unknown>;
+  attempt: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2WorkflowStep {
+  step_id: string;
+  workflow_run_id: string;
+  task_id: string;
+  agent_task_id: string;
+  role: string;
+  status: string;
+  adapter: string;
+  order_index: number;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface V2Artifact {
+  artifact_id: string;
+  task_id: string;
+  agent_task_id: string;
+  name: string;
+  kind: string;
+  status: string;
+  content: Record<string, unknown>;
+  ref: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Evaluation {
+  evaluation_id: string;
+  task_id: string;
+  agent_task_id: string;
+  kind: string;
+  status: string;
+  details: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Replay {
+  replay_id: string;
+  task_id: string;
+  requested_by: string;
+  status: string;
+  snapshot: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface V2ExecutionUnit {
+  unit_id: string;
+  kind: string;
+  status: string;
+  labels: Record<string, unknown>;
+  resources: Record<string, unknown>;
+  adapters: string[];
+  features: string[];
+  heartbeat_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Channel {
+  channel_id: string;
+  platform: string;
+  status: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2ChannelMessage {
+  message_id: string;
+  channel_id: string;
+  platform: string;
+  direction: string;
+  status: string;
+  external_message_id: string;
+  sender: Record<string, unknown>;
+  content: Record<string, unknown>;
+  raw: Record<string, unknown>;
+  task_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2Tenant {
+  tenant_id: string;
+  name: string;
+  status: string;
+  settings: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2TenantUser {
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  roles: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2RbacPolicy {
+  tenant_id: string;
+  role: string;
+  permissions: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2HaConfig {
+  profile: string;
+  database: Record<string, unknown>;
+  queue: Record<string, unknown>;
+  workers: Record<string, unknown>;
+  workflow: V2WorkflowEngineStatus;
+  backup: Record<string, unknown>;
+  resource_fit: Record<string, unknown>;
+}
+
+export interface V2WorkflowEngineStatus {
+  active_engine: string;
+  engines: Array<Record<string, unknown>>;
+}
+
+export interface V2AdminOverview {
+  generated_at: string;
+  tasks: { total: number; by_status: Record<string, number> };
+  agent_tasks: { total: number; by_status: Record<string, number> };
+  execution_units: V2ExecutionUnit[];
+  channels: V2Channel[];
+  tenants: V2Tenant[];
+  ha: V2HaConfig;
+  reliability: Record<string, string>;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -403,6 +632,120 @@ export const runtimeApi = {
       body: JSON.stringify({}),
     }),
   health: () => api<{ ok: boolean; version: string }>("health"),
+  v2Capabilities: () => api<Record<string, unknown>>("v2/capabilities"),
+  v2Tasks: () => api<{ tasks: V2Task[] }>("v2/tasks"),
+  v2Task: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}`),
+  v2TaskEvents: (taskId: string) =>
+    api<{ events: V2Event[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/events.json`,
+    ),
+  v2TaskWebshellEvents: (taskId: string) =>
+    api<{ events: DaemonEvent[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/webshell/events.json`,
+    ),
+  v2TaskWorkflow: (taskId: string) =>
+    api<{ run: V2WorkflowRun | null; steps: V2WorkflowStep[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/workflow`,
+    ),
+  v2TaskArtifacts: (taskId: string) =>
+    api<{ artifacts: V2Artifact[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/artifacts`,
+    ),
+  v2TaskEvaluations: (taskId: string) =>
+    api<{ evaluations: V2Evaluation[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/evaluations`,
+    ),
+  v2TaskReplays: (taskId: string) =>
+    api<{ replays: V2Replay[] }>(
+      `v2/tasks/${encodeURIComponent(taskId)}/replays`,
+    ),
+  v2CreateTask: (payload: Record<string, unknown>) =>
+    api<V2Task>("v2/tasks", {
+      method: "POST",
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    }),
+  v2SubmitMessage: (taskId: string, message: string) =>
+    api<{ event: V2Event }>(`v2/tasks/${encodeURIComponent(taskId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  v2RetryTask: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  v2ReplayTask: (taskId: string) =>
+    api<V2Replay>(`v2/tasks/${encodeURIComponent(taskId)}/replay`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  v2AdminOverview: () => api<V2AdminOverview>("v2/admin/overview"),
+  v2ExecutionUnits: () =>
+    api<{ units: V2ExecutionUnit[] }>("v2/admin/execution-units"),
+  v2Channels: () => api<{ channels: V2Channel[] }>("v2/admin/channels"),
+  v2ChannelMessages: () =>
+    api<{ messages: V2ChannelMessage[] }>("v2/admin/channel-messages"),
+  v2Tenants: () => api<{ tenants: V2Tenant[] }>("v2/admin/tenants"),
+  v2TenantUsers: (tenantId: string) =>
+    api<{ users: V2TenantUser[] }>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
+    ),
+  v2RbacPolicies: (tenantId: string) =>
+    api<{ policies: V2RbacPolicy[] }>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`,
+    ),
+  v2HaConfig: () => api<V2HaConfig>("v2/admin/ha"),
+  v2WorkflowEngines: () =>
+    api<V2WorkflowEngineStatus>("v2/admin/workflow-engines"),
+  v2RegisterExecutionUnit: (payload: Record<string, unknown>) =>
+    api<V2ExecutionUnit>("v2/admin/execution-units", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2DiscoverExecutionUnits: () =>
+    api<{ units: V2ExecutionUnit[]; discovered: V2ExecutionUnit[] }>(
+      "v2/admin/execution-units/discover",
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
+  v2ConfigureChannel: (platform: string, payload: Record<string, unknown>) =>
+    api<V2Channel>(`v2/admin/channels/${encodeURIComponent(platform)}/config`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2SendChannelMessage: (platform: string, payload: Record<string, unknown>) =>
+    api<V2ChannelMessage>(
+      `v2/admin/channels/${encodeURIComponent(platform)}/send`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  v2UpsertTenant: (payload: Record<string, unknown>) =>
+    api<V2Tenant>("v2/admin/tenants", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2UpsertTenantUser: (tenantId: string, payload: Record<string, unknown>) =>
+    api<V2TenantUser>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  v2UpsertRbacPolicy: (tenantId: string, payload: Record<string, unknown>) =>
+    api<V2RbacPolicy>(
+      `v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
   capabilities: () => api<Capabilities>("capabilities"),
   metrics: () => api<Metrics>("metrics.json"),
   costStatus: () => api<CostStatus>("cost/status"),

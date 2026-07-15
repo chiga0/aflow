@@ -148,6 +148,154 @@ class RuntimeServerTest(unittest.TestCase):
             )
             self.assertIn("cleanup", cleanup)
 
+    def test_v2_task_workflow_artifact_retry_and_replay_api(self) -> None:
+        with running_runtime(token="secret") as base_url:
+            headers = {"authorization": "Bearer secret"}
+            created = request_json(
+                f"{base_url}/v2/tasks",
+                method="POST",
+                payload={
+                    "goal": "Coordinate a V2 HTTP workflow",
+                    "mode": "workflow",
+                    "adapter": "codex",
+                    "channel": "feishu",
+                },
+                headers=headers,
+            )
+            task_id = created["task_id"]
+            deadline = time.time() + 3
+            current = created
+            while time.time() < deadline:
+                current = request_json(f"{base_url}/v2/tasks/{task_id}", headers=headers)
+                if current["status"] == "completed":
+                    break
+                time.sleep(0.05)
+
+            self.assertEqual(current["status"], "completed")
+            workflow = request_json(
+                f"{base_url}/v2/tasks/{task_id}/workflow",
+                headers=headers,
+            )
+            artifacts = request_json(
+                f"{base_url}/v2/tasks/{task_id}/artifacts",
+                headers=headers,
+            )
+            evaluations = request_json(
+                f"{base_url}/v2/tasks/{task_id}/evaluations",
+                headers=headers,
+            )
+            replay = request_json(
+                f"{base_url}/v2/tasks/{task_id}/replay",
+                method="POST",
+                payload={},
+                headers=headers,
+            )
+            replays = request_json(
+                f"{base_url}/v2/tasks/{task_id}/replays",
+                headers=headers,
+            )
+            retried = request_json(
+                f"{base_url}/v2/tasks/{task_id}/retry",
+                method="POST",
+                payload={},
+                headers=headers,
+            )
+            unit = request_json(
+                f"{base_url}/v2/admin/execution-units",
+                method="POST",
+                payload={"unit_id": "docker-http", "kind": "docker", "adapters": ["fake"]},
+                headers=headers,
+            )
+            tenant = request_json(
+                f"{base_url}/v2/admin/tenants",
+                method="POST",
+                payload={"tenant_id": "tenant_http", "name": "HTTP Tenant"},
+                headers=headers,
+            )
+            user = request_json(
+                f"{base_url}/v2/admin/tenants/tenant_http/users",
+                method="POST",
+                payload={"email": "ops@example.com", "roles": ["operator"]},
+                headers=headers,
+            )
+            policy = request_json(
+                f"{base_url}/v2/admin/tenants/tenant_http/rbac",
+                method="POST",
+                payload={"role": "operator", "permissions": ["tasks:*"]},
+                headers=headers,
+            )
+            channel = request_json(
+                f"{base_url}/v2/admin/channels/feishu/config",
+                method="POST",
+                payload={"callback_token": "secret", "webhook_url": "http://127.0.0.1:1"},
+                headers=headers,
+            )
+            webhook = request_json(
+                f"{base_url}/v2/channels/feishu/webhook",
+                method="POST",
+                payload={
+                    "event": {
+                        "message": {
+                            "message_id": "http_msg_1",
+                            "content": '{"text":"Start from Feishu"}',
+                        }
+                    }
+                },
+                headers={"x-agentflow-channel-token": "secret"},
+            )
+            sent = request_json(
+                f"{base_url}/v2/admin/channels/feishu/send",
+                method="POST",
+                payload={"task_id": task_id, "message": "hello"},
+                headers=headers,
+            )
+            messages = request_json(
+                f"{base_url}/v2/admin/channel-messages",
+                headers=headers,
+            )
+            tenants = request_json(f"{base_url}/v2/admin/tenants", headers=headers)
+            users = request_json(
+                f"{base_url}/v2/admin/tenants/tenant_http/users",
+                headers=headers,
+            )
+            policies = request_json(
+                f"{base_url}/v2/admin/tenants/tenant_http/rbac",
+                headers=headers,
+            )
+            ha = request_json(f"{base_url}/v2/admin/ha", headers=headers)
+            engines = request_json(
+                f"{base_url}/v2/admin/workflow-engines",
+                headers=headers,
+            )
+            discovery = request_json(
+                f"{base_url}/v2/admin/execution-units/discover",
+                method="POST",
+                payload={},
+                headers=headers,
+            )
+
+            self.assertEqual(workflow["run"]["engine"], "local-sqlite-dag")
+            self.assertEqual(len(workflow["steps"]), 3)
+            self.assertTrue(artifacts["artifacts"])
+            self.assertTrue(evaluations["evaluations"])
+            self.assertEqual(replay["status"], "created")
+            self.assertTrue(replays["replays"])
+            self.assertIn(retried["status"], {"queued", "running", "completed"})
+            self.assertEqual(unit["unit_id"], "docker-http")
+            self.assertEqual(tenant["tenant_id"], "tenant_http")
+            self.assertEqual(user["roles"], ["operator"])
+            self.assertEqual(policy["permissions"], ["tasks:*"])
+            self.assertEqual(channel["config"]["callback_token"], "<configured>")
+            self.assertTrue(webhook["accepted"])
+            self.assertIn(sent["status"], {"queued", "failed"})
+            self.assertTrue(messages["messages"])
+            self.assertTrue(tenants["tenants"])
+            self.assertEqual(users["users"][0]["email"], "ops@example.com")
+            self.assertEqual(policies["policies"][0]["role"], "operator")
+            self.assertIn("database", ha)
+            self.assertIn("engines", engines)
+            self.assertIn("units", discovery)
+
     def test_console_login_session_cookie_authorizes_api(self) -> None:
         with running_runtime(
             token="secret",

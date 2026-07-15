@@ -74,6 +74,126 @@ def make_handler(
             if path == "/health":
                 self.write_json({"ok": True, "version": __version__})
                 return
+            if path == "/v2/capabilities":
+                self.write_json(manager.v2.capabilities())
+                return
+            if path == "/v2/tasks":
+                self.write_json({"tasks": manager.v2.list_tasks()})
+                return
+            if len(parts) == 3 and parts[0] == "v2" and parts[1] == "tasks":
+                try:
+                    self.write_json(manager.v2.get_task(unquote(parts[2])))
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "events.json"
+            ):
+                try:
+                    self.write_json({"events": manager.v2.events(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 5
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "webshell"
+                and parts[4] == "events.json"
+            ):
+                try:
+                    self.write_json({"events": manager.v2.webshell_events(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "workflow"
+            ):
+                try:
+                    self.write_json(manager.v2.workflow(unquote(parts[2])))
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "artifacts"
+            ):
+                try:
+                    self.write_json({"artifacts": manager.v2.artifacts(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "evaluations"
+            ):
+                try:
+                    self.write_json(
+                        {"evaluations": manager.v2.evaluations(unquote(parts[2]))}
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "replays"
+            ):
+                try:
+                    self.write_json({"replays": manager.v2.replays(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if path == "/v2/admin/overview":
+                self.write_json(manager.v2.admin_overview())
+                return
+            if path == "/v2/admin/execution-units":
+                self.write_json({"units": manager.v2.execution_units()})
+                return
+            if path == "/v2/admin/channels":
+                self.write_json({"channels": manager.v2.channels()})
+                return
+            if path == "/v2/admin/channel-messages":
+                self.write_json({"messages": manager.v2.channel_messages()})
+                return
+            if path == "/v2/admin/tenants":
+                self.write_json({"tenants": manager.v2.tenants()})
+                return
+            if (
+                len(parts) == 5
+                and parts[0] == "v2"
+                and parts[1] == "admin"
+                and parts[2] == "tenants"
+                and parts[4] == "users"
+            ):
+                self.write_json({"users": manager.v2.tenant_users(unquote(parts[3]))})
+                return
+            if (
+                len(parts) == 5
+                and parts[0] == "v2"
+                and parts[1] == "admin"
+                and parts[2] == "tenants"
+                and parts[4] == "rbac"
+            ):
+                self.write_json({"policies": manager.v2.rbac_policies(unquote(parts[3]))})
+                return
+            if path == "/v2/admin/ha":
+                self.write_json(manager.v2.ha_config())
+                return
+            if path == "/v2/admin/workflow-engines":
+                self.write_json(manager.v2.workflow_engine_status())
+                return
             if path == "/capabilities":
                 self.write_json(manager.capabilities())
                 return
@@ -416,11 +536,176 @@ def make_handler(
                     },
                 )
                 return
+            parts = split_path(path)
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "channels"
+                and parts[3] == "webhook"
+            ):
+                try:
+                    payload = self.read_json()
+                    received = manager.v2.receive_channel_message(
+                        unquote(parts[2]),
+                        payload,
+                        headers=dict(self.headers.items()),
+                    )
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                    return
+                except ValueError as exc:
+                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    return
+                except json.JSONDecodeError:
+                    self.write_error(HTTPStatus.BAD_REQUEST, "invalid json")
+                    return
+                self.write_json(received, status=HTTPStatus.ACCEPTED)
+                return
             if not self.require_auth(path):
                 return
-            parts = split_path(path)
             try:
                 payload = self.read_json()
+                if len(parts) == 2 and parts[0] == "v2" and parts[1] == "tasks":
+                    try:
+                        task = manager.v2.create_task(
+                            payload,
+                            principal=self.principal_id(),
+                            idempotency_key=self.headers.get("idempotency-key"),
+                        )
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(task, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "messages"
+                ):
+                    try:
+                        event = manager.v2.append_message(
+                            unquote(parts[2]),
+                            str(payload.get("message") or payload.get("prompt") or ""),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json({"event": event}, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "retry"
+                ):
+                    try:
+                        task = manager.v2.retry_task(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "replay"
+                ):
+                    try:
+                        replay = manager.v2.replay_task(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    self.write_json(replay, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "execution-units"
+                ):
+                    try:
+                        unit = manager.v2.register_execution_unit(payload)
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(unit, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "execution-units"
+                    and parts[3] == "discover"
+                ):
+                    self.write_json(manager.v2.discover_execution_units())
+                    return
+                if (
+                    len(parts) == 5
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "channels"
+                    and parts[4] == "config"
+                ):
+                    channel = manager.v2.configure_channel(unquote(parts[3]), payload)
+                    self.write_json(channel, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 5
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "channels"
+                    and parts[4] == "send"
+                ):
+                    message = manager.v2.send_channel_message(unquote(parts[3]), payload)
+                    self.write_json(message, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "tenants"
+                ):
+                    tenant = manager.v2.upsert_tenant(
+                        payload,
+                        principal=self.principal_id() or "api-token",
+                    )
+                    self.write_json(tenant, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 5
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "tenants"
+                    and parts[4] == "users"
+                ):
+                    user = manager.v2.upsert_tenant_user(unquote(parts[3]), payload)
+                    self.write_json(user, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 5
+                    and parts[0] == "v2"
+                    and parts[1] == "admin"
+                    and parts[2] == "tenants"
+                    and parts[4] == "rbac"
+                ):
+                    policy = manager.v2.upsert_rbac_policy(unquote(parts[3]), payload)
+                    self.write_json(policy, status=HTTPStatus.CREATED)
+                    return
                 if path == "/acp":
                     response, status = handle_acp_jsonrpc(manager, payload)
                     self.write_json(response, status=status)
@@ -696,6 +981,9 @@ def make_handler(
             except RuntimeError as exc:
                 self.write_error(HTTPStatus.BAD_GATEWAY, str(exc))
                 return
+            except PermissionError as exc:
+                self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
             except json.JSONDecodeError:
                 self.write_error(HTTPStatus.BAD_REQUEST, "invalid json")
                 return
@@ -944,6 +1232,12 @@ def make_handler(
             if self.current_identity:
                 principal = self.current_identity.get("principal_id")
                 return str(principal) if principal else None
+            remote_user = self.headers.get("x-remote-user")
+            if remote_user:
+                return remote_user
+            authorization = self.headers.get("authorization") or ""
+            if authorization.strip():
+                return "api-token"
             return None
 
         def current_roles(self) -> list[str] | None:
@@ -1117,10 +1411,14 @@ def spa_redirect_target(path: str, headers: Any) -> str | None:
     hash_path: str | None = None
     if (
         parts[0]
-        in {"workspace", "overview", "units", "executors", "profiles", "access", "operations"}
+        in {"workspace", "overview", "units", "executors", "profiles", "access", "operations", "v2"}
         and len(parts) == 1
     ):
         hash_path = f"/{parts[0]}"
+    elif parts[0] == "v2" and len(parts) == 2 and parts[1] == "admin":
+        hash_path = "/v2/admin"
+    elif parts[0] == "v2" and len(parts) == 3 and parts[1] == "tasks":
+        hash_path = "/" + "/".join(parts)
     elif parts[0] in {"runs", "missions", "tasks"} and len(parts) <= 2:
         hash_path = "/" + "/".join(parts)
     if not hash_path:
@@ -1166,6 +1464,25 @@ def required_scope_for(method: str, path: str) -> str | None:
         return None
     if parts[0] == "auth":
         return "access:read" if method == "GET" else "access:write"
+    if parts[0] == "v2":
+        if len(parts) >= 2 and parts[1] == "admin":
+            return "access:read" if method == "GET" else "access:write"
+        if method == "GET":
+            if len(parts) >= 4 and parts[3] == "events.json":
+                return "events:read"
+            if len(parts) >= 5 and parts[3] == "webshell":
+                return "events:read"
+            if len(parts) >= 4 and parts[3] in {
+                "artifacts",
+                "evaluations",
+                "replays",
+                "workflow",
+            }:
+                return "events:read"
+            return "tasks:read"
+        if len(parts) >= 4 and parts[3] in {"messages", "retry", "replay"}:
+            return "tasks:write"
+        return "tasks:create"
     if parts[0] == "workers":
         return "workers:read" if method == "GET" else "workers:write"
     if parts[0] == "permissions":

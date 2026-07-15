@@ -45,6 +45,64 @@ test("creates a task from the user workspace", async ({ page }) => {
   await followUpRequest;
 });
 
+test("uses the V2 client and admin control-plane surfaces", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("link", { name: "V2" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Client Workspace" }),
+  ).toBeVisible();
+  await page
+    .getByPlaceholder(
+      "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
+    )
+    .fill("Ship the V2 control plane");
+  await page.getByRole("button", { name: /Multi-agent/ }).click();
+  await page.getByRole("button", { name: /Feishu/ }).click();
+  await page.getByRole("button", { name: /qwen-code/ }).click();
+  const createRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().includes("/v2/tasks"),
+  );
+  await page.getByRole("button", { name: "Start" }).click();
+  const request = await createRequest;
+  expect(request.postDataJSON()).toMatchObject({
+    adapter: "qwen",
+    channel: "feishu",
+    mode: "multi-agent",
+  });
+
+  await expect(
+    page.getByRole("heading", { name: "Ship the V2 control plane" }),
+  ).toBeVisible();
+  await expect(page.getByText("Plan DAG")).toBeVisible();
+  await expect(page.getByText("Canonical Events")).toBeVisible();
+  await expect(page.getByText("Agent Contracts")).toBeVisible();
+  await expect(
+    page.getByText("orchestrator-workers", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("task.created")).toBeVisible();
+
+  const messageRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/v2/tasks/task_v2_1/messages"),
+  );
+  await page
+    .getByPlaceholder("Add context or a follow-up instruction")
+    .fill("Include deployment sizing notes");
+  await page.getByRole("button", { name: "Send" }).click();
+  await messageRequest;
+
+  await page.getByRole("link", { name: "Admin" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Admin Control Plane" }),
+  ).toBeVisible();
+  await expect(page.getByText("Reliability Spine")).toBeVisible();
+  await expect(page.getByText("local-dev")).toBeVisible();
+  await expect(page.getByText("Feishu")).toBeVisible();
+});
+
 test("hides backend navigation for a member user", async ({ page }) => {
   await mockRuntime(page, { roles: ["member"] });
   await page.goto("/");
@@ -293,6 +351,187 @@ async function mockRuntime(
       },
     },
   ];
+  const v2Task = {
+    task_id: "task_v2_1",
+    tenant_id: "tenant_default",
+    project_id: "project_default",
+    created_by: "owner@example.com",
+    title: "Ship the V2 control plane",
+    goal: "Ship the V2 control plane",
+    mode: "multi-agent",
+    status: "completed",
+    priority: "normal",
+    channel: "feishu",
+    adapter: "fake",
+    metadata: {
+      dispatch: {
+        adapter: "fake",
+        execution_unit_id: "local-dev",
+        reason: "auto selected fake on local-dev for feishu",
+      },
+    },
+    created_at: now,
+    updated_at: now,
+    progress: {
+      completed_steps: 3,
+      running_steps: 0,
+      total_steps: 3,
+      percent: 100,
+    },
+    plan: {
+      plan_id: "plan_v2_1",
+      task_id: "task_v2_1",
+      version: 1,
+      status: "active",
+      strategy: "orchestrator-workers",
+      graph: {
+        strategy: "orchestrator-workers",
+        nodes: [
+          { id: "brain", title: "Plan the work", depends_on: [] },
+          { id: "builder", title: "Execute the work", depends_on: ["brain"] },
+          { id: "reviewer", title: "Review and package", depends_on: ["builder"] },
+        ],
+      },
+      artifact_contract: { required: ["final_summary"] },
+      agent_tasks: [
+        {
+          agent_task_id: "at_brain",
+          task_id: "task_v2_1",
+          plan_id: "plan_v2_1",
+          role: "brain",
+          title: "Plan the work",
+          goal: "Clarify scope, risks, and execution order",
+          status: "completed",
+          adapter: "fake",
+          order_index: 0,
+          depends_on: [],
+          artifact_contract: {
+            evaluation: "must produce non-empty result summary",
+          },
+          result: { final_summary: "Plan complete." },
+          started_at: now,
+          completed_at: now,
+          updated_at: now,
+        },
+        {
+          agent_task_id: "at_builder",
+          task_id: "task_v2_1",
+          plan_id: "plan_v2_1",
+          role: "builder",
+          title: "Execute the work",
+          goal: "Produce the requested deliverable",
+          status: "completed",
+          adapter: "fake",
+          order_index: 1,
+          depends_on: ["brain"],
+          artifact_contract: {
+            evaluation: "must produce non-empty result summary",
+          },
+          result: { final_summary: "Build complete." },
+          started_at: now,
+          completed_at: now,
+          updated_at: now,
+        },
+        {
+          agent_task_id: "at_reviewer",
+          task_id: "task_v2_1",
+          plan_id: "plan_v2_1",
+          role: "reviewer",
+          title: "Review and package",
+          goal: "Evaluate output and prepare summary",
+          status: "completed",
+          adapter: "fake",
+          order_index: 2,
+          depends_on: ["builder"],
+          artifact_contract: {
+            evaluation: "must produce non-empty result summary",
+          },
+          result: { final_summary: "Review complete." },
+          started_at: now,
+          completed_at: now,
+          updated_at: now,
+        },
+      ],
+      created_at: now,
+      updated_at: now,
+    },
+    result: {
+      summary: "Plan complete. Build complete. Review complete.",
+      artifacts: [
+        { name: "final_summary", kind: "summary", status: "available" },
+      ],
+      evaluation: { status: "passed", checks: ["contract"] },
+    },
+  };
+  const v2Overview = {
+    generated_at: now,
+    tasks: { total: 1, by_status: { completed: 1 } },
+    agent_tasks: { total: 3, by_status: { completed: 3 } },
+    execution_units: [
+      {
+        unit_id: "local-dev",
+        kind: "local-workspace",
+        status: "active",
+        labels: { region: "local" },
+        resources: { cpu: 2 },
+        adapters: ["fake", "qwen"],
+        features: ["workspace", "artifacts", "events"],
+        heartbeat_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    channels: [
+      {
+        channel_id: "channel_web",
+        platform: "web",
+        status: "configured",
+        config: { signed_callbacks: false },
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        channel_id: "channel_feishu",
+        platform: "feishu",
+        status: "reserved",
+        config: { signed_callbacks: true },
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    tenants: [
+      {
+        tenant_id: "tenant_default",
+        name: "Default Tenant",
+        status: "active",
+        settings: { plan: "local" },
+        created_by: "system",
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    ha: {
+      profile: "local-2c2g",
+      database: { driver: "sqlite", configured: false },
+      queue: { driver: "sqlite-lease", configured: false },
+      workers: { horizontal_scale: false, concurrency: 1 },
+      workflow: {
+        active_engine: "local-sqlite-dag",
+        engines: [
+          { engine: "local-sqlite-dag", status: "available" },
+          { engine: "temporal", status: "available" },
+        ],
+      },
+      backup: { enabled: true, target: "local-artifacts" },
+      resource_fit: { two_c_two_g: true },
+    },
+    reliability: {
+      idempotency: "enabled",
+      event_source: "sqlite:v2_events",
+      runner: "local background worker",
+      production_runner: "Temporal",
+    },
+  };
   const profiles = [
     {
       id: "planner",
@@ -406,6 +645,55 @@ async function mockRuntime(
       completed: false,
       generated_at: now,
     },
+    "v2/tasks": { tasks: [v2Task] },
+    "v2/tasks/task_v2_1": v2Task,
+    "v2/tasks/task_v2_1/events.json": {
+      events: [
+        {
+          event_id: "v2evt_1",
+          task_id: "task_v2_1",
+          sequence: 1,
+          type: "task.created",
+          actor: "system",
+          payload: { title: "Ship the V2 control plane" },
+          created_at: now,
+        },
+        {
+          event_id: "v2evt_2",
+          task_id: "task_v2_1",
+          sequence: 2,
+          type: "plan.created",
+          actor: "brain",
+          payload: { strategy: "orchestrator-workers" },
+          created_at: now,
+        },
+      ],
+    },
+    "v2/tasks/task_v2_1/webshell/events.json": {
+      events: [
+        {
+          id: 1,
+          v: 1,
+          type: "session_update",
+          data: {
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "V2 webshell ready" },
+            },
+          },
+          _meta: {
+            serverTimestamp: now,
+            runtimeRunId: "task_v2_1",
+            runtimeSequence: 1,
+            runtimeEventType: "agent.message",
+          },
+        },
+      ],
+    },
+    "v2/admin/overview": v2Overview,
+    "v2/admin/execution-units": { units: v2Overview.execution_units },
+    "v2/admin/channels": { channels: v2Overview.channels },
+    "v2/admin/channel-messages": { messages: [] },
     runs: { runs },
     "runs/run_1": run,
     "runs/run_1/events.json": {
@@ -746,6 +1034,28 @@ async function mockRuntime(
       await route.fulfill({
         status: 201,
         json: createdWorkspaceTask,
+      });
+      return;
+    }
+    if (request.method() === "POST" && path === "v2/tasks") {
+      fixtures["v2/tasks"] = { tasks: [v2Task] };
+      await route.fulfill({ status: 201, json: v2Task });
+      return;
+    }
+    if (request.method() === "POST" && path === "v2/tasks/task_v2_1/messages") {
+      await route.fulfill({
+        status: 202,
+        json: {
+          event: {
+            event_id: "v2evt_message",
+            task_id: "task_v2_1",
+            sequence: 3,
+            type: "user.message",
+            actor: "owner@example.com",
+            payload: { message: "Include deployment sizing notes" },
+            created_at: now,
+          },
+        },
       });
       return;
     }

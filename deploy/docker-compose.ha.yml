@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentflow}
+      POSTGRES_USER: ${POSTGRES_USER:-agentflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD} # ggignore
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.25
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-agentflow}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD} # ggignore
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    restart: unless-stopped
+
+  runtime:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    environment:
+      RUN_MANAGER_TOKEN: ${RUN_MANAGER_TOKEN:?set RUN_MANAGER_TOKEN}
+      RUN_MANAGER_BOOTSTRAP_EMAIL: ${RUN_MANAGER_BOOTSTRAP_EMAIL:-owner@example.com}
+      RUN_MANAGER_BOOTSTRAP_PASSWORD: ${RUNTIME_BOOTSTRAP_PASSWORD:?missing} # ggignore
+      RUN_MANAGER_SESSION_SECRET: ${RUN_MANAGER_SESSION_SECRET:?set session secret} # ggignore
+      V2_DEPLOYMENT_PROFILE: ha
+      V2_DATABASE_URL: ${V2_DATABASE_URL:?set V2_DATABASE_URL} # ggignore
+      V2_QUEUE_URL: redis://redis:6379/0
+      V2_WORKFLOW_ENGINE: temporal
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-agentflow-v2}
+      V2_WORKER_CONCURRENCY: ${V2_WORKER_CONCURRENCY:-2}
+      V2_BACKUP_ENABLED: ${V2_BACKUP_ENABLED:-1}
+      V2_BACKUP_TARGET: ${V2_BACKUP_TARGET:-/data/backups}
+      V2_EXECUTION_UNITS_JSON: ${V2_EXECUTION_UNITS_JSON:-[]}
+      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-0}
+      V2_QWEN_CODE_COMMAND: ${V2_QWEN_CODE_COMMAND:-qwen}
+      V2_CODEX_CLI_COMMAND: ${V2_CODEX_CLI_COMMAND:-codex}
+      V2_CLAUDE_CODE_COMMAND: ${V2_CLAUDE_CODE_COMMAND:-claude}
+      V2_OPENCODE_COMMAND: ${V2_OPENCODE_COMMAND:-opencode}
+    ports:
+      - "${RUNTIME_BIND:-127.0.0.1}:8765:8765"
+    volumes:
+      - runtime-artifacts:/data/artifacts
+      - runtime-backups:/data/backups
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - >
+          import os, urllib.request;
+          req=urllib.request.Request(
+          'http://127.0.0.1:8765/health',
+          headers={'Authorization':'Bearer '+os.environ['RUN_MANAGER_TOKEN']});
+          urllib.request.urlopen(req, timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.runtime
+    depends_on:
+      runtime:
+        condition: service_healthy
+    environment:
+      RUN_MANAGER_TOKEN: ${RUN_MANAGER_TOKEN:?set RUN_MANAGER_TOKEN}
+      RUN_WORKER_CONTROL_URL: http://runtime:8765
+      RUN_WORKER_TOKEN: ${RUN_WORKER_TOKEN:?set RUN_WORKER_TOKEN} # ggignore
+      RUN_WORKER_CAPACITY: ${RUN_WORKER_CAPACITY:-1}
+      RUN_WORKER_ARTIFACT_ROOT: /data/artifacts
+      V2_DEPLOYMENT_PROFILE: ha
+      V2_PROCESS_ROLE: worker
+      V2_DATABASE_URL: ${V2_DATABASE_URL:?set V2_DATABASE_URL} # ggignore
+      V2_QUEUE_URL: redis://redis:6379/0
+      V2_WORKFLOW_ENGINE: temporal
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-agentflow-v2}
+      V2_WORKER_CONCURRENCY: ${V2_WORKER_CONCURRENCY:-2}
+      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-0}
+    command: ["python3", "-m", "cloud_agents_runtime.worker"]
+    deploy:
+      replicas: ${V2_WORKER_REPLICAS:-2}
+    volumes:
+      - runtime-artifacts:/data/artifacts
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  runtime-artifacts:
+  runtime-backups:

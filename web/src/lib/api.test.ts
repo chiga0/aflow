@@ -175,6 +175,41 @@ describe("api helpers", () => {
     await runtimeApi.updateAuthUserStatus("new@example.com", "disabled");
     await runtimeApi.resetAuthUserPassword("new@example.com", "secret-67890");
     await runtimeApi.createMission({ goal: "ship", strategy: "sequential" });
+    await runtimeApi.v2Capabilities();
+    await runtimeApi.v2Tasks();
+    await runtimeApi.v2Task("task 1");
+    await runtimeApi.v2TaskEvents("task 1");
+    await runtimeApi.v2TaskWebshellEvents("task 1");
+    await runtimeApi.v2TaskWorkflow("task 1");
+    await runtimeApi.v2TaskArtifacts("task 1");
+    await runtimeApi.v2TaskEvaluations("task 1");
+    await runtimeApi.v2TaskReplays("task 1");
+    await runtimeApi.v2CreateTask({ goal: "ship v2" });
+    await runtimeApi.v2SubmitMessage("task 1", "continue");
+    await runtimeApi.v2RetryTask("task 1");
+    await runtimeApi.v2ReplayTask("task 1");
+    await runtimeApi.v2AdminOverview();
+    await runtimeApi.v2ExecutionUnits();
+    await runtimeApi.v2Channels();
+    await runtimeApi.v2ChannelMessages();
+    await runtimeApi.v2Tenants();
+    await runtimeApi.v2TenantUsers("tenant 1");
+    await runtimeApi.v2RbacPolicies("tenant 1");
+    await runtimeApi.v2HaConfig();
+    await runtimeApi.v2WorkflowEngines();
+    await runtimeApi.v2RegisterExecutionUnit({ unit_id: "docker-a" });
+    await runtimeApi.v2DiscoverExecutionUnits();
+    await runtimeApi.v2ConfigureChannel("feishu", { webhook_url: "https://example.test" });
+    await runtimeApi.v2SendChannelMessage("feishu", { message: "hello" });
+    await runtimeApi.v2UpsertTenant({ tenant_id: "tenant_1", name: "Tenant 1" });
+    await runtimeApi.v2UpsertTenantUser("tenant 1", {
+      email: "ops@example.com",
+      roles: ["member"],
+    });
+    await runtimeApi.v2UpsertRbacPolicy("tenant 1", {
+      role: "member",
+      permissions: ["tasks:read"],
+    });
 
     expect(calls.map(([path]) => path)).toEqual([
       "/auth/session",
@@ -223,6 +258,35 @@ describe("api helpers", () => {
       "/auth/users/new%40example.com/status",
       "/auth/users/new%40example.com/password",
       "/missions",
+      "/v2/capabilities",
+      "/v2/tasks",
+      "/v2/tasks/task%201",
+      "/v2/tasks/task%201/events.json",
+      "/v2/tasks/task%201/webshell/events.json",
+      "/v2/tasks/task%201/workflow",
+      "/v2/tasks/task%201/artifacts",
+      "/v2/tasks/task%201/evaluations",
+      "/v2/tasks/task%201/replays",
+      "/v2/tasks",
+      "/v2/tasks/task%201/messages",
+      "/v2/tasks/task%201/retry",
+      "/v2/tasks/task%201/replay",
+      "/v2/admin/overview",
+      "/v2/admin/execution-units",
+      "/v2/admin/channels",
+      "/v2/admin/channel-messages",
+      "/v2/admin/tenants",
+      "/v2/admin/tenants/tenant%201/users",
+      "/v2/admin/tenants/tenant%201/rbac",
+      "/v2/admin/ha",
+      "/v2/admin/workflow-engines",
+      "/v2/admin/execution-units",
+      "/v2/admin/execution-units/discover",
+      "/v2/admin/channels/feishu/config",
+      "/v2/admin/channels/feishu/send",
+      "/v2/admin/tenants",
+      "/v2/admin/tenants/tenant%201/users",
+      "/v2/admin/tenants/tenant%201/rbac",
     ]);
     const methods = new Map(calls.map(([path, init]) => [path, init?.method]));
     expect(methods.get("/auth/login")).toBe("POST");
@@ -254,6 +318,17 @@ describe("api helpers", () => {
     expect(methods.get("/auth/users/new%40example.com/status")).toBe("POST");
     expect(methods.get("/auth/users/new%40example.com/password")).toBe("POST");
     expect(methods.get("/missions")).toBe("POST");
+    expect(methods.get("/v2/tasks")).toBe("POST");
+    expect(methods.get("/v2/tasks/task%201/messages")).toBe("POST");
+    expect(methods.get("/v2/tasks/task%201/retry")).toBe("POST");
+    expect(methods.get("/v2/tasks/task%201/replay")).toBe("POST");
+    expect(methods.get("/v2/admin/execution-units")).toBe("POST");
+    expect(methods.get("/v2/admin/execution-units/discover")).toBe("POST");
+    expect(methods.get("/v2/admin/channels/feishu/config")).toBe("POST");
+    expect(methods.get("/v2/admin/channels/feishu/send")).toBe("POST");
+    expect(methods.get("/v2/admin/tenants")).toBe("POST");
+    expect(methods.get("/v2/admin/tenants/tenant%201/users")).toBe("POST");
+    expect(methods.get("/v2/admin/tenants/tenant%201/rbac")).toBe("POST");
   });
 
   it("surfaces API errors", async () => {

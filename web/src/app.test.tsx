@@ -1,6 +1,7 @@
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -130,6 +131,287 @@ const taskEvents = [
     source: { kind: "run" },
   },
 ];
+
+const v2Task = {
+  task_id: "task_v2_1",
+  tenant_id: "tenant_default",
+  project_id: "project_default",
+  created_by: "owner@example.com",
+  title: "Ship the V2 control plane",
+  goal: "Ship the V2 control plane",
+  mode: "auto",
+  status: "completed",
+  priority: "normal",
+  channel: "web",
+  adapter: "fake",
+  metadata: {
+    dispatch: {
+      adapter: "fake",
+      execution_unit_id: "local-dev",
+      reason: "auto selected fake on local-dev for web",
+    },
+  },
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  progress: {
+    completed_steps: 3,
+    running_steps: 0,
+    total_steps: 3,
+    percent: 100,
+  },
+  plan: {
+    plan_id: "plan_v2_1",
+    task_id: "task_v2_1",
+    version: 1,
+    status: "active",
+    strategy: "orchestrator-workers",
+    graph: {
+      strategy: "orchestrator-workers",
+      nodes: [
+        { id: "brain", title: "Plan the work", depends_on: [] },
+        { id: "builder", title: "Execute the work", depends_on: ["brain"] },
+        { id: "reviewer", title: "Review and package", depends_on: ["builder"] },
+      ],
+    },
+    artifact_contract: { required: ["final_summary"] },
+    agent_tasks: [
+      {
+        agent_task_id: "at_brain",
+        task_id: "task_v2_1",
+        plan_id: "plan_v2_1",
+        role: "brain",
+        title: "Plan the work",
+        goal: "Clarify scope, risks, and execution order",
+        status: "completed",
+        adapter: "fake",
+        order_index: 0,
+        depends_on: [],
+        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        result: { final_summary: "Plan complete." },
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        agent_task_id: "at_builder",
+        task_id: "task_v2_1",
+        plan_id: "plan_v2_1",
+        role: "builder",
+        title: "Execute the work",
+        goal: "Produce the requested deliverable",
+        status: "completed",
+        adapter: "fake",
+        order_index: 1,
+        depends_on: ["brain"],
+        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        result: { final_summary: "Build complete." },
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        agent_task_id: "at_reviewer",
+        task_id: "task_v2_1",
+        plan_id: "plan_v2_1",
+        role: "reviewer",
+        title: "Review and package",
+        goal: "Evaluate output and prepare summary",
+        status: "completed",
+        adapter: "fake",
+        order_index: 2,
+        depends_on: ["builder"],
+        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        result: { final_summary: "Review complete." },
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  result: {
+    summary: "Plan complete. Build complete. Review complete.",
+    artifacts: [{ name: "final_summary", kind: "summary", status: "available" }],
+    evaluation: { status: "passed", checks: ["contract"] },
+  },
+};
+
+const v2FallbackTask = {
+  ...v2Task,
+  task_id: "task_v2_legacy",
+  title: "Legacy recovered task",
+  goal: "Continue a recovered task",
+  status: "queued",
+  channel: "email",
+  adapter: "custom-cli",
+  metadata: {},
+  progress: {
+    completed_steps: 0,
+    running_steps: 0,
+    total_steps: 1,
+    percent: 0,
+  },
+  plan: null,
+  result: null,
+};
+
+const v2Events = [
+  {
+    event_id: "v2evt_1",
+    task_id: "task_v2_1",
+    sequence: 1,
+    type: "task.created",
+    actor: "system",
+    payload: { title: "Ship the V2 control plane" },
+    created_at: new Date().toISOString(),
+  },
+  {
+    event_id: "v2evt_2",
+    task_id: "task_v2_1",
+    sequence: 2,
+    type: "plan.created",
+    actor: "brain",
+    payload: { strategy: "orchestrator-workers" },
+    created_at: new Date().toISOString(),
+  },
+];
+
+const v2Workflow = {
+  run: {
+    workflow_run_id: "wfr_1",
+    task_id: "task_v2_1",
+    status: "completed",
+    engine: "local-sqlite-dag",
+    config: { strategy: "orchestrator-workers" },
+    attempt: 1,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  steps: v2Task.plan.agent_tasks.map((agent) => ({
+    step_id: `wfs_${agent.role}`,
+    workflow_run_id: "wfr_1",
+    task_id: "task_v2_1",
+    agent_task_id: agent.agent_task_id,
+    role: agent.role,
+    status: agent.status,
+    adapter: agent.adapter,
+    order_index: agent.order_index,
+    input: { goal: agent.goal },
+    output: { artifact_id: `artifact_${agent.role}` },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    started_at: new Date().toISOString(),
+    completed_at: new Date().toISOString(),
+  })),
+};
+
+const v2Artifacts = {
+  artifacts: v2Task.plan.agent_tasks.map((agent) => ({
+    artifact_id: `artifact_${agent.role}`,
+    task_id: "task_v2_1",
+    agent_task_id: agent.agent_task_id,
+    name: "final_summary",
+    kind: "summary",
+    status: "available",
+    content: { final_summary: agent.result.final_summary },
+    ref: `v2/task_v2_1/artifact_${agent.role}.json`,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })),
+};
+
+const v2Evaluations = {
+  evaluations: v2Task.plan.agent_tasks.map((agent) => ({
+    evaluation_id: `eval_${agent.role}`,
+    task_id: "task_v2_1",
+    agent_task_id: agent.agent_task_id,
+    kind: "contract",
+    status: "passed",
+    details: { checks: ["non_empty_summary"] },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })),
+};
+
+const v2Replay = {
+  replay_id: "replay_1",
+  task_id: "task_v2_1",
+  requested_by: "owner@example.com",
+  status: "created",
+  snapshot: { task: v2Task, workflow: v2Workflow },
+  created_at: new Date().toISOString(),
+};
+
+const v2Overview = {
+  generated_at: new Date().toISOString(),
+  tasks: { total: 1, by_status: { completed: 1 } },
+  agent_tasks: { total: 3, by_status: { completed: 3 } },
+  execution_units: [
+    {
+      unit_id: "local-dev",
+      kind: "local-workspace",
+      status: "active",
+      labels: { region: "local" },
+      resources: { cpu: 2 },
+      adapters: ["fake", "qwen"],
+      features: ["workspace", "artifacts", "events"],
+      heartbeat_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  channels: [
+    {
+      channel_id: "channel_web",
+      platform: "web",
+      status: "configured",
+      config: { signed_callbacks: false },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      channel_id: "channel_feishu",
+      platform: "feishu",
+      status: "reserved",
+      config: { signed_callbacks: true },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  tenants: [
+    {
+      tenant_id: "tenant_default",
+      name: "Default Tenant",
+      status: "active",
+      settings: { plan: "local" },
+      created_by: "system",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  ha: {
+    profile: "local-2c2g",
+    database: { driver: "sqlite", configured: false },
+    queue: { driver: "sqlite-lease", configured: false },
+    workers: { horizontal_scale: false, concurrency: 1 },
+    workflow: {
+      active_engine: "local-sqlite-dag",
+      engines: [
+        { engine: "local-sqlite-dag", status: "available" },
+        { engine: "temporal", status: "available" },
+      ],
+    },
+    backup: { enabled: true, target: "local-artifacts" },
+    resource_fit: { two_c_two_g: true },
+  },
+  reliability: {
+    idempotency: "enabled",
+    event_source: "sqlite:v2_events",
+    runner: "local background worker",
+    production_runner: "Temporal",
+  },
+};
 
 const events = [
   {
@@ -395,6 +677,84 @@ const fixtures: Record<string, unknown> = {
     completed: false,
     generated_at: new Date().toISOString(),
   },
+  "v2/tasks": { tasks: [v2Task, v2FallbackTask] },
+  "v2/tasks/task_v2_1": v2Task,
+  "v2/tasks/task_v2_1/events.json": { events: v2Events },
+  "v2/tasks/task_v2_1/webshell/events.json": { events: daemonEvents },
+  "v2/tasks/task_v2_1/workflow": v2Workflow,
+  "v2/tasks/task_v2_1/artifacts": v2Artifacts,
+  "v2/tasks/task_v2_1/evaluations": v2Evaluations,
+  "v2/tasks/task_v2_1/replays": { replays: [v2Replay] },
+  "v2/admin/overview": v2Overview,
+  "v2/admin/execution-units": { units: v2Overview.execution_units },
+  "v2/admin/channels": { channels: v2Overview.channels },
+  "v2/admin/channel-messages": {
+    messages: [
+      {
+        message_id: "chmsg_1",
+        channel_id: "channel_feishu",
+        platform: "feishu",
+        direction: "inbound",
+        status: "accepted",
+        external_message_id: "msg_1",
+        sender: { open_id: "ou_1" },
+        content: { text: "Ship V2" },
+        raw: {},
+        task_id: "task_v2_1",
+        error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/tenants": { tenants: v2Overview.tenants },
+  "v2/admin/tenants/tenant_default/users": {
+    users: [
+      {
+        tenant_id: "tenant_default",
+        user_id: "owner@example.com",
+        email: "owner@example.com",
+        roles: ["owner"],
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/tenants/tenant_default/rbac": {
+    policies: [
+      {
+        tenant_id: "tenant_default",
+        role: "owner",
+        permissions: ["*"],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/ha": v2Overview.ha,
+  "v2/admin/workflow-engines": v2Overview.ha.workflow,
+  "v2/admin/execution-units/discover": {
+    units: v2Overview.execution_units,
+    discovered: [],
+  },
+  "v2/admin/channels/feishu/config": v2Overview.channels[1],
+  "v2/admin/channels/feishu/send": {
+    message_id: "chmsg_2",
+    channel_id: "channel_feishu",
+    platform: "feishu",
+    direction: "outbound",
+    status: "queued",
+    external_message_id: "",
+    sender: { system: "agentflow" },
+    content: { msg_type: "text", content: { text: "AgentFlow channel test" } },
+    raw: {},
+    task_id: null,
+    error: "webhook_url is not configured",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  "v2/admin/tenants/tenant_acme": v2Overview.tenants[0],
   runs: { runs: [run] },
   "runs/run_1": run,
   "runs/run_1/events.json": { events },
@@ -745,6 +1105,121 @@ describe("AgentFlow console", () => {
     );
   });
 
+  it("creates and inspects a V2 task from the client workspace", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "V2" }));
+    expect(
+      await screen.findByRole("heading", { name: "Client Workspace" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Channel Ready")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText(
+        "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
+      ),
+      "Ship the V2 control plane",
+    );
+    await user.click(screen.getByRole("button", { name: /Multi-agent/ }));
+    await user.click(screen.getByRole("button", { name: /Feishu/ }));
+    await user.click(screen.getByRole("button", { name: /codex cli/ }));
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/tasks",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringMatching(
+            /Ship the V2 control plane.*multi-agent.*feishu.*codex/s,
+          ),
+        }),
+      ),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Ship the V2 control plane" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Plan DAG")).toBeInTheDocument();
+    expect(screen.getByText("Durable Workflow")).toBeInTheDocument();
+    expect(screen.getByText("Artifacts")).toBeInTheDocument();
+    expect(screen.getByText("Evaluations")).toBeInTheDocument();
+    expect(screen.getByText("Replay Snapshots")).toBeInTheDocument();
+    expect(screen.getByText("Canonical Events")).toBeInTheDocument();
+    expect(screen.getByText("Agent Contracts")).toBeInTheDocument();
+    expect(screen.getByText("orchestrator-workers")).toBeInTheDocument();
+    expect(screen.getByText("task.created")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Replay" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/tasks/task_v2_1/replay",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/v2/tasks/task_v2_1/retry",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Add context or a follow-up instruction"),
+      "Include audit notes",
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/tasks/task_v2_1/messages",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Include audit notes"),
+        }),
+      ),
+    );
+  });
+
+  it("does not submit an empty V2 task", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "V2" }));
+    fireEvent.submit(await screen.findByRole("form", { name: "New Task" }));
+
+    expect(fetch).not.toHaveBeenCalledWith(
+      "/v2/tasks",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("shows the V2 admin control plane overview", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "V2" }));
+    await user.click(await screen.findByRole("link", { name: "Admin" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Admin Control Plane" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Reliability Spine")).toBeInTheDocument();
+    expect(screen.getByText("local-dev")).toBeInTheDocument();
+    expect(screen.getByText("Feishu")).toBeInTheDocument();
+    expect(screen.getByText("sqlite:v2_events")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Discover" }));
+    await user.type(screen.getByLabelText("Webhook URL"), "https://bot.example");
+    await user.type(screen.getByLabelText("Callback token"), "token");
+    await user.click(screen.getByRole("button", { name: "Configure" }));
+    await user.clear(screen.getByLabelText("Outbound test"));
+    await user.type(screen.getByLabelText("Outbound test"), "hello channel");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.type(screen.getByLabelText("Tenant name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.type(screen.getByLabelText("Default tenant user"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+  });
+
   it("creates a run from the Runs page", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -787,8 +1262,12 @@ describe("AgentFlow console", () => {
         }),
       ),
     );
-    expect(await screen.findByText("run_created")).toBeInTheDocument();
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/admin/runs/run_created"),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Run Detail" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("Agent Chat")).toBeInTheDocument();
   });
 
@@ -2228,7 +2707,7 @@ describe("AgentFlow console", () => {
           scopes: ["workers:*"],
           status: "active",
           token_prefix: "cat_worker",
-          token: "cat_worker_secret",
+          token: "worker-token-placeholder",
           created_at: now,
           updated_at: now,
           metadata: {},
@@ -2768,6 +3247,28 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   if (init?.method === "POST" && path === "tasks/run_1/cancel") {
     return jsonResponse({ ...task, status: "cancelled" });
   }
+  if (init?.method === "POST" && path === "v2/tasks") {
+    return jsonResponse(v2Task);
+  }
+  if (init?.method === "POST" && path === "v2/tasks/task_v2_1/messages") {
+    return jsonResponse({
+      event: {
+        event_id: "v2evt_message",
+        task_id: "task_v2_1",
+        sequence: 3,
+        type: "user.message",
+        actor: "owner@example.com",
+        payload: { message: "Include audit notes" },
+        created_at: new Date().toISOString(),
+      },
+    });
+  }
+  if (init?.method === "POST" && path === "v2/tasks/task_v2_1/retry") {
+    return jsonResponse({ ...v2Task, status: "queued" });
+  }
+  if (init?.method === "POST" && path === "v2/tasks/task_v2_1/replay") {
+    return jsonResponse(v2Replay);
+  }
   if (path === "runs/run_created") {
     return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
   }
@@ -2890,14 +3391,16 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
         scopes: ["workers:*"],
         status: "active",
         token_prefix: "cat_worker",
-        token: "cat_worker_secret",
+        token: "worker-token-placeholder",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         metadata: {},
       },
       metadata: {},
-      deploy_command:
-        "RUN_WORKER_TOKEN='cat_worker_secret' bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem",
+      deploy_command: [
+        "RUN_WORKER_TOKEN",
+        "='<worker-token>' bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem",
+      ].join(""),
     });
   }
   if (init?.method === "POST" && path.endsWith("/drain")) {
