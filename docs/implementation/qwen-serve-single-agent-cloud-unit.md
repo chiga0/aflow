@@ -405,14 +405,14 @@ GitHub Actions 手动验收入口：
 
 ```bash
 gh workflow run deploy-runtime.yml \
-  --repo chiga0/agent-research \
+  --repo chiga0/agent-flow \
   -f executor_strategy=per_run_process \
   -f validate_qwen=true \
   -f expect_executor_strategy=per_run_process \
   -f qwen_validation_timeout=600
 
 gh workflow run deploy-runtime.yml \
-  --repo chiga0/agent-research \
+  --repo chiga0/agent-flow \
   -f executor_strategy=container \
   -f qwen_container_image='your-qwen-code-image:latest' \
   -f validate_qwen=true \
@@ -420,7 +420,7 @@ gh workflow run deploy-runtime.yml \
   -f qwen_validation_timeout=900
 
 gh workflow run deploy-runtime.yml \
-  --repo chiga0/agent-research \
+  --repo chiga0/agent-flow \
   -f executor_strategy=container \
   -f qwen_container_build=true \
   -f validate_qwen=true \
