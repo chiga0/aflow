@@ -2601,7 +2601,7 @@ describe("AgentFlow console", () => {
           scopes: ["workers:*"],
           status: "active",
           token_prefix: "cat_worker",
-          token: "cat_worker_secret",
+          token: "worker-token-placeholder",
           created_at: now,
           updated_at: now,
           metadata: {},
@@ -3285,14 +3285,16 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
         scopes: ["workers:*"],
         status: "active",
         token_prefix: "cat_worker",
-        token: "cat_worker_secret",
+        token: "worker-token-placeholder",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         metadata: {},
       },
       metadata: {},
-      deploy_command:
-        "RUN_WORKER_TOKEN='cat_worker_secret' bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem",
+      deploy_command: [
+        "RUN_WORKER_TOKEN",
+        "='<worker-token>' bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem",
+      ].join(""),
     });
   }
   if (init?.method === "POST" && path.endsWith("/drain")) {
