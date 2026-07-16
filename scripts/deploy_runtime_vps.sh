@@ -8,9 +8,9 @@ fi
 
 SSH_TARGET="$1"
 SSH_KEY="$2"
-APP_DIR="${APP_DIR:-/opt/agent-research}"
+APP_DIR="${APP_DIR:-/opt/agentflow}"
 STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
-REPO_URL="${REPO_URL:-https://github.com/chiga0/agent-research.git}"
+REPO_URL="${REPO_URL:-https://github.com/chiga0/agent-flow.git}"
 NODE_PACKAGE="${NODE_PACKAGE:-@qwen-code/qwen-code@0.19.3}"
 QWEN_SETTINGS_FILE="${QWEN_SETTINGS_FILE:-}"
 PUBLIC_HOST="${PUBLIC_HOST:-_}"

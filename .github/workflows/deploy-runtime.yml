@@ -231,7 +231,7 @@ jobs:
           set -euo pipefail
           export PUBLIC_HOST="${PUBLIC_HOST:-_}"
           export BASIC_AUTH_USER="${BASIC_AUTH_USER:-cloudagents}"
-          export APP_DIR="${APP_DIR:-/opt/agent-research}"
+          export APP_DIR="${APP_DIR:-/opt/agentflow}"
           export STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
           export RUN_MANAGER_WORKSPACE_RETENTION_SECONDS="$WORKSPACE_RETENTION_SECONDS"
           export RUN_MANAGER_ARTIFACT_RETENTION_SECONDS="$ARTIFACT_RETENTION_SECONDS"
@@ -274,7 +274,7 @@ jobs:
           APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
         run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/opt/agent-research}"
+          APP_DIR="${APP_DIR:-/opt/agentflow}"
           ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
             -o StrictHostKeyChecking=accept-new \
             "$RUNTIME_SSH_TARGET" \
@@ -322,7 +322,7 @@ jobs:
           QWEN_MISSION_TASK_COUNT: ${{ inputs.qwen_mission_task_count }}
         run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/opt/agent-research}"
+          APP_DIR="${APP_DIR:-/opt/agentflow}"
           REMOTE_ENV=(
             "APP_DIR='$APP_DIR'"
             "QWEN_ACCEPTANCE_TIMEOUT='$QWEN_ACCEPTANCE_TIMEOUT'"
@@ -414,7 +414,7 @@ jobs:
           APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
         run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/opt/agent-research}"
+          APP_DIR="${APP_DIR:-/opt/agentflow}"
           ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
             -o StrictHostKeyChecking=accept-new \
             "$RUNTIME_SSH_TARGET" \
