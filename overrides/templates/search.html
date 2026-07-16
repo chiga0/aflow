@@ -22,7 +22,7 @@
                     class="placeholder:text-muted-foreground flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="{{ _('Search documentation...') }}" autocomplete="off" autocorrect="off"
                     spellcheck="false" aria-autocomplete="list" role="combobox" aria-expanded="true"
-                    type="text" value="">
+                    type="text" value="" oninput="onInputHandler(event)">
             </div>
         </div>
         <div id="mkdocs-search-results" data-no-results-text="{{ _('No results found') }}">
