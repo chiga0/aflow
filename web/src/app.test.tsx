@@ -144,6 +144,7 @@ const v2Task = {
   priority: "normal",
   channel: "web",
   adapter: "fake",
+  execution_mode: "fake",
   metadata: {
     dispatch: {
       adapter: "fake",
@@ -686,6 +687,31 @@ const fixtures: Record<string, unknown> = {
   "v2/tasks/task_v2_1/evaluations": v2Evaluations,
   "v2/tasks/task_v2_1/replays": { replays: [v2Replay] },
   "v2/admin/overview": v2Overview,
+  "v2/admin/projects": {
+    projects: [
+      {
+        project_id: "project_default",
+        tenant_id: "tenant_default",
+        name: "Default Project",
+        status: "active",
+        created_by: "owner@example.com",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/projects/project_default/members": {
+    members: [
+      {
+        project_id: "project_default",
+        user_id: "owner@example.com",
+        role: "owner",
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
   "v2/admin/execution-units": { units: v2Overview.execution_units },
   "v2/admin/channels": { channels: v2Overview.channels },
   "v2/admin/channel-messages": {
@@ -1071,12 +1097,20 @@ describe("aflow console", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Plan DAG")).toBeInTheDocument();
     expect(screen.getByText("Agent Chat")).toBeInTheDocument();
+    expect(screen.getByText("Stream complete")).toBeInTheDocument();
+    expect(screen.getByText("Execution")).toBeInTheDocument();
     expect(screen.getByText("Durable Workflow")).toBeInTheDocument();
     expect(screen.getByText("Artifacts")).toBeInTheDocument();
     expect(screen.getByText("Evaluations")).toBeInTheDocument();
     expect(screen.getByText("Replay Snapshots")).toBeInTheDocument();
     expect(screen.getByText("Canonical Events")).toBeInTheDocument();
     expect(screen.getByText("Agent Contracts")).toBeInTheDocument();
+    expect(screen.getByText("Download audit bundle")).toHaveAttribute(
+      "href",
+      "/v2/tasks/task_v2_1/audit.json",
+    );
+    expect(screen.getAllByText("Preview").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Download artifact").length).toBeGreaterThan(0);
     expect(screen.getByText("orchestrator-workers")).toBeInTheDocument();
     expect(screen.getByText("task.created")).toBeInTheDocument();
 

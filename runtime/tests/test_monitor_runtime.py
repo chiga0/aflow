@@ -48,6 +48,16 @@ class MonitorRuntimeTest(unittest.TestCase):
         self.assertFalse(edge_auth.ok)
         self.assertIn("expected unauthenticated API 401", edge_auth.detail)
 
+    def test_public_monitor_verifies_real_cli_tasks(self) -> None:
+        with running_monitor_server() as base_url:
+            monitor = PublicRuntimeMonitor(base_url, "cloudagents", "secret", 5.0)
+            results = monitor.run(deep_adapters=["qwen", "codex"])
+        self.assertTrue(all(result.ok for result in results), results)
+        self.assertEqual(
+            [result.name for result in results[-2:]],
+            ["real-qwen-task", "real-codex-task"],
+        )
+
 
 class MonitorHandler(BaseHTTPRequestHandler):
     require_auth = True
@@ -123,6 +133,22 @@ class MonitorHandler(BaseHTTPRequestHandler):
             if not self.require_session():
                 return
             self.send_json({"run_id": "run_1", "status": "completed"})
+        elif self.path.startswith("/agentflow/v2/tasks/task_real_"):
+            if not self.require_session():
+                return
+            if self.path.endswith("/artifacts"):
+                self.send_json({"artifacts": [{"artifact_id": "artifact_1"}]})
+            elif self.path.endswith("/audit.json"):
+                self.send_json({"schema": "agentflow-v2-task-audit/v1"})
+            else:
+                adapter = self.path.rsplit("_", 1)[-1]
+                self.send_json(
+                    {
+                        "task_id": f"task_real_{adapter}",
+                        "status": "completed",
+                        "execution_mode": "real-cli",
+                    }
+                )
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -147,6 +173,15 @@ class MonitorHandler(BaseHTTPRequestHandler):
             if not self.require_session():
                 return
             self.send_json({"run_id": "run_1"}, HTTPStatus.CREATED)
+        elif self.path == "/agentflow/v2/tasks":
+            if not self.require_session():
+                return
+            payload = json.loads(self.read_body().decode("utf-8"))
+            adapter = str(payload["adapter"])
+            self.send_json(
+                {"task_id": f"task_real_{adapter}", "status": "queued"},
+                HTTPStatus.CREATED,
+            )
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 

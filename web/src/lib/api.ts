@@ -428,6 +428,7 @@ export interface V2Task {
   priority: string;
   channel: string;
   adapter: string;
+  execution_mode: "pending" | "fake" | "protocol-simulated" | "real-cli" | string;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -437,6 +438,13 @@ export interface V2Task {
     summary: string;
     artifacts: Array<Record<string, unknown>>;
     evaluation: Record<string, unknown>;
+    failure?: {
+      reason: string;
+      impact: string;
+      next_action: string;
+      category: string;
+      retryable: boolean;
+    };
   } | null;
   events?: V2Event[];
 }
@@ -570,6 +578,25 @@ export interface V2TenantUser {
   updated_at: string;
 }
 
+export interface V2Project {
+  project_id: string;
+  tenant_id: string;
+  name: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2ProjectMember {
+  project_id: string;
+  user_id: string;
+  role: "owner" | "editor" | "viewer" | "member" | string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface V2RbacPolicy {
   tenant_id: string;
   role: string;
@@ -688,6 +715,11 @@ export const runtimeApi = {
   v2ChannelMessages: () =>
     api<{ messages: V2ChannelMessage[] }>("v2/admin/channel-messages"),
   v2Tenants: () => api<{ tenants: V2Tenant[] }>("v2/admin/tenants"),
+  v2Projects: () => api<{ projects: V2Project[] }>("v2/admin/projects"),
+  v2ProjectMembers: (projectId: string) =>
+    api<{ members: V2ProjectMember[] }>(
+      `v2/admin/projects/${encodeURIComponent(projectId)}/members`,
+    ),
   v2TenantUsers: (tenantId: string) =>
     api<{ users: V2TenantUser[] }>(
       `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
@@ -730,6 +762,19 @@ export const runtimeApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  v2UpsertProject: (payload: Record<string, unknown>) =>
+    api<V2Project>("v2/admin/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  v2UpsertProjectMember: (
+    projectId: string,
+    payload: Record<string, unknown>,
+  ) =>
+    api<V2ProjectMember>(
+      `v2/admin/projects/${encodeURIComponent(projectId)}/members`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
   v2UpsertTenantUser: (tenantId: string, payload: Record<string, unknown>) =>
     api<V2TenantUser>(
       `v2/admin/tenants/${encodeURIComponent(tenantId)}/users`,
@@ -989,6 +1034,18 @@ export function runEventStreamHref(runId: string) {
 
 export function sessionEventStreamHref(sessionId: string) {
   return `${API_BASE}session/${sessionId}/events`;
+}
+
+export function v2TaskWebshellEventStreamHref(taskId: string) {
+  return `${API_BASE}v2/tasks/${encodeURIComponent(taskId)}/webshell/events`;
+}
+
+export function v2TaskArtifactHref(taskId: string, artifactId: string) {
+  return `${API_BASE}v2/tasks/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(artifactId)}`;
+}
+
+export function v2TaskAuditHref(taskId: string) {
+  return `${API_BASE}v2/tasks/${encodeURIComponent(taskId)}/audit.json`;
 }
 
 export function backupHref(name: string) {

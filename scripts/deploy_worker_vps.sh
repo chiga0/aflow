@@ -12,6 +12,7 @@ APP_DIR="${APP_DIR:-/opt/agentflow}"
 STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-worker}"
 REPO_URL="${REPO_URL:-https://github.com/chiga0/aflow.git}"
 NODE_PACKAGE="${NODE_PACKAGE:-@qwen-code/qwen-code@0.19.3}"
+CODEX_NODE_PACKAGE="${CODEX_NODE_PACKAGE:-@openai/codex@0.144.5}"
 QWEN_SETTINGS_FILE="${QWEN_SETTINGS_FILE:-}"
 RUN_WORKER_CONTROL_URL="${RUN_WORKER_CONTROL_URL:-}"
 RUN_WORKER_TOKEN="${RUN_WORKER_TOKEN:-}"
@@ -45,6 +46,7 @@ REMOTE_ENV=(
   "STATE_DIR=$(shell_quote "$STATE_DIR")"
   "REPO_URL=$(shell_quote "$REPO_URL")"
   "NODE_PACKAGE=$(shell_quote "$NODE_PACKAGE")"
+  "CODEX_NODE_PACKAGE=$(shell_quote "$CODEX_NODE_PACKAGE")"
   "HAS_QWEN_SETTINGS=$(shell_quote "$([[ -n "$QWEN_SETTINGS_FILE" ]] && echo 1 || echo 0)")"
   "RUN_WORKER_CONTROL_URL=$(shell_quote "$RUN_WORKER_CONTROL_URL")"
   "RUN_WORKER_TOKEN=$(shell_quote "$RUN_WORKER_TOKEN")"
@@ -105,7 +107,11 @@ fi
 run_timeout \
   "install node package $NODE_PACKAGE" \
   "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
-  npm install -g "$NODE_PACKAGE"
+npm install -g "$NODE_PACKAGE"
+run_timeout \
+  "install node package $CODEX_NODE_PACKAGE" \
+  "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
+  npm install -g "$CODEX_NODE_PACKAGE"
 
 if ! id cloudagents >/dev/null 2>&1; then
   log_step "create cloudagents user"

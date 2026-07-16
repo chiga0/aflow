@@ -27,6 +27,7 @@ from .models import RunSpec
 from .supervisor import qwen_supervisor_from_env
 from .temporal_poc import agent_run_workflow_plan, mission_workflow_plan
 from .ui_projection import project_event, project_events
+from .v2_control_plane import v2_event_to_daemon_event
 
 
 def make_handler(
@@ -78,9 +79,17 @@ def make_handler(
                 self.write_json(manager.v2.capabilities())
                 return
             if path == "/v2/tasks":
-                self.write_json({"tasks": manager.v2.list_tasks()})
+                self.write_json(
+                    {
+                        "tasks": manager.v2.list_tasks(
+                            principal=self.principal_id(), roles=self.current_roles()
+                        )
+                    }
+                )
                 return
             if len(parts) == 3 and parts[0] == "v2" and parts[1] == "tasks":
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json(manager.v2.get_task(unquote(parts[2])))
                 except KeyError:
@@ -92,6 +101,8 @@ def make_handler(
                 and parts[1] == "tasks"
                 and parts[3] == "events.json"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json({"events": manager.v2.events(unquote(parts[2]))})
                 except KeyError:
@@ -102,8 +113,19 @@ def make_handler(
                 and parts[0] == "v2"
                 and parts[1] == "tasks"
                 and parts[3] == "webshell"
+                and parts[4] == "events"
+            ):
+                self.stream_v2_webshell_events(unquote(parts[2]))
+                return
+            if (
+                len(parts) == 5
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "webshell"
                 and parts[4] == "events.json"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json({"events": manager.v2.webshell_events(unquote(parts[2]))})
                 except KeyError:
@@ -115,6 +137,8 @@ def make_handler(
                 and parts[1] == "tasks"
                 and parts[3] == "workflow"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json(manager.v2.workflow(unquote(parts[2])))
                 except KeyError:
@@ -126,8 +150,38 @@ def make_handler(
                 and parts[1] == "tasks"
                 and parts[3] == "artifacts"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json({"artifacts": manager.v2.artifacts(unquote(parts[2]))})
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if (
+                len(parts) == 5
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "artifacts"
+            ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
+                try:
+                    self.write_json(
+                        manager.v2.artifact(unquote(parts[2]), unquote(parts[4]))
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "artifact not found")
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "audit.json"
+            ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
+                try:
+                    self.write_json(manager.v2.audit_bundle(unquote(parts[2])))
                 except KeyError:
                     self.write_error(HTTPStatus.NOT_FOUND, "task not found")
                 return
@@ -137,6 +191,8 @@ def make_handler(
                 and parts[1] == "tasks"
                 and parts[3] == "evaluations"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json(
                         {"evaluations": manager.v2.evaluations(unquote(parts[2]))}
@@ -150,6 +206,8 @@ def make_handler(
                 and parts[1] == "tasks"
                 and parts[3] == "replays"
             ):
+                if not self.authorize_v2_task(unquote(parts[2])):
+                    return
                 try:
                     self.write_json({"replays": manager.v2.replays(unquote(parts[2]))})
                 except KeyError:
@@ -169,6 +227,18 @@ def make_handler(
                 return
             if path == "/v2/admin/tenants":
                 self.write_json({"tenants": manager.v2.tenants()})
+                return
+            if path == "/v2/admin/projects":
+                self.write_json({"projects": manager.v2.projects()})
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["v2", "admin", "projects"]
+                and parts[4] == "members"
+            ):
+                self.write_json(
+                    {"members": manager.v2.project_members(unquote(parts[3]))}
+                )
                 return
             if (
                 len(parts) == 5
@@ -565,7 +635,35 @@ def make_handler(
                 return
             try:
                 payload = self.read_json()
+                if (
+                    len(parts) == 5
+                    and parts[:3] == ["v2", "internal", "tasks"]
+                    and parts[4] == "execute"
+                ):
+                    try:
+                        task = manager.v2.execute_task_now(unquote(parts[3]))
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
+                    return
                 if len(parts) == 2 and parts[0] == "v2" and parts[1] == "tasks":
+                    project_id = str(payload.get("project_id") or "project_default")
+                    try:
+                        project_allowed = manager.v2.can_access_project(
+                            project_id,
+                            self.principal_id(),
+                            self.current_roles(),
+                            write=True,
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.BAD_REQUEST, "project not found")
+                        return
+                    if not project_allowed:
+                        self.write_error(
+                            HTTPStatus.FORBIDDEN, "project membership required"
+                        )
+                        return
                     try:
                         task = manager.v2.create_task(
                             payload,
@@ -583,6 +681,8 @@ def make_handler(
                     and parts[1] == "tasks"
                     and parts[3] == "messages"
                 ):
+                    if not self.authorize_v2_task(unquote(parts[2]), write=True):
+                        return
                     try:
                         event = manager.v2.append_message(
                             unquote(parts[2]),
@@ -603,6 +703,8 @@ def make_handler(
                     and parts[1] == "tasks"
                     and parts[3] == "retry"
                 ):
+                    if not self.authorize_v2_task(unquote(parts[2]), write=True):
+                        return
                     try:
                         task = manager.v2.retry_task(
                             unquote(parts[2]),
@@ -622,6 +724,8 @@ def make_handler(
                     and parts[1] == "tasks"
                     and parts[3] == "replay"
                 ):
+                    if not self.authorize_v2_task(unquote(parts[2]), write=True):
+                        return
                     try:
                         replay = manager.v2.replay_task(
                             unquote(parts[2]),
@@ -685,6 +789,27 @@ def make_handler(
                         principal=self.principal_id() or "api-token",
                     )
                     self.write_json(tenant, status=HTTPStatus.CREATED)
+                    return
+                if parts == ["v2", "admin", "projects"]:
+                    project = manager.v2.upsert_project(
+                        payload,
+                        principal=self.principal_id() or "api-token",
+                    )
+                    self.write_json(project, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 5
+                    and parts[:3] == ["v2", "admin", "projects"]
+                    and parts[4] == "members"
+                ):
+                    try:
+                        member = manager.v2.upsert_project_member(
+                            unquote(parts[3]), payload
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "project not found")
+                        return
+                    self.write_json(member, status=HTTPStatus.CREATED)
                     return
                 if (
                     len(parts) == 5
@@ -1052,6 +1177,49 @@ def make_handler(
             except (BrokenPipeError, ConnectionResetError):
                 return
 
+        def stream_v2_webshell_events(self, task_id: str) -> None:
+            if not self.authorize_v2_task(task_id):
+                return
+            try:
+                manager.v2.get_task(task_id)
+            except KeyError:
+                self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+
+            last_sequence = parse_last_event_id(self.headers.get("Last-Event-ID"))
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/event-stream; charset=utf-8")
+            self.send_header("cache-control", "no-cache")
+            self.send_header("connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            last_heartbeat = time.monotonic()
+            try:
+                while True:
+                    events = manager.v2.events(task_id, after=last_sequence)
+                    for event in events:
+                        last_sequence = event["sequence"]
+                        if event["type"] not in {
+                            "task.created",
+                            "user.message",
+                            "agent.message",
+                            "task.completed",
+                        }:
+                            continue
+                        projected = v2_event_to_daemon_event(event)
+                        self.write_sse(projected["id"], "message", projected)
+                    current = manager.v2.get_task(task_id)
+                    if current["status"] in {"completed", "failed", "cancelled"} and not events:
+                        break
+                    if time.monotonic() - last_heartbeat >= 10:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        last_heartbeat = time.monotonic()
+                    time.sleep(0.2)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
         def projected_session_events(self, session_id: str) -> list[dict[str, Any]]:
             run = manager.get_run(session_id)
             if run is None:
@@ -1239,6 +1407,22 @@ def make_handler(
             if authorization.strip():
                 return "api-token"
             return None
+
+        def authorize_v2_task(self, task_id: str, *, write: bool = False) -> bool:
+            try:
+                allowed = manager.v2.can_access_task(
+                    task_id,
+                    self.principal_id(),
+                    self.current_roles(),
+                    write=write,
+                )
+            except KeyError:
+                self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return False
+            if not allowed:
+                self.write_error(HTTPStatus.FORBIDDEN, "project membership required")
+                return False
+            return True
 
         def current_roles(self) -> list[str] | None:
             if not self.current_identity:
@@ -1468,16 +1652,13 @@ def required_scope_for(method: str, path: str) -> str | None:
         if len(parts) >= 2 and parts[1] == "admin":
             return "access:read" if method == "GET" else "access:write"
         if method == "GET":
+            if len(parts) >= 4 and parts[3] in {"artifacts", "audit.json"}:
+                return "artifacts:read"
             if len(parts) >= 4 and parts[3] == "events.json":
                 return "events:read"
             if len(parts) >= 5 and parts[3] == "webshell":
                 return "events:read"
-            if len(parts) >= 4 and parts[3] in {
-                "artifacts",
-                "evaluations",
-                "replays",
-                "workflow",
-            }:
+            if len(parts) >= 4 and parts[3] in {"evaluations", "replays", "workflow"}:
                 return "events:read"
             return "tasks:read"
         if len(parts) >= 4 and parts[3] in {"messages", "retry", "replay"}:
@@ -1620,7 +1801,7 @@ def parse_optional_int(value: str | None) -> int | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="aflow Runtime POC")
+    parser = argparse.ArgumentParser(description="AgentFlow Runtime POC")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -182,7 +184,12 @@ class V2ControlPlane:
         self._ensure_runner(task_id)
         return task
 
-    def list_tasks(self) -> list[dict[str, Any]]:
+    def list_tasks(
+        self,
+        *,
+        principal: str | None = None,
+        roles: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(
                 """
@@ -190,7 +197,11 @@ class V2ControlPlane:
                 ORDER BY updated_at DESC, created_at DESC
                 """
             ).fetchall()
-            return [self._task_summary_from_row(row) for row in rows]
+            return [
+                self._task_summary_from_row(row)
+                for row in rows
+                if self.can_access_task(row["task_id"], principal, roles)
+            ]
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -202,6 +213,7 @@ class V2ControlPlane:
             task["plan"] = self._plan_for_task(task_id)
             task["events"] = self.events(task_id)
             task["progress"] = self._progress(task_id)
+            task["execution_mode"] = self._execution_mode(task_id)
             task["result"] = self._result(task_id)
             return task
 
@@ -509,6 +521,160 @@ class V2ControlPlane:
             ).fetchall()
             return [tenant_from_row(row) for row in rows]
 
+    def projects(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM v2_projects ORDER BY created_at ASC"
+            ).fetchall()
+            return [project_from_row(row) for row in rows]
+
+    def upsert_project(self, payload: dict[str, Any], *, principal: str) -> dict[str, Any]:
+        project_id = str(payload.get("project_id") or f"project_{uuid4().hex}").strip()
+        tenant_id = str(payload.get("tenant_id") or "tenant_default").strip()
+        name = str(payload.get("name") or project_id).strip()
+        if not project_id or not tenant_id or not name:
+            raise ValueError("project_id, tenant_id, and name are required")
+        now = utc_now()
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO v2_projects (
+                    project_id, tenant_id, name, status, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    tenant_id = excluded.tenant_id,
+                    name = excluded.name,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    project_id,
+                    tenant_id,
+                    name,
+                    str(payload.get("status") or "active"),
+                    principal,
+                    now,
+                    now,
+                ),
+            )
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_project_members (
+                    project_id, user_id, role, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (project_id, principal, "owner", "active", now, now),
+            )
+            self._db.commit()
+            return next(item for item in self.projects() if item["project_id"] == project_id)
+
+    def project_members(self, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT * FROM v2_project_members
+                WHERE project_id = ? ORDER BY created_at ASC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [project_member_from_row(row) for row in rows]
+
+    def upsert_project_member(
+        self,
+        project_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        user_id = str(payload.get("user_id") or payload.get("email") or "").strip()
+        role = str(payload.get("role") or "member").strip()
+        if not user_id or role not in {"owner", "editor", "viewer", "member"}:
+            raise ValueError("user_id and a valid project role are required")
+        now = utc_now()
+        with self._lock:
+            if not any(item["project_id"] == project_id for item in self.projects()):
+                raise KeyError(project_id)
+            self._db.execute(
+                """
+                INSERT INTO v2_project_members (
+                    project_id, user_id, role, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, user_id) DO UPDATE SET
+                    role = excluded.role,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    project_id,
+                    user_id,
+                    role,
+                    str(payload.get("status") or "active"),
+                    now,
+                    now,
+                ),
+            )
+            self._db.commit()
+            return next(
+                item for item in self.project_members(project_id) if item["user_id"] == user_id
+            )
+
+    def can_access_task(
+        self,
+        task_id: str,
+        principal: str | None,
+        roles: list[str] | None,
+        *,
+        write: bool = False,
+    ) -> bool:
+        row = self._task_row(task_id)
+        if row is None:
+            raise KeyError(task_id)
+        role_set = set(roles or [])
+        if principal in {None, "api-token"} or role_set.intersection({"owner", "operator"}):
+            return True
+        if principal == row["created_by"]:
+            return True
+        member = self._db.execute(
+            """
+            SELECT role, status FROM v2_project_members
+            WHERE project_id = ? AND user_id = ?
+            """,
+            (row["project_id"], principal),
+        ).fetchone()
+        if member is None or member["status"] != "active":
+            return False
+        if not write:
+            return True
+        return member["role"] in {"owner", "editor", "member"}
+
+    def can_access_project(
+        self,
+        project_id: str,
+        principal: str | None,
+        roles: list[str] | None,
+        *,
+        write: bool = False,
+    ) -> bool:
+        project = self._db.execute(
+            "SELECT project_id FROM v2_projects WHERE project_id = ? AND status = 'active'",
+            (project_id,),
+        ).fetchone()
+        if project is None:
+            raise KeyError(project_id)
+        role_set = set(roles or [])
+        if principal in {None, "api-token"} or role_set.intersection({"owner", "operator"}):
+            return True
+        member = self._db.execute(
+            """
+            SELECT role, status FROM v2_project_members
+            WHERE project_id = ? AND user_id = ?
+            """,
+            (project_id, principal),
+        ).fetchone()
+        if member is None:
+            return project_id == "project_default" and write
+        if member["status"] != "active":
+            return False
+        return not write or member["role"] in {"owner", "editor", "member"}
+
     def upsert_tenant(self, payload: dict[str, Any], *, principal: str) -> dict[str, Any]:
         now = utc_now()
         tenant_id = str(payload.get("tenant_id") or f"tenant_{uuid4().hex}").strip()
@@ -716,6 +882,28 @@ class V2ControlPlane:
                 (task_id,),
             ).fetchall()
             return [artifact_from_row(row) for row in rows]
+
+    def artifact(self, task_id: str, artifact_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM v2_artifacts WHERE task_id = ? AND artifact_id = ?",
+                (task_id, artifact_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(artifact_id)
+            return artifact_from_row(row)
+
+    def audit_bundle(self, task_id: str) -> dict[str, Any]:
+        return {
+            "schema": "agentflow-v2-task-audit/v1",
+            "generated_at": utc_now(),
+            "task": self.get_task(task_id),
+            "workflow": self.workflow(task_id),
+            "events": self.events(task_id),
+            "artifacts": self.artifacts(task_id),
+            "evaluations": self.evaluations(task_id),
+            "replays": self.replays(task_id),
+        }
 
     def evaluations(self, task_id: str) -> list[dict[str, Any]]:
         with self._lock:
@@ -1191,6 +1379,7 @@ class V2ControlPlane:
                             "agent_task_id": agent["agent_task_id"],
                             "message": adapter_result["message"],
                             "protocol": adapter_result["protocol"],
+                            "execution_mode": adapter_result["execution_mode"],
                         },
                     )
                     result = {
@@ -1269,13 +1458,14 @@ class V2ControlPlane:
         except Exception as exc:  # pragma: no cover - defensive safety net
             with self._lock:
                 if self._task_row(task_id) is not None:
+                    failure = failure_summary(exc)
                     self._set_task_status_locked(task_id, "failed")
                     self._set_workflow_status_locked(task_id, "failed")
                     self._append_event_locked(
                         task_id,
                         "task.failed",
                         "orchestrator",
-                        {"error": str(exc)},
+                        {"error": str(exc), "failure_summary": failure},
                     )
                     self._db.commit()
 
@@ -1297,7 +1487,7 @@ class V2ControlPlane:
                 f"wfr_{uuid4().hex}",
                 task_id,
                 "queued",
-                "local-sqlite-dag",
+                self.workflow_engine_status()["active_engine"],
                 json_dumps(
                     {
                         "strategy": plan["strategy"],
@@ -1306,7 +1496,7 @@ class V2ControlPlane:
                             "max_attempts": 2,
                             "backoff_seconds": 0.1,
                         },
-                        "durable_target": "temporal-compatible",
+                        "durable_target": self.workflow_engine_status()["active_engine"],
                     }
                 ),
                 1,
@@ -1499,7 +1689,9 @@ class V2ControlPlane:
             },
         }
         if adapter == "fake":
-            return simulated_adapter_result(adapter, protocol, envelope)
+            result = simulated_adapter_result(adapter, protocol, envelope)
+            result["execution_mode"] = "fake"
+            return result
 
         command_env = {
             "qwen": "V2_QWEN_CODE_COMMAND",
@@ -1509,12 +1701,13 @@ class V2ControlPlane:
         }[adapter]
         default_command = {
             "qwen": "qwen",
-            "codex": "codex",
-            "claude": "claude",
-            "opencode": "opencode",
+            "codex": "codex exec -",
+            "claude": "claude -p",
+            "opencode": "opencode run",
         }[adapter]
         configured_command = os.environ.get(command_env)
-        executable = shutil.which(configured_command or default_command)
+        command = shlex.split(configured_command or default_command)
+        executable = shutil.which(command[0]) if command else None
         real_cli_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS") == "1"
         if not real_cli_enabled or executable is None:
             result = simulated_adapter_result(adapter, protocol, envelope)
@@ -1530,7 +1723,7 @@ class V2ControlPlane:
 
         try:
             completed = subprocess.run(
-                [executable],
+                [executable, *command[1:]],
                 input=json_dumps(envelope),
                 text=True,
                 capture_output=True,
@@ -1546,6 +1739,10 @@ class V2ControlPlane:
         stdout = completed.stdout.strip()
         stderr = completed.stderr.strip()
         output = stdout or stderr or f"{adapter} completed with code {completed.returncode}"
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"{adapter} CLI exited with code {completed.returncode}: {output[:400]}"
+            )
         return {
             "adapter": adapter,
             "protocol": protocol,
@@ -1564,14 +1761,63 @@ class V2ControlPlane:
             row = self._task_row(task_id)
             if row is None or row["status"] in TERMINAL_TASK_STATUSES:
                 return
+            target = (
+                self._dispatch_temporal_task
+                if self.workflow_engine_status()["active_engine"] == "temporal"
+                else self._run_task
+            )
             thread = threading.Thread(
-                target=self._run_task,
+                target=target,
                 args=(task_id,),
                 name=f"v2-task-runner-{task_id}",
                 daemon=True,
             )
             self._threads[task_id] = thread
             thread.start()
+
+    def _dispatch_temporal_task(self, task_id: str) -> None:
+        try:
+            from .temporal_bridge import start_task_workflow
+
+            workflow_id = asyncio.run(start_task_workflow(task_id))
+            with self._lock:
+                self._append_event_locked(
+                    task_id,
+                    "workflow.temporal_dispatched",
+                    "orchestrator",
+                    {
+                        "workflow_id": workflow_id,
+                        "task_queue": os.environ.get("TEMPORAL_TASK_QUEUE")
+                        or "agentflow-v2",
+                    },
+                )
+                self._db.commit()
+        except Exception as exc:
+            with self._lock:
+                if self._task_row(task_id) is None:
+                    return
+                failure = failure_summary(exc)
+                self._set_task_status_locked(task_id, "failed")
+                self._set_workflow_status_locked(task_id, "failed")
+                self._append_event_locked(
+                    task_id,
+                    "workflow.temporal_dispatch_failed",
+                    "orchestrator",
+                    {"error": str(exc), "failure_summary": failure},
+                )
+                self._append_event_locked(
+                    task_id,
+                    "task.failed",
+                    "orchestrator",
+                    {"error": str(exc), "failure_summary": failure},
+                )
+                self._db.commit()
+
+    def execute_task_now(self, task_id: str) -> dict[str, Any]:
+        if self._task_row(task_id) is None:
+            raise KeyError(task_id)
+        self._run_task(task_id)
+        return self.get_task(task_id)
 
     def _recover_open_tasks(self) -> None:
         rows = self._db.execute(
@@ -1627,10 +1873,30 @@ class V2ControlPlane:
 
     def _result(self, task_id: str) -> dict[str, Any] | None:
         row = self._task_row(task_id)
-        if row is None or row["status"] != "completed":
+        if row is None or row["status"] not in {"completed", "failed"}:
             return None
         artifacts = self.artifacts(task_id)
         evaluations = self.evaluations(task_id)
+        if row["status"] == "failed":
+            failed_events = [
+                event for event in self.events(task_id) if event["type"] == "task.failed"
+            ]
+            failure = (
+                failed_events[-1]["payload"].get("failure_summary")
+                if failed_events
+                else {
+                    "reason": "The task failed before producing a result.",
+                    "impact": "No final result is available.",
+                    "next_action": "Retry the task or inspect the audit events.",
+                    "retryable": True,
+                }
+            )
+            return {
+                "summary": failure["reason"],
+                "failure": failure,
+                "artifacts": artifacts,
+                "evaluation": {"status": "failed", "checks": [], "items": evaluations},
+            }
         summaries = [
             agent["result"].get("final_summary")
             for agent in self._agent_tasks(task_id)
@@ -1677,6 +1943,7 @@ class V2ControlPlane:
             "priority": row["priority"],
             "channel": row["channel"],
             "adapter": row["adapter"],
+            "execution_mode": self._execution_mode(task_id),
             "metadata": json_loads(row["metadata_json"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -1684,6 +1951,20 @@ class V2ControlPlane:
             "plan": self._plan_for_task(task_id),
             "result": self._result(task_id),
         }
+
+    def _execution_mode(self, task_id: str) -> str:
+        modes = {
+            str(agent["result"].get("adapter", {}).get("execution_mode"))
+            for agent in self._agent_tasks(task_id)
+            if agent["result"].get("adapter", {}).get("execution_mode")
+        }
+        if "real-cli" in modes:
+            return "real-cli"
+        if "protocol-simulated" in modes:
+            return "protocol-simulated"
+        if "fake" in modes or "simulated" in modes:
+            return "fake"
+        return "pending"
 
     def _append_event_locked(
         self,
@@ -1748,6 +2029,9 @@ class V2ControlPlane:
 
     def _ensure_defaults(self) -> None:
         now = utc_now()
+        bootstrap_user = os.environ.get(
+            "RUN_MANAGER_BOOTSTRAP_EMAIL", "owner@example.com"
+        )
         with self._lock:
             self._db.execute(
                 """
@@ -1767,6 +2051,30 @@ class V2ControlPlane:
                     now,
                     now,
                 ),
+            )
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_projects (
+                    project_id, tenant_id, name, status, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "project_default",
+                    "tenant_default",
+                    "Default Project",
+                    "active",
+                    bootstrap_user,
+                    now,
+                    now,
+                ),
+            )
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_project_members (
+                    project_id, user_id, role, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ("project_default", bootstrap_user, "owner", "active", now, now),
             )
             for role, permissions in [
                 ("owner", ["*"]),
@@ -1792,8 +2100,8 @@ class V2ControlPlane:
                 """,
                 (
                     "tenant_default",
-                    os.environ.get("RUN_MANAGER_BOOTSTRAP_EMAIL", "owner@example.com"),
-                    os.environ.get("RUN_MANAGER_BOOTSTRAP_EMAIL", "owner@example.com"),
+                    bootstrap_user,
+                    bootstrap_user,
                     json_dumps(["owner"]),
                     "active",
                     now,
@@ -1872,6 +2180,27 @@ class V2ControlPlane:
                     metadata_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_projects (
+                    project_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_project_members (
+                    project_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, user_id),
+                    FOREIGN KEY(project_id) REFERENCES v2_projects(project_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS v2_plans (
@@ -2122,6 +2451,34 @@ def simulated_adapter_result(
     }
 
 
+def failure_summary(exc: Exception) -> dict[str, Any]:
+    reason = str(exc).strip() or exc.__class__.__name__
+    lowered = reason.lower()
+    if "timeout" in lowered:
+        impact = "The execution exceeded its time limit and did not finish."
+        next_action = "Retry with a smaller scope or increase the execution timeout."
+        category = "timeout"
+    elif "adapter" in lowered or "command" in lowered or "cli" in lowered:
+        impact = "The selected Agent CLI could not complete this task."
+        next_action = "Check the execution unit, CLI credentials, and adapter availability."
+        category = "adapter"
+    elif "permission" in lowered or "forbidden" in lowered:
+        impact = "The task stopped before an operation requiring permission."
+        next_action = "Review the task permissions and approve or adjust the request."
+        category = "permission"
+    else:
+        impact = "The workflow stopped before producing a complete result."
+        next_action = "Retry the task; if it fails again, open the audit bundle for details."
+        category = "runtime"
+    return {
+        "reason": reason,
+        "impact": impact,
+        "next_action": next_action,
+        "category": category,
+        "retryable": category != "permission",
+    }
+
+
 def event_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "event_id": row["event_id"],
@@ -2205,6 +2562,29 @@ def tenant_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "settings": json_loads(row["settings_json"]),
         "created_by": row["created_by"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def project_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "project_id": row["project_id"],
+        "tenant_id": row["tenant_id"],
+        "name": row["name"],
+        "status": row["status"],
+        "created_by": row["created_by"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def project_member_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "project_id": row["project_id"],
+        "user_id": row["user_id"],
+        "role": row["role"],
+        "status": row["status"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }

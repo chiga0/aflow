@@ -365,6 +365,7 @@ async function mockRuntime(
     priority: "normal",
     channel: "feishu",
     adapter: "fake",
+    execution_mode: "fake",
     metadata: {
       dispatch: {
         adapter: "fake",

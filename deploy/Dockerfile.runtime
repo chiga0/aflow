@@ -1,9 +1,18 @@
 FROM python:3.13-slim
 
+ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.3
+ARG CODEX_NODE_PACKAGE=@openai/codex@0.144.5
+
 WORKDIR /app
 
 COPY runtime /app/runtime
 COPY scripts /app/scripts
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git nodejs npm \
+    && npm install -g "${QWEN_NODE_PACKAGE}" "${CODEX_NODE_PACKAGE}" \
+    && python3 -m pip install --no-cache-dir -r /app/runtime/requirements.txt \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 
 RUN useradd --create-home --shell /usr/sbin/nologin runtime
 RUN mkdir -p /data/artifacts && chown -R runtime:runtime /data/artifacts /app
@@ -13,4 +22,3 @@ USER runtime
 EXPOSE 8765
 
 CMD ["python3", "-m", "runtime.cloud_agents_runtime", "--host", "0.0.0.0", "--port", "8765", "--artifact-root", "/data/artifacts", "--protect-health"]
-

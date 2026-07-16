@@ -25,7 +25,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import {
   Badge,
@@ -43,6 +43,9 @@ import {
 } from "./components/ui";
 import {
   runtimeApi,
+  v2TaskArtifactHref,
+  v2TaskAuditHref,
+  v2TaskWebshellEventStreamHref,
   type DaemonEvent,
   type V2AdminOverview,
   type V2AgentTask,
@@ -52,6 +55,8 @@ import {
   type V2Evaluation,
   type V2Event,
   type V2Replay,
+  type V2Project,
+  type V2ProjectMember,
   type V2Tenant,
   type V2Task,
   type V2WorkflowStep,
@@ -418,6 +423,64 @@ function channelStatus(channels: V2AdminOverview["channels"], platform: string) 
   );
 }
 
+type V2StreamStatus = "connecting" | "live" | "fallback" | "closed";
+
+function useV2WebshellEvents(
+  taskId: string,
+  initialEvents: DaemonEvent[],
+  taskStatus?: string,
+) {
+  const [events, setEvents] = useState<DaemonEvent[]>(initialEvents);
+  const [status, setStatus] = useState<V2StreamStatus>("connecting");
+
+  useEffect(() => {
+    setEvents((current) => mergeDaemonEvents(current, initialEvents));
+  }, [initialEvents]);
+
+  useEffect(() => {
+    if (taskStatus && ["completed", "failed", "cancelled"].includes(taskStatus)) {
+      setStatus("closed");
+      return;
+    }
+    if (typeof EventSource === "undefined") {
+      setStatus("fallback");
+      return;
+    }
+
+    setStatus("connecting");
+    const source = new EventSource(v2TaskWebshellEventStreamHref(taskId));
+    source.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as DaemonEvent;
+        setEvents((current) => mergeDaemonEvents(current, [event]));
+        if (event._meta?.runtimeEventType === "task.completed") {
+          setStatus("closed");
+          source.close();
+        }
+      } catch {
+        setStatus("fallback");
+      }
+    };
+    source.onopen = () => setStatus("live");
+    source.onerror = () =>
+      setStatus(source.readyState === EventSource.CLOSED ? "fallback" : "connecting");
+
+    return () => source.close();
+  }, [taskId, taskStatus]);
+
+  return { events, status };
+}
+
+function mergeDaemonEvents(current: DaemonEvent[], incoming: DaemonEvent[]) {
+  const merged = new Map(current.map((event) => [String(event.id), event]));
+  for (const event of incoming) {
+    merged.set(String(event.id), event);
+  }
+  return Array.from(merged.values()).sort(
+    (left, right) => Number(left.id) - Number(right.id),
+  );
+}
+
 export function ProductTaskPage() {
   const { taskId } = useParams({ strict: false }) as { taskId: string };
   const queryClient = useQueryClient();
@@ -435,7 +498,7 @@ export function ProductTaskPage() {
   const webshellEvents = useQuery({
     queryKey: ["v2", "tasks", taskId, "webshell-events"],
     queryFn: () => runtimeApi.v2TaskWebshellEvents(taskId),
-    refetchInterval: 1500,
+    refetchInterval: 15000,
   });
   const workflow = useQuery({
     queryKey: ["v2", "tasks", taskId, "workflow"],
@@ -457,6 +520,11 @@ export function ProductTaskPage() {
     queryFn: () => runtimeApi.v2TaskReplays(taskId),
     refetchInterval: 5000,
   });
+  const liveWebshell = useV2WebshellEvents(
+    taskId,
+    webshellEvents.data?.events ?? [],
+    task.data?.status,
+  );
   const refreshTaskDetail = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["v2", "tasks"] }),
@@ -546,11 +614,12 @@ export function ProductTaskPage() {
       </div>
 
       {current ? (
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <Metric label="Progress" value={`${current.progress.percent}%`} />
           <Metric label="Mode" value={current.mode} />
           <Metric label="Channel" value={current.channel} />
           <Metric label="Adapter" value={current.adapter} />
+          <Metric label="Execution" value={current.execution_mode} />
         </div>
       ) : null}
 
@@ -563,10 +632,19 @@ export function ProductTaskPage() {
           <div className="flex flex-wrap gap-2">
             <Badge tone="info">Qwen WebShell</Badge>
             <Badge tone="neutral">DaemonEvent</Badge>
+            <Badge tone={liveWebshell.status === "live" ? "ok" : "neutral"}>
+              {liveWebshell.status === "live"
+                ? "Live"
+                : liveWebshell.status === "fallback"
+                  ? "Polling fallback"
+                  : liveWebshell.status === "closed"
+                    ? "Stream complete"
+                    : "Connecting"}
+            </Badge>
           </div>
         </CardHeader>
         <CardBody className="grid gap-3">
-          <QwenWebshellPanel events={webshellEvents.data?.events ?? []} />
+          <QwenWebshellPanel events={liveWebshell.events} />
           <form className="grid gap-2 border-t border-border pt-3" onSubmit={submitFollowUp}>
             <Input
               placeholder="Add context or a follow-up instruction"
@@ -610,10 +688,33 @@ export function ProductTaskPage() {
           <CardBody>
             {current?.result ? (
               <div className="grid gap-3 text-sm">
-                <p className="text-muted-foreground">{current.result.summary}</p>
+                {current.result.failure ? (
+                  <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                    <div className="font-medium text-destructive">
+                      {current.result.failure.reason}
+                    </div>
+                    <div>
+                      <span className="font-medium">Impact: </span>
+                      {current.result.failure.impact}
+                    </div>
+                    <div>
+                      <span className="font-medium">Next action: </span>
+                      {current.result.failure.next_action}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">{current.result.summary}</p>
+                )}
                 <StatusBadge
                   status={String(current.result.evaluation.status ?? "passed")}
                 />
+                <a
+                  className="text-primary hover:underline"
+                  download={`${current.task_id}-audit.json`}
+                  href={v2TaskAuditHref(current.task_id)}
+                >
+                  Download audit bundle
+                </a>
               </div>
             ) : (
               <EmptyState title="No result yet" detail="The task is still running." />
@@ -647,7 +748,10 @@ export function ProductTaskPage() {
             <Badge tone="neutral">{artifacts.data?.artifacts.length ?? 0}</Badge>
           </CardHeader>
           <CardBody>
-            <ArtifactList artifacts={artifacts.data?.artifacts ?? []} />
+            <ArtifactList
+              artifacts={artifacts.data?.artifacts ?? []}
+              taskId={taskId}
+            />
           </CardBody>
         </Card>
       </div>
@@ -753,7 +857,7 @@ function WorkflowSteps({ steps }: { steps: V2WorkflowStep[] }) {
   );
 }
 
-function ArtifactList({ artifacts }: { artifacts: V2Artifact[] }) {
+function ArtifactList({ artifacts, taskId }: { artifacts: V2Artifact[]; taskId: string }) {
   if (!artifacts.length) {
     return <EmptyState title="No artifacts yet" />;
   }
@@ -771,6 +875,19 @@ function ArtifactList({ artifacts }: { artifacts: V2Artifact[] }) {
           <div className="break-all text-xs text-muted-foreground">
             {artifact.kind} · {artifact.ref}
           </div>
+          <details className="rounded-md bg-muted p-2 text-xs">
+            <summary className="cursor-pointer font-medium">Preview</summary>
+            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap">
+              {JSON.stringify(artifact.content, null, 2)}
+            </pre>
+          </details>
+          <a
+            className="text-xs font-medium text-primary hover:underline"
+            download={`${artifact.name}.json`}
+            href={v2TaskArtifactHref(taskId, artifact.artifact_id)}
+          >
+            Download artifact
+          </a>
         </div>
       ))}
     </div>
@@ -833,6 +950,8 @@ export function ProductAdminPage() {
   const [outboundText, setOutboundText] = useState("aflow channel test");
   const [tenantName, setTenantName] = useState("");
   const [tenantUserEmail, setTenantUserEmail] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [projectMemberEmail, setProjectMemberEmail] = useState("");
   const overview = useQuery({
     queryKey: ["v2", "admin", "overview"],
     queryFn: runtimeApi.v2AdminOverview,
@@ -842,6 +961,14 @@ export function ProductAdminPage() {
     queryKey: ["v2", "admin", "channel-messages"],
     queryFn: runtimeApi.v2ChannelMessages,
     refetchInterval: 5000,
+  });
+  const projects = useQuery({
+    queryKey: ["v2", "admin", "projects"],
+    queryFn: runtimeApi.v2Projects,
+  });
+  const defaultProjectMembers = useQuery({
+    queryKey: ["v2", "admin", "projects", "project_default", "members"],
+    queryFn: () => runtimeApi.v2ProjectMembers("project_default"),
   });
   const configureChannel = useMutation({
     mutationFn: () =>
@@ -884,6 +1011,31 @@ export function ProductAdminPage() {
       await queryClient.invalidateQueries({ queryKey: ["v2", "admin"] });
     },
   });
+  const createProject = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2UpsertProject({
+        project_id: tenantSlug(projectName).replace(/^tenant_/, "project_"),
+        tenant_id: "tenant_default",
+        name: projectName,
+      }),
+    onSuccess: async () => {
+      setProjectName("");
+      await queryClient.invalidateQueries({ queryKey: ["v2", "admin", "projects"] });
+    },
+  });
+  const addProjectMember = useMutation({
+    mutationFn: () =>
+      runtimeApi.v2UpsertProjectMember("project_default", {
+        email: projectMemberEmail,
+        role: "member",
+      }),
+    onSuccess: async () => {
+      setProjectMemberEmail("");
+      await queryClient.invalidateQueries({
+        queryKey: ["v2", "admin", "projects", "project_default", "members"],
+      });
+    },
+  });
   const discoverUnits = useMutation({
     mutationFn: runtimeApi.v2DiscoverExecutionUnits,
     onSuccess: async () => {
@@ -908,7 +1060,7 @@ export function ProductAdminPage() {
         </Link>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
         <Metric label="Tasks" value={data?.tasks.total ?? 0} />
         <Metric label="Agent Tasks" value={data?.agent_tasks.total ?? 0} />
         <Metric label="Execution Units" value={data?.execution_units.length ?? 0} />
@@ -952,6 +1104,18 @@ export function ProductAdminPage() {
           </CardBody>
         </Card>
       </div>
+
+      <ProjectMembershipCard
+        projects={projects.data?.projects ?? []}
+        members={defaultProjectMembers.data?.members ?? []}
+        projectName={projectName}
+        memberEmail={projectMemberEmail}
+        busy={createProject.isPending || addProjectMember.isPending}
+        onProjectName={setProjectName}
+        onMemberEmail={setProjectMemberEmail}
+        onCreateProject={() => createProject.mutate()}
+        onAddMember={() => addProjectMember.mutate()}
+      />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <HaStatusCard overview={data} />
@@ -1030,6 +1194,9 @@ function TaskTrackItem({ task }: { task: V2Task }) {
           <StatusBadge status={task.status} />
           <Badge tone="info">{task.plan?.strategy ?? task.mode}</Badge>
           <Badge tone="neutral">{channelLabel(task.channel)}</Badge>
+          <Badge tone={task.execution_mode === "real-cli" ? "ok" : "neutral"}>
+            {task.execution_mode}
+          </Badge>
         </div>
         <div className="mt-2 line-clamp-1 font-medium">{task.title}</div>
         <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{task.goal}</p>
@@ -1291,6 +1458,85 @@ function TenantAdminCard({
             >
               <span className="font-medium">{tenant.name}</span>
               <StatusBadge status={tenant.status} />
+            </div>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function ProjectMembershipCard({
+  projects,
+  members,
+  projectName,
+  memberEmail,
+  busy,
+  onProjectName,
+  onMemberEmail,
+  onCreateProject,
+  onAddMember,
+}: {
+  projects: V2Project[];
+  members: V2ProjectMember[];
+  projectName: string;
+  memberEmail: string;
+  busy: boolean;
+  onProjectName: (value: string) => void;
+  onMemberEmail: (value: string) => void;
+  onCreateProject: () => void;
+  onAddMember: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          <CardTitle>Project Membership</CardTitle>
+        </div>
+        <Badge tone="neutral">{projects.length} projects</Badge>
+      </CardHeader>
+      <CardBody className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="Project name">
+            <Input
+              value={projectName}
+              onChange={(event) => onProjectName(event.target.value)}
+              placeholder="Platform Team"
+            />
+          </Field>
+          <Button
+            className="self-end"
+            disabled={busy || !projectName.trim()}
+            onClick={onCreateProject}
+          >
+            Create project
+          </Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="Default project member">
+            <Input
+              value={memberEmail}
+              onChange={(event) => onMemberEmail(event.target.value)}
+              placeholder="teammate@example.com"
+            />
+          </Field>
+          <Button
+            className="self-end"
+            disabled={busy || !memberEmail.trim()}
+            onClick={onAddMember}
+          >
+            Share project
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {members.map((member) => (
+            <div
+              className="flex items-center justify-between rounded-md border border-border p-3 text-sm"
+              key={member.user_id}
+            >
+              <span>{member.user_id}</span>
+              <Badge tone="info">{member.role}</Badge>
             </div>
           ))}
         </div>

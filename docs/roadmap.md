@@ -16,24 +16,30 @@
 | Admin 多租户基础 | 已支持 tenants、users、RBAC 基础配置 |
 | HA profile | 已有 Postgres/Redis/Temporal/worker 部署 profile |
 | CI/CD | Runtime CI、Deploy Runtime、Deploy MkDocs、Runtime Monitor 已接入 |
+| 执行模式可见性 | Task 列表、详情、事件和 monitor 区分 real-cli、protocol-simulated、fake |
+| WebShell 实时流 | V2 Agent Chat 使用带断线续传的 SSE，轮询仅作为降级 |
+| 失败摘要与结果页 | failed task 提供原因、影响、下一步；Artifact 支持预览、下载和审计包 |
+| Project membership | 项目成员支持 owner/editor/viewer/member，Task 与 Artifact 统一鉴权 |
+| Temporal workflow | HA profile 包含 Temporal SDK dispatcher、独立 worker 和 activity 回调 |
+| 真实 CLI 定时 smoke | 定时执行 qwen/Codex V2 task，并强制校验 real-cli 和产物 |
 
 ## P0：上线可用性
 
 | 项 | 目标 |
 | --- | --- |
 | Channel 未配置态 | 未配置的平台在 Client/Admin 中明确禁用或提示配置入口 |
-| 失败摘要 | failed task 自动生成原因、影响和下一步建议 |
-| 真实 CLI 可见性 | 页面明确区分真实 CLI、协议模拟、fake adapter |
-| WebShell 实时性 | Agent Chat 优先使用 SSE/WebSocket，轮询作为降级 |
-| Artifact 结果页 | 最终报告、下载、预览、审计包入口更清晰 |
+| 失败摘要 | 已完成；failed task 自动生成原因、影响和下一步建议 |
+| 真实 CLI 可见性 | 已完成；页面明确区分真实 CLI、协议模拟、fake adapter |
+| WebShell 实时性 | 已完成；Agent Chat 使用 SSE，轮询作为降级 |
+| Artifact 结果页 | 已完成；提供最终摘要、下载、预览和审计包入口 |
 
 ## P1：团队使用
 
 | 项 | 目标 |
 | --- | --- |
 | Admin 子页面拆分 | Tenants、Users、RBAC、Channels、Execution Units、HA 分区更清楚 |
-| Project membership | 普通用户可在项目范围内共享 Task |
-| Artifact 授权 | 结果、artifact、permission 使用同一访问判断 |
+| Project membership | 已完成基础闭环；普通用户可在项目范围内共享 Task |
+| Artifact 授权 | 已完成 V2 Task/Artifact/Audit 统一项目访问判断 |
 | 用户自助安全 | 改密码、token_version、session 失效、CSRF |
 | 移动端审批 | 手机端完成权限处理和结果查看 |
 
@@ -41,7 +47,7 @@
 
 | 项 | 目标 |
 | --- | --- |
-| Temporal 深度接入 | 长任务、人工审批、重试、恢复由 durable workflow 管理 |
+| Temporal 深度接入 | 已接入 V2 task dispatcher/worker/activity；审批信号仍需继续深化 |
 | 执行单元调度策略 | 基于资源、标签、租户、adapter、成本选择 unit |
 | Docker/ECS/NAS 生产化 | workspace 隔离、secret 注入、资源限制、日志回收 |
 | Worker 水平扩展 | 多 worker 副本、健康检查、drain/resume、迁移 |

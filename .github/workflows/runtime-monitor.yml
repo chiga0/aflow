@@ -10,6 +10,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      deep_adapters:
+        description: "Comma-separated real V2 CLI adapters to verify"
+        required: false
+        default: "qwen,codex"
+        type: string
   workflow_run:
     workflows:
       - Deploy Runtime
@@ -66,10 +71,17 @@ jobs:
           RUNTIME_BASIC_AUTH_USER: ${{ secrets.RUNTIME_BASIC_AUTH_USER }}
           RUNTIME_BASIC_AUTH_PASSWORD: ${{ secrets.RUNTIME_BASIC_AUTH_PASSWORD }}
           DEEP_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_run || false }}
+          DEEP_ADAPTERS: ${{ inputs.deep_adapters }}
         run: |
           set -euo pipefail
           args=(--json)
           if [[ "$DEEP_RUN" == "true" ]]; then
             args+=(--deep-run)
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            DEEP_ADAPTERS="qwen,codex"
+          fi
+          if [[ -n "$DEEP_ADAPTERS" ]]; then
+            args+=(--deep-adapters "$DEEP_ADAPTERS")
           fi
           python3 scripts/monitor_runtime.py "${args[@]}"
