@@ -60,7 +60,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 '<script type="module" src="./assets/index.js"></script></html>'
             )
         elif self.path == "/agentflow/assets/index.js":
-            self.send_text("console.log('AgentFlow')")
+            self.send_text("console.log('aflow')")
         elif self.path == "/agentflow/auth/session":
             self.send_json(
                 {

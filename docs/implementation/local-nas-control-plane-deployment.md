@@ -1,6 +1,6 @@
-# 本地电脑或 NAS 作为 AgentFlow 主控的部署教程
+# 本地电脑或 NAS 作为 aflow 主控的部署教程
 
-> 目标：把 AgentFlow 控制面放到资源更稳定的本地电脑、工作站或 NAS 上，把 2C2G VPS 作为公网入口或远程 worker。这样可以降低小 VPS 被 qwen、构建和长任务打满导致的白屏、SSH 断连和任务卡住风险。
+> 目标：把 aflow 控制面放到资源更稳定的本地电脑、工作站或 NAS 上，把 2C2G VPS 作为公网入口或远程 worker。这样可以降低小 VPS 被 qwen、构建和长任务打满导致的白屏、SSH 断连和任务卡住风险。
 
 ## 1. 推荐拓扑
 
@@ -10,9 +10,9 @@
 flowchart LR
   User["浏览器"] --> Domain["https://agentflow.example.com"]
   Domain --> Tunnel["Cloudflare Tunnel / Tailscale Funnel / FRP"]
-  Tunnel --> Control["本地电脑或 NAS<br/>AgentFlow Runtime + Web"]
-  WorkerHK["香港 2C2G VPS<br/>AgentFlow Worker capacity=1"] --> Control
-  WorkerOther["其他 2C2G VPS<br/>AgentFlow Worker capacity=1"] --> Control
+  Tunnel --> Control["本地电脑或 NAS<br/>aflow Runtime + Web"]
+  WorkerHK["香港 2C2G VPS<br/>aflow Worker capacity=1"] --> Control
+  WorkerOther["其他 2C2G VPS<br/>aflow Worker capacity=1"] --> Control
 ```
 
 适合你当前诉求：主 Agent 和管理台在更稳定的机器上长期运行，VPS 作为独立稳定执行单元，主动连回控制面领任务。
@@ -23,7 +23,7 @@ flowchart LR
 flowchart LR
   User["浏览器"] --> VpsNginx["公网 VPS Nginx + TLS"]
   VpsNginx --> VPN["WireGuard / Tailscale"]
-  VPN --> Control["本地电脑或 NAS AgentFlow"]
+  VPN --> Control["本地电脑或 NAS aflow"]
   Worker1["Worker VPS A"] --> Control
   Worker2["Worker VPS B"] --> Control
 ```
@@ -82,7 +82,7 @@ qwen --version
 ```bash
 sudo mkdir -p /opt/agentflow
 sudo chown "$USER":"$USER" /opt/agentflow
-git clone https://github.com/chiga0/agent-flow.git /opt/agentflow
+git clone https://github.com/chiga0/aflow.git /opt/agentflow
 cd /opt/agentflow
 ```
 
@@ -135,7 +135,7 @@ EOF
 ```bash
 sudo tee /etc/systemd/system/agentflow-runtime.service >/dev/null <<'EOF'
 [Unit]
-Description=AgentFlow Runtime
+Description=aflow Runtime
 After=network-online.target
 Wants=network-online.target
 

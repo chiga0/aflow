@@ -1,6 +1,6 @@
 # 自我部署
 
-AgentFlow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署，一台 VPS 运行 runtime + Nginx + qwen foundation。资源紧张时，再把控制面和 worker 拆开。
+aflow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署，一台 VPS 运行 runtime + Nginx + qwen foundation。资源紧张时，再把控制面和 worker 拆开。
 
 ## 部署形态选择
 
@@ -115,12 +115,12 @@ http://<RUNTIME_PUBLIC_HOST>/cloud-agents/
 
 当 VPS 资源紧张时，推荐拆成：
 
-- 本地电脑/NAS/大 VPS：AgentFlow Runtime + Web + SQLite/artifact。
+- 本地电脑/NAS/大 VPS：aflow Runtime + Web + SQLite/artifact。
 - 小 VPS：worker 或公网 Nginx 边缘。
 
-完整教程见：[本地电脑或 NAS 作为 AgentFlow 主控的部署教程](implementation/local-nas-control-plane-deployment.md)。
+完整教程见：[本地电脑或 NAS 作为 aflow 主控的部署教程](implementation/local-nas-control-plane-deployment.md)。
 
-如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[AgentFlow 从部署到可用产品的完整教程](deployment-runbook.md)。
+如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[aflow 从部署到可用产品的完整教程](deployment-runbook.md)。
 
 关键原则：
 

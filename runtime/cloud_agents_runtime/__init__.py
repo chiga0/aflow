@@ -1,4 +1,4 @@
-"""AgentFlow runtime POC."""
+"""aflow runtime POC."""
 
 __all__ = ["__version__"]
 

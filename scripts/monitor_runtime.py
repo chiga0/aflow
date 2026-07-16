@@ -16,12 +16,12 @@ from typing import Any
 
 
 ASSET_RE = re.compile(r'(?:src|href)="\.(/assets/[^"]+)"')
-USER_AGENT = "agentflow-runtime-monitor/0.1 (+https://github.com/chiga0/agent-flow)"
+USER_AGENT = "agentflow-runtime-monitor/0.1 (+https://github.com/chiga0/aflow)"
 TERMINAL_RUN_EVENTS = {"run.completed", "run.failed", "run.cancelled"}
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Monitor public AgentFlow Runtime")
+    parser = argparse.ArgumentParser(description="Monitor public aflow Runtime")
     parser.add_argument("--base-url", default=default_base_url())
     parser.add_argument("--auth-email", default=os.environ.get("RUNTIME_AUTH_EMAIL"))
     parser.add_argument("--auth-password", default=os.environ.get("RUNTIME_AUTH_PASSWORD"))
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     failures = [result for result in results if not result.ok]
     if failures:
         message = "; ".join(f"{result.name}: {result.detail}" for result in failures)
-        print(f"::error title=AgentFlow monitor::{message}")
+        print(f"::error title=aflow monitor::{message}")
         return 1
     return 0
 

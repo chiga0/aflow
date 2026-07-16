@@ -1,6 +1,6 @@
 # Qwen WebShell Chat 渲染
 
-AgentFlow 的 Client 使用 WebShell 风格的聊天区域展示 Agent 过程，但内部事件源仍保持统一 canonical events。这样可以复用 qwen-code 的交互体验，又不会把平台锁死在某一个 CLI 的私有事件格式上。
+aflow 的 Client 使用 WebShell 风格的聊天区域展示 Agent 过程，但内部事件源仍保持统一 canonical events。这样可以复用 qwen-code 的交互体验，又不会把平台锁死在某一个 CLI 的私有事件格式上。
 
 ## 1. 设计边界
 

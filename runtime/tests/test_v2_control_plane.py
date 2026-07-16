@@ -290,7 +290,7 @@ class V2ControlPlaneTest(unittest.TestCase):
                 "feishu",
                 {
                     "task_id": inbound["task"]["task_id"],
-                    "message": "Accepted by AgentFlow",
+                    "message": "Accepted by aflow",
                 },
             )
             messages = control.channel_messages("feishu")
@@ -301,7 +301,7 @@ class V2ControlPlaneTest(unittest.TestCase):
             self.assertEqual(len(sink["posts"]), 1)
             self.assertEqual(
                 sink["posts"][0]["body"]["content"]["text"],
-                "Accepted by AgentFlow",
+                "Accepted by aflow",
             )
             self.assertEqual(
                 {message["direction"] for message in messages},

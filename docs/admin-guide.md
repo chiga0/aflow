@@ -1,6 +1,6 @@
 # Admin 管理指南
 
-Admin 面向 owner、operator、auditor 和平台运维者。它负责让 AgentFlow 可控、可审计、可恢复，而不是替代 Client 成为普通用户入口。
+Admin 面向 owner、operator、auditor 和平台运维者。它负责让 aflow 可控、可审计、可恢复，而不是替代 Client 成为普通用户入口。
 
 入口：
 
@@ -46,13 +46,13 @@ Admin 需要配置：
 
 | 配置 | 用途 |
 | --- | --- |
-| webhook URL | AgentFlow 主动向群里发送消息 |
+| webhook URL | aflow 主动向群里发送消息 |
 | callback token / secret | 入站消息签名校验 |
 | tenant mapping | 群消息归属哪个租户 |
-| user mapping | 群用户映射到哪个 AgentFlow 用户 |
+| user mapping | 群用户映射到哪个 aflow 用户 |
 | policy | 哪些群可以创建任务、审批、接收结果 |
 
-生产环境不要把无保护的 `/v2/channels/{platform}/webhook` 直接暴露给公网。推荐在边缘代理完成平台签名校验，再转发到 AgentFlow。
+生产环境不要把无保护的 `/v2/channels/{platform}/webhook` 直接暴露给公网。推荐在边缘代理完成平台签名校验，再转发到 aflow。
 
 ## 4. Tenants、Users 和 RBAC
 

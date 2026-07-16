@@ -1,4 +1,4 @@
-# AgentFlow 从部署到可用产品的完整教程
+# aflow 从部署到可用产品的完整教程
 
 这篇文档按真实使用顺序组织：先选部署拓扑，再启动控制面，注册执行单元，接入 IM 机器人，最后创建第一个任务并做运维检查。第一次部署建议完整走一遍，不要只看单个命令片段。
 
@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-  Browser["用户浏览器 / 移动端 Web"] --> Runtime["AgentFlow Runtime + Web"]
+  Browser["用户浏览器 / 移动端 Web"] --> Runtime["aflow Runtime + Web"]
   IM["钉钉 / 飞书 / 企微"] --> Edge["公网入口 / 签名校验代理"]
   Edge --> Runtime
   Runtime --> State["SQLite 或 Postgres<br/>事件 / 配置 / 审计"]
@@ -60,7 +60,7 @@ qwen --version
 ```bash
 sudo mkdir -p /opt/agentflow
 sudo chown "$USER":"$USER" /opt/agentflow
-git clone https://github.com/chiga0/agent-flow.git /opt/agentflow
+git clone https://github.com/chiga0/aflow.git /opt/agentflow
 cd /opt/agentflow/web
 npm ci
 npm run build
@@ -107,7 +107,7 @@ EOF
 ```bash
 sudo tee /etc/systemd/system/agentflow-runtime.service >/dev/null <<'EOF'
 [Unit]
-Description=AgentFlow Runtime
+Description=aflow Runtime
 After=network-online.target
 Wants=network-online.target
 
@@ -321,9 +321,9 @@ RUN_WORKER_METADATA_JSON={"region":"hk","labels":{"tier":"sandbox"}}
 详细步骤见 [钉钉、飞书、企业微信机器人接入](channel-integrations.md)。第一次接入按这个顺序：
 
 1. 在平台群里创建自定义机器人，复制 webhook URL。
-2. 在 AgentFlow Admin -> Channels 选择平台，填入 `webhook_url` 和 `callback_token`。
-3. 发送测试消息，确认群里能收到 AgentFlow 通知。
-4. 如果要让群消息创建 AgentFlow 任务，把平台回调先接到边缘签名校验代理，再由代理转发到 `/v2/channels/{platform}/webhook`。
+2. 在 aflow Admin -> Channels 选择平台，填入 `webhook_url` 和 `callback_token`。
+3. 发送测试消息，确认群里能收到 aflow 通知。
+4. 如果要让群消息创建 aflow 任务，把平台回调先接到边缘签名校验代理，再由代理转发到 `/v2/channels/{platform}/webhook`。
 5. 在 Channel Messages 查看入站、出站消息留痕。
 
 当前 Runtime 已真实支持通用入站和出站协议；平台原生 HMAC/加签校验建议放在边缘代理中完成，再转成 `x-agentflow-channel-token` 传给 Runtime。

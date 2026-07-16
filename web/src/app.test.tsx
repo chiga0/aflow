@@ -747,7 +747,7 @@ const fixtures: Record<string, unknown> = {
     status: "queued",
     external_message_id: "",
     sender: { system: "agentflow" },
-    content: { msg_type: "text", content: { text: "AgentFlow channel test" } },
+    content: { msg_type: "text", content: { text: "aflow channel test" } },
     raw: {},
     task_id: null,
     error: "webhook_url is not configured",
@@ -972,7 +972,7 @@ const fixtures: Record<string, unknown> = {
   },
 };
 
-describe("AgentFlow console", () => {
+describe("aflow console", () => {
   beforeEach(async () => {
     queryClient.clear();
     authSessionAuthenticated = true;
@@ -2649,7 +2649,7 @@ describe("AgentFlow console", () => {
         metadata: {},
         deploy_command: "local-source-command",
       }),
-    ).toContain("raw.githubusercontent.com/chiga0/agent-flow");
+    ).toContain("raw.githubusercontent.com/chiga0/aflow");
     expect(
       __testUtils.workerBadges({
         worker_id: "worker",

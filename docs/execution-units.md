@@ -1,6 +1,6 @@
 # 执行单元发现、注册与调度
 
-执行单元是 AgentFlow 对“哪里可以跑 Agent”的统一抽象。它可以是一台本机 workspace、一台 NAS、一台 ECS、一组 Docker 容器，或后续接入的 Kubernetes/云函数执行池。
+执行单元是 aflow 对“哪里可以跑 Agent”的统一抽象。它可以是一台本机 workspace、一台 NAS、一台 ECS、一组 Docker 容器，或后续接入的 Kubernetes/云函数执行池。
 
 ## 1. 概念关系
 
@@ -20,7 +20,7 @@ flowchart TD
   Worker --> Artifacts["artifact upload"]
 ```
 
-AgentFlow 有两层视图：
+aflow 有两层视图：
 
 | 名称 | 作用 | 使用者 |
 | --- | --- | --- |
@@ -152,7 +152,7 @@ QWEN_SERVE_TOKEN=
 
 ```ini
 [Unit]
-Description=AgentFlow Remote Worker
+Description=aflow Remote Worker
 After=network-online.target
 Wants=network-online.target
 

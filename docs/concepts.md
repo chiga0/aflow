@@ -1,6 +1,6 @@
 # 核心概念
 
-AgentFlow 的用户视角是 Task-first：用户提交任务，系统自动规划、调度、执行、审计并交付产物。底层仍有 Run、Worker、Executor 等实现对象，但它们属于 Admin 和排障语境。
+aflow 的用户视角是 Task-first：用户提交任务，系统自动规划、调度、执行、审计并交付产物。底层仍有 Run、Worker、Executor 等实现对象，但它们属于 Admin 和排障语境。
 
 ## Task
 

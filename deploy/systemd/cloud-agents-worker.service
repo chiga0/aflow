@@ -1,5 +1,5 @@
 [Unit]
-Description=AgentFlow Remote Worker
+Description=aflow Remote Worker
 After=network-online.target
 Wants=network-online.target
 

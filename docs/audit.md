@@ -4,7 +4,7 @@
 
 ## 总体判断
 
-AgentFlow 当前已经适合内部自托管 beta、真实 qwen 单任务验证、执行单元接入、基础 Channel smoke 和 Admin 运维验证。
+aflow 当前已经适合内部自托管 beta、真实 qwen 单任务验证、执行单元接入、基础 Channel smoke 和 Admin 运维验证。
 
 它还不适合无保留地作为商业级多租户 SaaS 开放。主要原因是企业身份、项目成员共享、细粒度 artifact 授权、对象存储、灰度发布、完整合规审计和大规模 HA 仍需要继续打磨。
 

@@ -1,6 +1,6 @@
 # Temporal 适配方案
 
-AgentFlow 支持轻量内置 durable workflow，也预留 Temporal profile。是否启用 Temporal 取决于任务时长、人工审批、失败恢复和水平扩展要求。
+aflow 支持轻量内置 durable workflow，也预留 Temporal profile。是否启用 Temporal 取决于任务时长、人工审批、失败恢复和水平扩展要求。
 
 ## 1. 什么时候需要 Temporal
 
@@ -22,14 +22,14 @@ AgentFlow 支持轻量内置 durable workflow，也预留 Temporal profile。是
 
 ## 2. 推荐边界
 
-Temporal 负责 workflow durability，不负责替代 AgentFlow 的产品模型。
+Temporal 负责 workflow durability，不负责替代 aflow 的产品模型。
 
 | 职责 | 所属 |
 | --- | --- |
-| Task、Tenant、RBAC、Channel、Artifact | AgentFlow 控制面 |
+| Task、Tenant、RBAC、Channel、Artifact | aflow 控制面 |
 | DAG 状态、Activity retry、timeout、resume | Temporal profile |
 | CLI adapter 执行 | Execution Unit / Worker |
-| 权限审批和审计 | AgentFlow 控制面 |
+| 权限审批和审计 | aflow 控制面 |
 
 ## 3. Workflow 映射
 
@@ -44,7 +44,7 @@ flowchart LR
   Eval --> Final["Finalize Activity"]
 ```
 
-每个 Agent Activity 只负责向 AgentFlow 请求执行单元并等待结果。真实 CLI 仍由 worker/adapter 执行，事件和 artifact 仍写回 AgentFlow。
+每个 Agent Activity 只负责向 aflow 请求执行单元并等待结果。真实 CLI 仍由 worker/adapter 执行，事件和 artifact 仍写回 aflow。
 
 ## 4. HA profile 配置
 

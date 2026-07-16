@@ -159,7 +159,7 @@ export function ProductClientPage() {
     <div className="mx-auto grid w-full max-w-7xl gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-primary">AgentFlow</div>
+          <div className="text-sm font-medium text-primary">aflow</div>
           <h1 className="mt-1 text-3xl font-semibold tracking-normal">
             Client Workspace
           </h1>
@@ -830,7 +830,7 @@ export function ProductAdminPage() {
   const [channelPlatform, setChannelPlatform] = useState("feishu");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [callbackToken, setCallbackToken] = useState("");
-  const [outboundText, setOutboundText] = useState("AgentFlow channel test");
+  const [outboundText, setOutboundText] = useState("aflow channel test");
   const [tenantName, setTenantName] = useState("");
   const [tenantUserEmail, setTenantUserEmail] = useState("");
   const overview = useQuery({
@@ -895,7 +895,7 @@ export function ProductAdminPage() {
     <div className="mx-auto grid w-full max-w-7xl gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-primary">AgentFlow</div>
+          <div className="text-sm font-medium text-primary">aflow</div>
           <h1 className="mt-1 text-2xl font-semibold tracking-normal">
             Admin Control Plane
           </h1>
