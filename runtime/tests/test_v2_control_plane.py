@@ -3,12 +3,19 @@ from __future__ import annotations
 import os
 import unittest
 import time
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from unittest import mock
 
 from runtime.cloud_agents_runtime.v2_control_plane import (
+    ApprovalConfirmationRequiredError,
+    ApprovalConflictError,
+    CONVERSATION_PROJECTION_VERSION,
+    ConversationConflictError,
     V2ControlPlane,
+    cli_result_is_error,
+    cli_result_summary,
     extract_feishu_text,
     json_loads,
     nested_text,
@@ -30,6 +37,380 @@ def wait_for_status(control: V2ControlPlane, task_id: str, status: str) -> dict:
 
 
 class V2ControlPlaneTest(unittest.TestCase):
+    def test_high_risk_approval_is_versioned_confirmed_and_resumes_execution(self):
+        control = V2ControlPlane(self.tmp_path())
+        conversation = control.create_conversation(
+            {
+                "goal": "Deploy to production after the release checks",
+                "adapter": "fake",
+            },
+            principal="user_1",
+        )
+        task_id = conversation["latest_execution"]["task_id"]
+        approvals = control.list_approvals(principal="user_1")
+
+        self.assertEqual(control.get_task(task_id)["status"], "waiting_user")
+        self.assertEqual(len(approvals), 1)
+        self.assertEqual(approvals[0]["impact"]["level"], "high")
+        self.assertEqual(
+            control.get_conversation(
+                conversation["conversation_id"], principal="user_1"
+            )["pending_approval_count"],
+            1,
+        )
+        self.assertIn(
+            "approval",
+            [
+                message["kind"]
+                for message in control.conversation_messages(
+                    conversation["conversation_id"], principal="user_1"
+                )
+            ],
+        )
+        snapshot = control.mobile_snapshot(principal="user_1")
+        self.assertTrue(snapshot["stateless"])
+        self.assertEqual(snapshot["counts"]["pending_approvals"], 1)
+        self.assertNotIn("workspace", snapshot)
+        notifications = control.mobile_notifications(principal="user_1")
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(snapshot["notification_cursor"], notifications[0]["cursor"])
+        self.assertEqual(notifications[0]["title"], "高风险操作等待确认")
+        self.assertNotIn("Deploy", json.dumps(notifications[0], ensure_ascii=False))
+        self.assertNotIn("conversation_id", notifications[0])
+        self.assertEqual(control.mobile_notifications(principal="user_2"), [])
+        self.assertEqual(
+            control.mobile_notifications(
+                principal="user_1", after=notifications[0]["cursor"]
+            ),
+            [],
+        )
+
+        approval = approvals[0]
+        with self.assertRaises(ApprovalConfirmationRequiredError):
+            control.decide_approval(
+                approval["approval_id"],
+                {"action": "approve", "version": approval["version"]},
+                principal="user_1",
+            )
+        approved = control.decide_approval(
+            approval["approval_id"],
+            {
+                "action": "approve",
+                "version": approval["version"],
+                "confirmed": True,
+            },
+            principal="user_1",
+            idempotency_key="approve-once",
+        )
+        repeated = control.decide_approval(
+            approval["approval_id"],
+            {
+                "action": "approve",
+                "version": approval["version"],
+                "confirmed": True,
+            },
+            principal="user_1",
+            idempotency_key="approve-once",
+        )
+
+        self.assertEqual(approved, repeated)
+        self.assertEqual(approved["status"], "approved")
+        with self.assertRaises(ApprovalConflictError):
+            control.decide_approval(
+                approval["approval_id"],
+                {
+                    "action": "reject",
+                    "version": approval["version"],
+                    "reason": "stale mobile decision",
+                },
+                principal="user_1",
+                idempotency_key="second-device",
+            )
+        self.assertEqual(wait_for_status(control, task_id, "completed")["status"], "completed")
+        self.assertEqual(control.list_approvals(principal="user_1"), [])
+
+    def test_approval_reject_pause_revise_expiry_and_access_boundaries(self):
+        control = V2ControlPlane(self.tmp_path())
+
+        def create(action: str, expires_at: str | None = None):
+            conversation = control.create_conversation(
+                {
+                    "goal": f"Prepare controlled operation {action}",
+                    "adapter": "fake",
+                    "approval": {
+                        "intent": f"Run controlled operation {action}",
+                        "evidence": [{"type": "command", "summary": "safe fixture"}],
+                        "impact": {
+                            "level": "low",
+                            "summary": "test impact",
+                            "affected_resources": ["fixture"],
+                            "reversible": True,
+                        },
+                        "allowed_actions": ["approve", "reject", "pause", "revise"],
+                        "scope": {"environment": "test"},
+                        "expires_at": expires_at,
+                    },
+                },
+                principal="user_1",
+            )
+            approval = control.list_approvals(principal="user_1")[0]
+            return conversation, approval
+
+        rejected_conversation, rejected = create("reject")
+        rejected_result = control.decide_approval(
+            rejected["approval_id"],
+            {"action": "reject", "version": 1, "reason": "unsafe now"},
+            principal="user_1",
+        )
+        self.assertEqual(rejected_result["status"], "rejected")
+        self.assertEqual(
+            control.get_task(rejected_conversation["latest_execution"]["task_id"])[
+                "status"
+            ],
+            "cancelled",
+        )
+
+        paused_conversation, paused = create("pause")
+        control.decide_approval(
+            paused["approval_id"],
+            {"action": "pause", "version": 1},
+            principal="user_1",
+        )
+        self.assertEqual(
+            control.get_task(paused_conversation["latest_execution"]["task_id"])[
+                "status"
+            ],
+            "paused",
+        )
+
+        revised_conversation, revised = create("revise")
+        control.decide_approval(
+            revised["approval_id"],
+            {"action": "revise", "version": 1, "reason": "use staging"},
+            principal="user_1",
+        )
+        self.assertEqual(
+            control.get_task(revised_conversation["latest_execution"]["task_id"])[
+                "status"
+            ],
+            "waiting_user",
+        )
+        continued = control.append_conversation_message(
+            revised_conversation["conversation_id"],
+            "Use staging first and produce a new verification report",
+            principal="user_1",
+        )
+        self.assertTrue(continued["created_execution"])
+        self.assertEqual(
+            wait_for_status(control, continued["task_id"], "completed")["status"],
+            "completed",
+        )
+        with self.assertRaises(PermissionError):
+            control.get_approval(revised["approval_id"], principal="user_2")
+
+        _expired_conversation, expiring = create(
+            "expire", expires_at="2099-01-01T00:00:00Z"
+        )
+        control._db.execute(
+            "UPDATE v2_approvals SET expires_at = ? WHERE approval_id = ?",
+            ("2000-01-01T00:00:00Z", expiring["approval_id"]),
+        )
+        control._db.commit()
+        self.assertEqual(
+            control.get_approval(expiring["approval_id"], principal="user_1")["status"],
+            "expired",
+        )
+
+        stopped_conversation, stopped = create("stop")
+        control.stop_conversation(
+            stopped_conversation["conversation_id"],
+            principal="user_1",
+            reason="cancelled from approval inbox",
+        )
+        stopped_result = control.get_approval(
+            stopped["approval_id"], principal="user_1"
+        )
+        self.assertEqual(stopped_result["status"], "cancelled")
+        self.assertEqual(
+            control.get_conversation(
+                stopped_conversation["conversation_id"], principal="user_1"
+            )["pending_approval_count"],
+            0,
+        )
+
+    def test_conversation_projection_is_versioned_rebuildable_and_multi_execution(self):
+        control = V2ControlPlane(self.tmp_path())
+        conversation = control.create_conversation(
+            {"goal": "Audit the client conversation model", "adapter": "fake"},
+            principal="user_1",
+            idempotency_key="conversation-1",
+        )
+        task_id = conversation["latest_execution"]["task_id"]
+        wait_for_status(control, task_id, "completed")
+
+        first_projection = control.conversation_messages(
+            conversation["conversation_id"],
+            principal="user_1",
+        )
+        control._db.execute(
+            "DELETE FROM v2_conversation_messages WHERE conversation_id = ?",
+            (conversation["conversation_id"],),
+        )
+        control._db.commit()
+        rebuilt_projection = control.conversation_messages(
+            conversation["conversation_id"],
+            principal="user_1",
+        )
+
+        self.assertEqual(first_projection, rebuilt_projection)
+        self.assertEqual(first_projection[0]["role"], "user")
+        self.assertIn("plan", [message["kind"] for message in first_projection])
+        self.assertIn("result", [message["kind"] for message in first_projection])
+        agent_links = [
+            block
+            for message in first_projection
+            for block in message["content"]
+            if block.get("type") == "entity_ref"
+            and block.get("entity_type") == "agents"
+        ]
+        self.assertTrue(agent_links)
+        self.assertTrue(all(message["revision"] == 2 for message in first_projection))
+
+        statements: list[str] = []
+        control._db.set_trace_callback(statements.append)
+        self.assertEqual(
+            rebuilt_projection,
+            control.conversation_messages(
+                conversation["conversation_id"],
+                principal="user_1",
+            ),
+        )
+        control._db.set_trace_callback(None)
+        self.assertFalse(
+            any(
+                "DELETE FROM v2_conversation_messages" in statement
+                for statement in statements
+            ),
+            "a current projection must refresh incrementally without full-table churn",
+        )
+
+        control._db.execute(
+            "UPDATE v2_conversations SET projection_version = 0 WHERE conversation_id = ?",
+            (conversation["conversation_id"],),
+        )
+        control._db.commit()
+        version_upgrade_statements: list[str] = []
+        control._db.set_trace_callback(version_upgrade_statements.append)
+        upgraded_projection = control.conversation_messages(
+            conversation["conversation_id"],
+            principal="user_1",
+        )
+        control._db.set_trace_callback(None)
+        self.assertEqual(rebuilt_projection, upgraded_projection)
+        self.assertTrue(
+            any(
+                "DELETE FROM v2_conversation_messages" in statement
+                for statement in version_upgrade_statements
+            ),
+            "a projection rule upgrade must trigger one deterministic rebuild",
+        )
+        self.assertEqual(
+            control.get_conversation(
+                conversation["conversation_id"], principal="user_1"
+            )["projection_version"],
+            CONVERSATION_PROJECTION_VERSION,
+        )
+
+        continued = control.append_conversation_message(
+            conversation["conversation_id"],
+            "Now generate the implementation checklist",
+            principal="user_1",
+            idempotency_key="message-1",
+        )
+        repeated = control.append_conversation_message(
+            conversation["conversation_id"],
+            "This duplicate must not create another execution",
+            principal="user_1",
+            idempotency_key="message-1",
+        )
+        current = control.get_conversation(
+            conversation["conversation_id"],
+            principal="user_1",
+        )
+
+        self.assertTrue(continued["created_execution"])
+        self.assertEqual(repeated, continued)
+        self.assertEqual(len(current["executions"]), 2)
+        self.assertEqual(current["latest_execution"]["sequence"], 2)
+
+    def test_conversation_projection_pages_latest_messages_without_duplicates(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task(
+            {
+                "goal": "Build a long conversation projection",
+                "adapter": "fake",
+                "_defer_runner": True,
+            },
+            principal="user_1",
+        )
+        conversation = control.conversation_for_task(
+            task["task_id"], principal="user_1"
+        )
+        with control._lock:
+            for index in range(205):
+                control._append_event_locked(
+                    task["task_id"],
+                    "user.message",
+                    "user_1",
+                    {"message": f"message {index}"},
+                )
+            control._db.commit()
+
+        latest = control.conversation_messages(
+            conversation["conversation_id"], principal="user_1"
+        )
+        older = control.conversation_messages(
+            conversation["conversation_id"],
+            before=latest[0]["cursor"],
+            limit=200,
+            principal="user_1",
+        )
+
+        self.assertEqual(len(latest), 200)
+        self.assertEqual(len(older), 7)
+        self.assertLess(older[-1]["cursor"], latest[0]["cursor"])
+        self.assertEqual(
+            len({message["message_id"] for message in [*older, *latest]}),
+            207,
+        )
+
+    def test_conversation_access_versioning_and_legacy_task_projection(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task(
+            {"goal": "Keep old task links working", "adapter": "fake"},
+            principal="user_1",
+        )
+        projected = control.conversation_for_task(task["task_id"], principal="user_1")
+        updated = control.update_conversation(
+            projected["conversation_id"],
+            {"title": "Pinned legacy conversation", "pinned": True, "version": projected["version"]},
+            principal="user_1",
+        )
+
+        self.assertEqual(updated["title"], "Pinned legacy conversation")
+        self.assertIsNotNone(updated["pinned_at"])
+        with self.assertRaises(ConversationConflictError):
+            control.update_conversation(
+                projected["conversation_id"],
+                {"archived": True, "version": projected["version"]},
+                principal="user_1",
+            )
+        with self.assertRaises(PermissionError):
+            control.get_conversation(
+                projected["conversation_id"],
+                principal="user_2",
+            )
+
     def test_create_task_builds_plan_events_and_result(self):
         with self.subTest("single-agent fast path"):
             control = V2ControlPlane(self.tmp_path())
@@ -68,6 +449,106 @@ class V2ControlPlaneTest(unittest.TestCase):
             [agent["role"] for agent in task["plan"]["agent_tasks"]],
             ["brain", "builder", "reviewer"],
         )
+
+    def test_explicit_single_mode_does_not_expand_a_long_goal(self):
+        control = V2ControlPlane(self.tmp_path())
+        goal = "Audit this repository and report evidence without changing files. " * 5
+
+        task = control.create_task(
+            {"goal": goal, "mode": "single", "adapter": "fake"},
+            principal="user_1",
+        )
+
+        self.assertEqual(task["plan"]["strategy"], "single-agent-fast-path")
+        self.assertEqual(task["progress"]["total_steps"], 1)
+        self.assertEqual(
+            [agent["role"] for agent in task["plan"]["agent_tasks"]],
+            ["agent"],
+        )
+        wait_for_status(control, task["task_id"], "completed")
+        control.close()
+
+    def test_cancel_task_stops_open_work_and_is_idempotent(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task(
+            {"goal": "Run a long multi agent task " * 20, "mode": "multi-agent"},
+            principal="user_1",
+        )
+
+        cancelled = control.cancel_task(
+            task["task_id"],
+            principal="user_1",
+            reason="user stopped the conversation",
+        )
+        cancelled_again = control.cancel_task(
+            task["task_id"],
+            principal="user_1",
+        )
+
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled_again["status"], "cancelled")
+        self.assertEqual(control.workflow(task["task_id"])["run"]["status"], "cancelled")
+        self.assertIn(
+            "task.cancelled",
+            [event["type"] for event in control.events(task["task_id"])],
+        )
+
+    def test_cancel_task_terminates_a_live_cli_adapter(self):
+        control = V2ControlPlane(self.tmp_path())
+        script = control.root / "slow-codex-adapter"
+        child_ready = control.root / "child-ready"
+        child_terminated = control.root / "child-terminated"
+        child_code = (
+            "import pathlib, signal, sys, time; "
+            f"ready=pathlib.Path({str(child_ready)!r}); "
+            f"terminated=pathlib.Path({str(child_terminated)!r}); "
+            "signal.signal(signal.SIGTERM, lambda *_: "
+            "(terminated.write_text('yes'), sys.exit(0))); "
+            "ready.write_text('yes'); time.sleep(30)"
+        )
+        script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import subprocess, sys, time\n"
+            f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
+        old_command = os.environ.get("V2_CODEX_CLI_COMMAND")
+        try:
+            os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_CODEX_CLI_COMMAND"] = str(script)
+            task = control.create_task(
+                {"goal": "Run a cancellable CLI task", "adapter": "codex"},
+                principal="user_1",
+            )
+            deadline = time.time() + 2
+            process = None
+            while time.time() < deadline:
+                process = control._processes.get(task["task_id"])
+                if process is not None:
+                    break
+                time.sleep(0.01)
+            ready_deadline = time.time() + 2
+            while time.time() < ready_deadline and not child_ready.exists():
+                time.sleep(0.01)
+
+            self.assertIsNotNone(process)
+            self.assertTrue(child_ready.exists())
+            control.cancel_task(task["task_id"], principal="user_1")
+            process.wait(timeout=2)
+            terminated_deadline = time.time() + 2
+            while time.time() < terminated_deadline and not child_terminated.exists():
+                time.sleep(0.01)
+
+            self.assertIsNotNone(process.returncode)
+            self.assertTrue(child_terminated.exists())
+            self.assertEqual(control.get_task(task["task_id"])["status"], "cancelled")
+        finally:
+            restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
+            restore_env("V2_CODEX_CLI_COMMAND", old_command)
+            control.close()
 
     def test_dispatch_selects_requested_adapter_unit_and_channel(self):
         control = V2ControlPlane(self.tmp_path())
@@ -197,7 +678,7 @@ class V2ControlPlaneTest(unittest.TestCase):
             self.assertEqual(result["execution_mode"], "real-cli")
             self.assertIn("agentflow-v2-acp-a2a", result["summary"])
             with mock.patch(
-                "runtime.cloud_agents_runtime.v2_control_plane.subprocess.run",
+                "runtime.cloud_agents_runtime.v2_control_plane.subprocess.Popen",
                 side_effect=OSError("boom"),
             ):
                 failed = control._execute_agent_adapter(task["task_id"], agent)
@@ -205,6 +686,196 @@ class V2ControlPlaneTest(unittest.TestCase):
         finally:
             restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
             restore_env("V2_CODEX_CLI_COMMAND", old_command)
+
+    def test_qwen_cli_uses_noninteractive_protocol_and_extracts_result(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task(
+            {"goal": "Inspect the current workspace safely"}, principal="user_1"
+        )
+        task = wait_for_status(control, task["task_id"], "completed")
+        workspace = control.root / "workspace"
+        workspace.mkdir()
+        capture = control.root / "qwen-invocation.json"
+        script = control.root / "qwen-adapter"
+        script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, pathlib, sys\n"
+            f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args': sys.argv[1:], 'cwd': os.getcwd()}}))\n"
+            "print(json.dumps([{'type': 'result', 'is_error': False, 'result': '真实 Qwen 验证完成'}]))\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        agent = {
+            "agent_task_id": "at_qwen",
+            "role": "builder",
+            "title": "Qwen builder",
+            "adapter": "qwen",
+            "goal": "Use the qwen protocol",
+            "depends_on": [],
+            "artifact_contract": {"artifacts": ["final_summary"]},
+        }
+        old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
+        old_command = os.environ.get("V2_QWEN_CODE_COMMAND")
+        old_workspace = os.environ.get("V2_WORKSPACE_ROOT")
+        try:
+            os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_QWEN_CODE_COMMAND"] = str(script)
+            os.environ["V2_WORKSPACE_ROOT"] = str(workspace)
+            result = control._execute_agent_adapter(task["task_id"], agent)
+            invocation = json.loads(capture.read_text(encoding="utf-8"))
+
+            self.assertEqual(result["execution_mode"], "real-cli")
+            self.assertTrue(result["success"])
+            self.assertEqual(result["summary"], "真实 Qwen 验证完成")
+            self.assertEqual(
+                os.path.realpath(invocation["cwd"]), os.path.realpath(workspace)
+            )
+            self.assertIn("--prompt", invocation["args"])
+            prompt = invocation["args"][invocation["args"].index("--prompt") + 1]
+            self.assertIn("Do not create subagents", prompt)
+            self.assertIn("--output-format", invocation["args"])
+            self.assertEqual(
+                invocation["args"][invocation["args"].index("--output-format") + 1],
+                "stream-json",
+            )
+            self.assertNotIn("agentflow-v2-acp-a2a", invocation["args"])
+        finally:
+            restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
+            restore_env("V2_QWEN_CODE_COMMAND", old_command)
+            restore_env("V2_WORKSPACE_ROOT", old_workspace)
+
+    def test_qwen_result_parser_ignores_startup_noise_and_supports_ndjson(self):
+        noisy = (
+            "Warning: optional MCP server failed to start.\n"
+            '[{"type":"system","subtype":"init"},'
+            '{"type":"result","is_error":false,"result":"审计结论已验证"}]'
+        )
+        ndjson_error = (
+            '{"type":"system","subtype":"init"}\n'
+            '{"type":"result","is_error":true,"result":"认证失败"}\n'
+        )
+        adjacent_documents = (
+            '{"type":"system","subtype":"init"}'
+            "loading headless response..."
+            '[{"type":"result","is_error":false,"result":"最终报告"}]'
+        )
+
+        self.assertEqual(cli_result_summary("qwen", noisy), "审计结论已验证")
+        self.assertFalse(cli_result_is_error(noisy))
+        self.assertEqual(cli_result_summary("qwen", ndjson_error), "认证失败")
+        self.assertTrue(cli_result_is_error(ndjson_error))
+        self.assertEqual(cli_result_summary("qwen", adjacent_documents), "最终报告")
+
+    def test_qwen_json_error_and_process_failure_fail_the_task(self):
+        control = V2ControlPlane(self.tmp_path())
+        script = control.root / "qwen-error-adapter"
+        script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json\n"
+            "print(json.dumps([{'type': 'result', 'is_error': True, 'result': 'authentication failed'}]))\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
+        old_command = os.environ.get("V2_QWEN_CODE_COMMAND")
+        old_workspace = os.environ.get("V2_WORKSPACE_ROOT")
+        try:
+            os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_QWEN_CODE_COMMAND"] = str(script)
+            os.environ["V2_WORKSPACE_ROOT"] = str(control.root)
+            task = control.create_task(
+                {"goal": "This qwen run must fail", "adapter": "qwen"},
+                principal="user_1",
+            )
+            failed = wait_for_status(control, task["task_id"], "failed")
+
+            self.assertEqual(failed["status"], "failed")
+            workflow = control.workflow(task["task_id"])
+            self.assertEqual(workflow["run"]["status"], "failed")
+            self.assertEqual(workflow["steps"][0]["status"], "failed")
+            self.assertIn("authentication failed", failed["result"]["error"])
+        finally:
+            restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
+            restore_env("V2_QWEN_CODE_COMMAND", old_command)
+            restore_env("V2_WORKSPACE_ROOT", old_workspace)
+
+    def test_partial_failure_can_be_accepted_or_resume_only_unfinished_agents(self):
+        control = V2ControlPlane(self.tmp_path())
+        allow_success = control.root / "allow-builder-success"
+        invocation_log = control.root / "qwen-role-log"
+        script = control.root / "qwen-partial-adapter"
+        script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, pathlib, sys\n"
+            f"sentinel = pathlib.Path({str(allow_success)!r})\n"
+            f"log = pathlib.Path({str(invocation_log)!r})\n"
+            "prompt = sys.argv[sys.argv.index('--prompt') + 1]\n"
+            "role = next((name for name in ('brain', 'builder', 'reviewer') if f'Your role: {name}' in prompt), 'agent')\n"
+            "with log.open('a', encoding='utf-8') as stream: stream.write(role + '\\n')\n"
+            "failed = role == 'builder' and not sentinel.exists()\n"
+            "print(json.dumps([{'type': 'result', 'is_error': failed, 'result': ('builder failed safely' if failed else role + ' verified')}]))\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
+        old_command = os.environ.get("V2_QWEN_CODE_COMMAND")
+        old_workspace = os.environ.get("V2_WORKSPACE_ROOT")
+        try:
+            os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_QWEN_CODE_COMMAND"] = str(script)
+            os.environ["V2_WORKSPACE_ROOT"] = str(control.root)
+
+            partial_task = control.create_task(
+                {
+                    "goal": "Research, build, and review a recoverable result",
+                    "adapter": "qwen",
+                    "mode": "multi-agent",
+                },
+                principal="user_1",
+            )
+            self.assertEqual(
+                wait_for_status(control, partial_task["task_id"], "failed")["status"],
+                "failed",
+            )
+            with self.assertRaises(PermissionError):
+                control.accept_partial_result(
+                    partial_task["task_id"], principal="user_2"
+                )
+            accepted = control.accept_partial_result(
+                partial_task["task_id"], principal="user_1"
+            )
+            self.assertEqual(accepted["status"], "completed")
+            self.assertTrue(accepted["result"]["partial"])
+            self.assertEqual(accepted["result"]["evaluation"]["status"], "partial")
+
+            retry_task = control.create_task(
+                {
+                    "goal": "Retry only the unfinished recovery stages",
+                    "adapter": "qwen",
+                    "mode": "multi-agent",
+                },
+                principal="user_1",
+            )
+            self.assertEqual(
+                wait_for_status(control, retry_task["task_id"], "failed")["status"],
+                "failed",
+            )
+            allow_success.write_text("ok", encoding="utf-8")
+            control.retry_failed_steps(retry_task["task_id"], principal="user_1")
+            completed = wait_for_status(control, retry_task["task_id"], "completed")
+            self.assertEqual(completed["status"], "completed")
+            started_roles = [
+                event["actor"]
+                for event in control.events(retry_task["task_id"])
+                if event["type"] == "agent_task.started"
+            ]
+            self.assertEqual(started_roles.count("brain"), 1)
+            self.assertEqual(started_roles.count("builder"), 2)
+            self.assertEqual(started_roles.count("reviewer"), 1)
+        finally:
+            restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
+            restore_env("V2_QWEN_CODE_COMMAND", old_command)
+            restore_env("V2_WORKSPACE_ROOT", old_workspace)
 
     def test_idempotency_key_returns_existing_task(self):
         control = V2ControlPlane(self.tmp_path())

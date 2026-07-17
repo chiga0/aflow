@@ -5,6 +5,7 @@ import type {
   HTMLAttributes,
   ReactNode,
 } from "react";
+import { forwardRef } from "react";
 
 import { cn } from "../lib/utils";
 
@@ -35,14 +36,17 @@ const buttonVariants = cva(
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants>;
 
-export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return (
-    <button
-      className={cn(buttonVariants({ variant, size }), className)}
-      {...props}
-    />
-  );
-}
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button({ className, variant, size, ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        className={cn(buttonVariants({ variant, size }), className)}
+        {...props}
+      />
+    );
+  },
+);
 
 type LinkButtonProps = AnchorHTMLAttributes<HTMLAnchorElement> &
   VariantProps<typeof buttonVariants>;
@@ -203,7 +207,13 @@ export function Metric({
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({
+  status,
+  label,
+}: {
+  status: string;
+  label?: string;
+}) {
   const tone =
     status === "completed" || status === "pass"
       ? "ok"
@@ -212,7 +222,33 @@ export function StatusBadge({ status }: { status: string }) {
         : status === "running" || status === "queued" || status === "warn"
           ? "warn"
           : "neutral";
-  return <Badge tone={tone}>{status}</Badge>;
+  return <Badge tone={tone}>{label ?? status}</Badge>;
+}
+
+const statusLabels: Record<string, string> = {
+  active: "正在执行",
+  approved: "已批准",
+  cancelled: "已停止",
+  completed: "已完成",
+  expired: "已过期",
+  fail: "未通过",
+  failed: "需要处理",
+  loading: "正在同步",
+  partial: "部分完成",
+  pass: "通过",
+  paused: "已暂停",
+  pending: "等待处理",
+  queued: "排队中",
+  ready: "就绪",
+  rejected: "已拒绝",
+  revision_requested: "已退回修改",
+  running: "正在执行",
+  waiting_user: "等待你的决定",
+  warn: "注意",
+};
+
+export function statusLabel(status: string) {
+  return statusLabels[status] ?? status;
 }
 
 export function EmptyState({

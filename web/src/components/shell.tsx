@@ -22,6 +22,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { Badge, Button, StatusBadge } from "./ui";
+import { ClientShell } from "./client-shell";
 import {
   extractPermissionRequest,
   permissionEventId,
@@ -99,6 +100,9 @@ export function Shell() {
   const canUseAdmin = roles.some((role) =>
     ["owner", "operator", "auditor"].includes(role),
   );
+  if (!isAdmin) {
+    return <ClientShell />;
+  }
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur">
@@ -137,9 +141,7 @@ export function Shell() {
       </header>
 
       <div
-        className={
-          isAdmin ? "grid lg:grid-cols-[240px_minmax(0,1fr)]" : "grid"
-        }
+        className={isAdmin ? "grid lg:grid-cols-[240px_minmax(0,1fr)]" : "grid"}
       >
         {isAdmin ? (
           <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] border-r border-border bg-card lg:block">

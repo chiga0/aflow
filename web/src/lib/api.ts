@@ -441,6 +441,177 @@ export interface V2Task {
   events?: V2Event[];
 }
 
+export interface ConversationExecution {
+  execution_id: string;
+  conversation_id: string;
+  task_id: string;
+  sequence: number;
+  status: string;
+  trigger_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Conversation {
+  conversation_id: string;
+  tenant_id: string;
+  project_id: string;
+  created_by: string;
+  title: string;
+  status: string;
+  unread_count: number;
+  pending_approval_count: number;
+  pinned_at?: string | null;
+  archived_at?: string | null;
+  version: number;
+  projection_version: number;
+  last_meaningful_activity_at: string;
+  created_at: string;
+  updated_at: string;
+  executions?: ConversationExecution[];
+  latest_execution?: ConversationExecution | null;
+}
+
+export interface ConversationTextBlock {
+  type: "text";
+  text: string;
+}
+
+export interface ConversationEntityRefBlock {
+  type: "entity_ref";
+  entity_type: "plan" | "artifacts" | "approval" | string;
+  entity_id: string;
+  label: string;
+}
+
+export interface ConversationAttachmentBlock {
+  type: "attachment";
+  name: string;
+  href?: string;
+  media_type?: string;
+}
+
+export type ConversationContentBlock =
+  | ConversationTextBlock
+  | ConversationEntityRefBlock
+  | ConversationAttachmentBlock;
+
+export interface ConversationMessage {
+  message_id: string;
+  conversation_id: string;
+  execution_id: string;
+  cursor: number;
+  role: "user" | "agent" | "system" | string;
+  kind: "text" | "plan" | "brief" | "result" | "error" | "approval" | string;
+  content: ConversationContentBlock[];
+  created_at: string;
+  revision: number;
+}
+
+export interface ConversationMessageCommand {
+  conversation_id: string;
+  execution_id: string;
+  task_id: string;
+  event: V2Event | null;
+  created_execution: boolean;
+}
+
+export interface ConversationCanvasExecution extends ConversationExecution {
+  plan: V2Plan | null;
+  workflow: { run: V2WorkflowRun | null; steps: V2WorkflowStep[] };
+  artifacts: V2Artifact[];
+  evaluations: V2Evaluation[];
+  replays: V2Replay[];
+  events?: V2Event[];
+  progress: V2Progress;
+  result?: V2Task["result"];
+}
+
+export interface ConversationCanvas {
+  conversation_id: string;
+  projection_version: number;
+  executions: ConversationCanvasExecution[];
+  latest_execution: ConversationCanvasExecution | null;
+}
+
+export interface ConversationActivity {
+  conversation_id: string;
+  status: string;
+  latest_execution: ConversationExecution | null;
+  active_agent: V2AgentTask | null;
+  progress: V2Progress | null;
+  pending_approval_count: number;
+  updated_at: string;
+}
+
+export interface ApprovalEvidence {
+  type: string;
+  label?: string;
+  summary?: string;
+  ref?: string;
+  snippet?: string;
+}
+
+export interface ApprovalRequest {
+  approval_id: string;
+  conversation_id: string;
+  execution_id: string;
+  task_id: string;
+  requested_by: string;
+  intent: string;
+  evidence: ApprovalEvidence[];
+  impact: {
+    level: "low" | "medium" | "high";
+    summary: string;
+    affected_resources: string[];
+    reversible: boolean;
+  };
+  allowed_actions: Array<"approve" | "reject" | "pause" | "revise">;
+  scope: Record<string, unknown>;
+  status:
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "expired"
+    | "cancelled"
+    | "paused"
+    | "revision_requested";
+  version: number;
+  expires_at?: string | null;
+  decision?: string | null;
+  reason?: string | null;
+  decided_by?: string | null;
+  decided_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MobileSnapshot {
+  snapshot_version: number;
+  projection_version: number;
+  notification_cursor: number;
+  generated_at: string;
+  counts: {
+    pending_approvals: number;
+    active: number;
+    waiting_user: number;
+  };
+  approvals: ApprovalRequest[];
+  active_conversations: Conversation[];
+  recent_conversations: Conversation[];
+  stateless: true;
+}
+
+export interface MobileNotification {
+  cursor: number;
+  notification_id: string;
+  kind: "approval.requested" | string;
+  title: string;
+  body: string;
+  action_path: string;
+  created_at: string;
+}
+
 export interface V2Event {
   event_id: string;
   task_id: string;
@@ -604,6 +775,16 @@ export interface V2AdminOverview {
   reliability: Record<string, string>;
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -614,7 +795,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    throw new Error((await response.text()) || response.statusText);
+    throw new ApiError(
+      (await response.text()) || response.statusText,
+      response.status,
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -632,6 +816,101 @@ export const runtimeApi = {
       body: JSON.stringify({}),
     }),
   health: () => api<{ ok: boolean; version: string }>("health"),
+  conversations: (includeArchived = false) =>
+    api<{ conversations: Conversation[] }>(
+      `conversations?include_archived=${includeArchived ? "true" : "false"}`,
+    ),
+  conversation: (conversationId: string) =>
+    api<Conversation>(`conversations/${encodeURIComponent(conversationId)}`),
+  conversationForTask: (taskId: string) =>
+    api<Conversation>(`v2/tasks/${encodeURIComponent(taskId)}/conversation`),
+  conversationMessages: (
+    conversationId: string,
+    after = 0,
+    before?: number,
+    limit = 200,
+  ) => {
+    const query = new URLSearchParams({ after: String(Math.max(0, after)) });
+    if (before !== undefined) query.set("before", String(Math.max(0, before)));
+    if (limit !== 200)
+      query.set("limit", String(Math.max(1, Math.min(limit, 500))));
+    return api<{
+      messages: ConversationMessage[];
+      projection_version: number;
+    }>(`conversations/${encodeURIComponent(conversationId)}/messages?${query}`);
+  },
+  conversationCanvas: (conversationId: string) =>
+    api<ConversationCanvas>(
+      `conversations/${encodeURIComponent(conversationId)}/canvas`,
+    ),
+  conversationActivity: (conversationId: string) =>
+    api<ConversationActivity>(
+      `conversations/${encodeURIComponent(conversationId)}/activity`,
+    ),
+  createConversation: (payload: Record<string, unknown>) =>
+    api<Conversation>("conversations", {
+      method: "POST",
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    }),
+  updateConversation: (
+    conversationId: string,
+    payload: {
+      version: number;
+      title?: string;
+      pinned?: boolean;
+      archived?: boolean;
+    },
+  ) =>
+    api<Conversation>(`conversations/${encodeURIComponent(conversationId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  submitConversationMessage: (conversationId: string, message: string) =>
+    api<ConversationMessageCommand>(
+      `conversations/${encodeURIComponent(conversationId)}/messages`,
+      {
+        method: "POST",
+        headers: { "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ message }),
+      },
+    ),
+  stopConversation: (conversationId: string) =>
+    api<Conversation>(
+      `conversations/${encodeURIComponent(conversationId)}/stop`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "stopped from client conversation" }),
+      },
+    ),
+  approvals: (status = "pending") =>
+    api<{ approvals: ApprovalRequest[] }>(
+      `approvals?status=${encodeURIComponent(status)}`,
+    ),
+  approval: (approvalId: string) =>
+    api<ApprovalRequest>(`approvals/${encodeURIComponent(approvalId)}`),
+  decideApproval: (
+    approvalId: string,
+    payload: {
+      action: "approve" | "reject" | "pause" | "revise";
+      version: number;
+      reason?: string;
+      confirmed?: boolean;
+    },
+  ) =>
+    api<ApprovalRequest>(
+      `approvals/${encodeURIComponent(approvalId)}/decision`,
+      {
+        method: "POST",
+        headers: { "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify(payload),
+      },
+    ),
+  mobileSnapshot: () => api<MobileSnapshot>("mobile/snapshot"),
+  mobileNotifications: (after = 0) =>
+    api<{ notifications: MobileNotification[] }>(
+      `mobile/notifications?after=${Math.max(0, after)}`,
+    ),
   v2Capabilities: () => api<Record<string, unknown>>("v2/capabilities"),
   v2Tasks: () => api<{ tasks: V2Task[] }>("v2/tasks"),
   v2Task: (taskId: string) =>
@@ -675,6 +954,21 @@ export const runtimeApi = {
     api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}/retry`, {
       method: "POST",
       body: JSON.stringify({}),
+    }),
+  v2RetryFailedSteps: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}/retry-failed`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  v2AcceptPartialResult: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}/accept-partial`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  v2CancelTask: (taskId: string) =>
+    api<V2Task>(`v2/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "stopped from client conversation" }),
     }),
   v2ReplayTask: (taskId: string) =>
     api<V2Replay>(`v2/tasks/${encodeURIComponent(taskId)}/replay`, {
@@ -739,13 +1033,10 @@ export const runtimeApi = {
       },
     ),
   v2UpsertRbacPolicy: (tenantId: string, payload: Record<string, unknown>) =>
-    api<V2RbacPolicy>(
-      `v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`,
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-    ),
+    api<V2RbacPolicy>(`v2/admin/tenants/${encodeURIComponent(tenantId)}/rbac`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   capabilities: () => api<Capabilities>("capabilities"),
   metrics: () => api<Metrics>("metrics.json"),
   costStatus: () => api<CostStatus>("cost/status"),
@@ -989,6 +1280,14 @@ export function runEventStreamHref(runId: string) {
 
 export function sessionEventStreamHref(sessionId: string) {
   return `${API_BASE}session/${sessionId}/events`;
+}
+
+export function conversationEventStreamHref(conversationId: string, after = 0) {
+  return `${API_BASE}conversations/${encodeURIComponent(conversationId)}/events?after=${Math.max(0, after)}`;
+}
+
+export function mobileNotificationStreamHref(after = 0) {
+  return `${API_BASE}mobile/notifications/events?after=${Math.max(0, after)}`;
 }
 
 export function backupHref(name: string) {

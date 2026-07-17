@@ -97,7 +97,10 @@ import { LanguageProvider, useI18n, type I18nKey } from "./lib/i18n";
 import { downloadJson } from "./lib/utils";
 import {
   ProductAdminPage,
+  ProductApprovalsPage,
   ProductClientPage,
+  ProductConversationPage,
+  ProductMobileTriagePage,
   ProductTaskPage,
 } from "./product";
 
@@ -161,6 +164,36 @@ const taskDetailRoute = createRoute({
   path: "/tasks/$taskId",
   component: ProductTaskPage,
 });
+const conversationDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/conversations/$conversationId",
+  component: ProductConversationPage,
+});
+const conversationCanvasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/conversations/$conversationId/canvas/$canvasTab",
+  component: ProductConversationPage,
+});
+const conversationCanvasEntityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/conversations/$conversationId/canvas/$canvasTab/$entityId",
+  component: ProductConversationPage,
+});
+const approvalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/approvals",
+  component: ProductApprovalsPage,
+});
+const approvalDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/approvals/$approvalId",
+  component: ProductApprovalsPage,
+});
+const mobileTriageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mobile",
+  component: ProductMobileTriagePage,
+});
 const adminProfilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/profiles",
@@ -180,6 +213,12 @@ const adminOperationsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   taskDetailRoute,
+  conversationDetailRoute,
+  conversationCanvasRoute,
+  conversationCanvasEntityRoute,
+  approvalsRoute,
+  approvalDetailRoute,
+  mobileTriageRoute,
   adminOverviewRoute,
   adminOverviewAliasRoute,
   adminRunsRoute,
@@ -2810,7 +2849,9 @@ function AccessUserList({
 }) {
   const { t } = useI18n();
   const [roleByEmail, setRoleByEmail] = useState<Record<string, string>>({});
-  const [passwordByEmail, setPasswordByEmail] = useState<Record<string, string>>({});
+  const [passwordByEmail, setPasswordByEmail] = useState<
+    Record<string, string>
+  >({});
   useEffect(() => {
     setRoleByEmail((current) => {
       const next = { ...current };
@@ -2934,7 +2975,10 @@ function AccessUserList({
                 className="self-end"
                 disabled={!canManage || !passwordByEmail[user.email]}
                 onClick={() => {
-                  onResetPassword(user.email, passwordByEmail[user.email] ?? "");
+                  onResetPassword(
+                    user.email,
+                    passwordByEmail[user.email] ?? "",
+                  );
                   setPasswordByEmail((current) => ({
                     ...current,
                     [user.email]: "",
@@ -5637,7 +5681,10 @@ function isTerminalEvent(eventType: string) {
   return ["run.completed", "run.failed", "run.cancelled"].includes(eventType);
 }
 
-function effectiveTerminalStatus(status: string | undefined, events: RuntimeEvent[]) {
+function effectiveTerminalStatus(
+  status: string | undefined,
+  events: RuntimeEvent[],
+) {
   if (isTerminal(status)) {
     return status;
   }

@@ -410,6 +410,7 @@ class RuntimeEdgeTest(unittest.TestCase):
             )
             store._persist_auth_session(expired)
             self.assertIsNone(store.auth_session_identity("expired-token"))
+            store.close()
 
     def test_ops_helper_edges(self) -> None:
         self.assertEqual(permission_id_from_data({"permission_id": "direct"}), "direct")

@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ApiError,
   artifactHref,
   auditHref,
   backupHref,
   extractPermissionRequest,
   missionArtifactHref,
+  mobileNotificationStreamHref,
   permissionEventId,
   resolvedPermissionIds,
   runEventStreamHref,
@@ -15,6 +17,43 @@ import {
 } from "./api";
 
 describe("api helpers", () => {
+  it("wraps paged conversations, approvals, and the mobile snapshot", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((path: string, init?: RequestInit) => {
+        calls.push([path, init]);
+        return Promise.resolve(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    await runtimeApi.conversationMessages("conv 1", 0, 1_000, 800);
+    await runtimeApi.approvals("all");
+    await runtimeApi.approval("approval 1");
+    await runtimeApi.decideApproval("approval 1", {
+      action: "approve",
+      version: 2,
+      confirmed: true,
+    });
+    await runtimeApi.mobileSnapshot();
+    await runtimeApi.mobileNotifications(7);
+
+    expect(calls.map(([path]) => path)).toEqual([
+      "/conversations/conv%201/messages?after=0&before=1000&limit=500",
+      "/approvals?status=all",
+      "/approvals/approval%201",
+      "/approvals/approval%201/decision",
+      "/mobile/snapshot",
+      "/mobile/notifications?after=7",
+    ]);
+    expect(calls[3][1]).toMatchObject({ method: "POST" });
+  });
+
   it("extracts permission requests from direct and nested event shapes", () => {
     const direct = event("permission.requested", {
       permission_id: "perm_direct",
@@ -187,6 +226,8 @@ describe("api helpers", () => {
     await runtimeApi.v2CreateTask({ goal: "ship v2" });
     await runtimeApi.v2SubmitMessage("task 1", "continue");
     await runtimeApi.v2RetryTask("task 1");
+    await runtimeApi.v2RetryFailedSteps("task 1");
+    await runtimeApi.v2AcceptPartialResult("task 1");
     await runtimeApi.v2ReplayTask("task 1");
     await runtimeApi.v2AdminOverview();
     await runtimeApi.v2ExecutionUnits();
@@ -199,9 +240,14 @@ describe("api helpers", () => {
     await runtimeApi.v2WorkflowEngines();
     await runtimeApi.v2RegisterExecutionUnit({ unit_id: "docker-a" });
     await runtimeApi.v2DiscoverExecutionUnits();
-    await runtimeApi.v2ConfigureChannel("feishu", { webhook_url: "https://example.test" });
+    await runtimeApi.v2ConfigureChannel("feishu", {
+      webhook_url: "https://example.test",
+    });
     await runtimeApi.v2SendChannelMessage("feishu", { message: "hello" });
-    await runtimeApi.v2UpsertTenant({ tenant_id: "tenant_1", name: "Tenant 1" });
+    await runtimeApi.v2UpsertTenant({
+      tenant_id: "tenant_1",
+      name: "Tenant 1",
+    });
     await runtimeApi.v2UpsertTenantUser("tenant 1", {
       email: "ops@example.com",
       roles: ["member"],
@@ -270,6 +316,8 @@ describe("api helpers", () => {
       "/v2/tasks",
       "/v2/tasks/task%201/messages",
       "/v2/tasks/task%201/retry",
+      "/v2/tasks/task%201/retry-failed",
+      "/v2/tasks/task%201/accept-partial",
       "/v2/tasks/task%201/replay",
       "/v2/admin/overview",
       "/v2/admin/execution-units",
@@ -321,6 +369,8 @@ describe("api helpers", () => {
     expect(methods.get("/v2/tasks")).toBe("POST");
     expect(methods.get("/v2/tasks/task%201/messages")).toBe("POST");
     expect(methods.get("/v2/tasks/task%201/retry")).toBe("POST");
+    expect(methods.get("/v2/tasks/task%201/retry-failed")).toBe("POST");
+    expect(methods.get("/v2/tasks/task%201/accept-partial")).toBe("POST");
     expect(methods.get("/v2/tasks/task%201/replay")).toBe("POST");
     expect(methods.get("/v2/admin/execution-units")).toBe("POST");
     expect(methods.get("/v2/admin/execution-units/discover")).toBe("POST");
@@ -344,7 +394,9 @@ describe("api helpers", () => {
       ),
     );
 
-    await expect(runtimeApi.health()).rejects.toThrow("not allowed");
+    const error = await runtimeApi.health().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ message: "not allowed", status: 403 });
   });
 
   it("builds hrefs from the current app base", async () => {
@@ -363,6 +415,9 @@ describe("api helpers", () => {
     );
     expect(fresh.sessionEventStreamHref("run_1")).toBe(
       "/cloud-agents/session/run_1/events",
+    );
+    expect(fresh.mobileNotificationStreamHref(4)).toBe(
+      "/cloud-agents/mobile/notifications/events?after=4",
     );
     expect(fresh.backupHref("backup.tgz")).toBe(
       "/cloud-agents/ops/backups/backup.tgz",
@@ -385,6 +440,9 @@ describe("api helpers", () => {
     expect(auditHref("run_1")).toBe("/runs/run_1/audit.json");
     expect(runEventStreamHref("run_1")).toBe("/runs/run_1/events");
     expect(sessionEventStreamHref("run_1")).toBe("/session/run_1/events");
+    expect(mobileNotificationStreamHref(-1)).toBe(
+      "/mobile/notifications/events?after=0",
+    );
     expect(backupHref("backup.tgz")).toBe("/ops/backups/backup.tgz");
     expect(missionArtifactHref("mission_1", "manifest.json")).toBe(
       "/missions/mission_1/artifacts/manifest.json",

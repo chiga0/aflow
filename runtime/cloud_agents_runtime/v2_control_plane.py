@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import shlex
 import shutil
 import sqlite3
 import subprocess
 import threading
 import time
+import weakref
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import request
@@ -20,6 +24,28 @@ TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 SUPPORTED_MODES = {"auto", "single", "workflow", "multi-agent"}
 SUPPORTED_CHANNELS = {"web", "mobile", "dingtalk", "feishu", "wecom"}
 SUPPORTED_ADAPTERS = {"auto", "fake", "qwen", "codex", "claude", "opencode"}
+CONVERSATION_PROJECTION_VERSION = 2
+MOBILE_SNAPSHOT_VERSION = 1
+APPROVAL_TERMINAL_STATUSES = {
+    "approved",
+    "rejected",
+    "expired",
+    "cancelled",
+    "paused",
+    "revision_requested",
+}
+
+
+class ConversationConflictError(RuntimeError):
+    """Raised when a versioned conversation update loses a compare-and-set race."""
+
+
+class ApprovalConflictError(RuntimeError):
+    """Raised when an approval decision is stale or already resolved."""
+
+
+class ApprovalConfirmationRequiredError(RuntimeError):
+    """Raised when a high-risk approval lacks explicit confirmation."""
 
 
 class V2ControlPlane:
@@ -35,12 +61,46 @@ class V2ControlPlane:
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "control_plane.db"
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._db_finalizer = weakref.finalize(self, self._db.close)
         self._db.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._event_condition = threading.Condition(self._lock)
         self._threads: dict[str, threading.Thread] = {}
+        self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._closed = False
         self._init_db()
         self._ensure_defaults()
+        self._backfill_conversations()
         self._recover_open_tasks()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            processes = list(self._processes.values())
+            threads = list(self._threads.values())
+            for process in processes:
+                terminate_process_group(process)
+            self._event_condition.notify_all()
+        for thread in threads:
+            if thread is not threading.current_thread():
+                thread.join(timeout=2)
+        with self._lock:
+            if self._db_finalizer.alive:
+                self._db_finalizer()
+
+    @property
+    def closed(self) -> bool:
+        with self._lock:
+            return self._closed
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            # Interpreter shutdown may already have released locks/modules.
+            pass
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -61,6 +121,13 @@ class V2ControlPlane:
                 "artifact_registry",
                 "evaluation_registry",
                 "retry_replay",
+                "task_cancellation",
+                "conversation_projection",
+                "conversation_executions",
+                "conversation_sse",
+                "approval_compare_and_set",
+                "mobile_triage_snapshot",
+                "mobile_notification_relay",
                 "admin_overview",
                 "tenant_admin",
                 "rbac_policy_registry",
@@ -86,6 +153,7 @@ class V2ControlPlane:
         goal = str(payload.get("goal") or payload.get("message") or "").strip()
         if not goal:
             raise ValueError("goal is required")
+        defer_runner = bool(payload.get("_defer_runner"))
         with self._lock:
             if idempotency_key:
                 existing = self._find_task_by_idempotency_key(idempotency_key)
@@ -179,7 +247,8 @@ class V2ControlPlane:
             )
             self._db.commit()
             task = self.get_task(task_id)
-        self._ensure_runner(task_id)
+        if not defer_runner:
+            self._ensure_runner(task_id)
         return task
 
     def list_tasks(self) -> list[dict[str, Any]]:
@@ -241,6 +310,927 @@ class V2ControlPlane:
             self._touch_task_locked(task_id)
             self._db.commit()
             return event
+
+    def list_conversations(
+        self,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            clauses: list[str] = []
+            values: list[Any] = []
+            if not include_archived:
+                clauses.append("archived_at IS NULL")
+            if principal and not allow_all:
+                clauses.append("created_by = ?")
+                values.append(principal)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            rows = self._db.execute(
+                f"""
+                SELECT * FROM v2_conversations
+                {where}
+                ORDER BY pinned_at IS NULL, pinned_at DESC,
+                         last_meaningful_activity_at DESC, created_at DESC
+                """,
+                values,
+            ).fetchall()
+            conversations: list[dict[str, Any]] = []
+            for row in rows:
+                self._sync_conversation_locked(row["conversation_id"])
+                current = self._conversation_row(row["conversation_id"])
+                if current is not None:
+                    conversations.append(self._conversation_from_row(current))
+            self._db.commit()
+            return conversations
+
+    def create_conversation(
+        self,
+        payload: dict[str, Any],
+        *,
+        principal: str,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        goal = str(payload.get("goal") or payload.get("message") or "").strip()
+        if not goal:
+            raise ValueError("goal is required")
+        with self._lock:
+            if idempotency_key:
+                existing = self._db.execute(
+                    "SELECT conversation_id FROM v2_conversations WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing is not None:
+                    return self.get_conversation(
+                        existing["conversation_id"],
+                        principal=principal,
+                    )
+            now = utc_now()
+            conversation_id = f"conv_{uuid4().hex}"
+            self._db.execute(
+                """
+                INSERT INTO v2_conversations (
+                    conversation_id, tenant_id, project_id, created_by, title,
+                    status, unread_count, pending_approval_count, version,
+                    projection_version, idempotency_key,
+                    last_meaningful_activity_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    str(payload.get("tenant_id") or "tenant_default"),
+                    str(payload.get("project_id") or "project_default"),
+                    principal,
+                    str(payload.get("title") or summarize_goal(goal)),
+                    "active",
+                    CONVERSATION_PROJECTION_VERSION,
+                    idempotency_key,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            self._db.commit()
+        try:
+            task_payload = dict(payload)
+            task_payload["goal"] = goal
+            task_payload["_defer_runner"] = True
+            metadata = dict(task_payload.get("metadata") or {})
+            metadata["conversation_id"] = conversation_id
+            metadata["execution_sequence"] = 1
+            task_payload["metadata"] = metadata
+            task = self.create_task(
+                task_payload,
+                principal=principal,
+                idempotency_key=f"conversation:{idempotency_key}"
+                if idempotency_key
+                else None,
+            )
+        except Exception:
+            with self._lock:
+                self._db.execute(
+                    "DELETE FROM v2_conversations WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                self._db.commit()
+            raise
+        with self._lock:
+            execution_id = f"exec_{uuid4().hex}"
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_executions (
+                    execution_id, conversation_id, task_id, sequence, status,
+                    trigger_message, idempotency_key, created_at, updated_at
+                )
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    execution_id,
+                    conversation_id,
+                    task["task_id"],
+                    task["status"],
+                    goal,
+                    idempotency_key,
+                    task["created_at"],
+                    task["updated_at"],
+                ),
+            )
+            execution_row = self._db.execute(
+                "SELECT execution_id FROM v2_executions WHERE task_id = ?",
+                (task["task_id"],),
+            ).fetchone()
+            if execution_row is not None:
+                execution_id = execution_row["execution_id"]
+            approval_spec = approval_spec_for_payload(payload, goal)
+            if approval_spec is not None:
+                self._create_approval_locked(
+                    conversation_id=conversation_id,
+                    execution_id=execution_id,
+                    task_id=task["task_id"],
+                    payload=approval_spec,
+                    requested_by="risk-policy",
+                )
+            self._sync_conversation_locked(conversation_id)
+            self._rebuild_conversation_projection_locked(conversation_id)
+            self._db.commit()
+            self._event_condition.notify_all()
+            if approval_spec is None:
+                self._ensure_runner(task["task_id"])
+            return self.get_conversation(conversation_id, principal=principal)
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            row = self._conversation_row(conversation_id)
+            if row is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(row, principal, allow_all)
+            self._sync_conversation_locked(conversation_id)
+            row = self._conversation_row(conversation_id)
+            if row is None:
+                raise KeyError(conversation_id)
+            conversation = self._conversation_from_row(row)
+            execution_rows = self._db.execute(
+                """
+                SELECT * FROM v2_executions
+                WHERE conversation_id = ?
+                ORDER BY sequence ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+            conversation["executions"] = [
+                self._execution_from_row(execution) for execution in execution_rows
+            ]
+            conversation["latest_execution"] = (
+                conversation["executions"][-1] if conversation["executions"] else None
+            )
+            self._db.commit()
+            return conversation
+
+    def conversation_for_task(
+        self,
+        task_id: str,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT conversation_id FROM v2_executions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                # Legacy Task URLs are projected lazily. Conversation-native
+                # reads never need to rescan the Task table.
+                self._backfill_conversations_locked()
+                row = self._db.execute(
+                    "SELECT conversation_id FROM v2_executions WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            return self.get_conversation(
+                row["conversation_id"],
+                principal=principal,
+                allow_all=allow_all,
+            )
+
+    def update_conversation(
+        self,
+        conversation_id: str,
+        payload: dict[str, Any],
+        *,
+        principal: str,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            row = self._conversation_row(conversation_id)
+            if row is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(row, principal, allow_all)
+            expected_version = payload.get("version")
+            if expected_version is not None and int(expected_version) != int(row["version"]):
+                raise ConversationConflictError("conversation version is stale")
+            title = str(payload.get("title") or row["title"]).strip()
+            if not title:
+                raise ValueError("title is required")
+            now = utc_now()
+            pinned_at = row["pinned_at"]
+            archived_at = row["archived_at"]
+            if "pinned" in payload:
+                pinned_at = now if bool(payload["pinned"]) else None
+            if "archived" in payload:
+                archived_at = now if bool(payload["archived"]) else None
+            self._db.execute(
+                """
+                UPDATE v2_conversations
+                SET title = ?, pinned_at = ?, archived_at = ?,
+                    version = version + 1, updated_at = ?
+                WHERE conversation_id = ?
+                """,
+                (title, pinned_at, archived_at, now, conversation_id),
+            )
+            self._db.commit()
+            return self.get_conversation(
+                conversation_id,
+                principal=principal,
+                allow_all=allow_all,
+            )
+
+    def conversation_messages(
+        self,
+        conversation_id: str,
+        *,
+        after: int = 0,
+        before: int | None = None,
+        limit: int = 200,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            row = self._conversation_row(conversation_id)
+            if row is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(row, principal, allow_all)
+            self._rebuild_conversation_projection_locked(conversation_id)
+            page_size = max(1, min(int(limit), 500))
+            if before is not None:
+                rows = self._db.execute(
+                    """
+                    SELECT * FROM v2_conversation_messages
+                    WHERE conversation_id = ? AND cursor < ?
+                    ORDER BY cursor DESC
+                    LIMIT ?
+                    """,
+                    (conversation_id, max(0, int(before)), page_size),
+                ).fetchall()
+                rows = list(reversed(rows))
+            elif after > 0:
+                rows = self._db.execute(
+                    """
+                    SELECT * FROM v2_conversation_messages
+                    WHERE conversation_id = ? AND cursor > ?
+                    ORDER BY cursor ASC
+                    LIMIT ?
+                    """,
+                    (conversation_id, max(0, int(after)), page_size),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    """
+                    SELECT * FROM v2_conversation_messages
+                    WHERE conversation_id = ?
+                    ORDER BY cursor DESC
+                    LIMIT ?
+                    """,
+                    (conversation_id, page_size),
+                ).fetchall()
+                rows = list(reversed(rows))
+            self._db.commit()
+            return [self._conversation_message_from_row(message) for message in rows]
+
+    def wait_for_conversation_messages(
+        self,
+        conversation_id: str,
+        *,
+        after: int,
+        timeout: float,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        deadline = time.monotonic() + timeout
+        with self._event_condition:
+            while True:
+                if self._closed:
+                    return []
+                messages = self.conversation_messages(
+                    conversation_id,
+                    after=after,
+                    principal=principal,
+                    allow_all=allow_all,
+                )
+                if messages:
+                    return messages
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return []
+                self._event_condition.wait(timeout=remaining)
+
+    def append_conversation_message(
+        self,
+        conversation_id: str,
+        message: str,
+        *,
+        principal: str,
+        idempotency_key: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        message = message.strip()
+        if not message:
+            raise ValueError("message is required")
+        with self._lock:
+            conversation = self._conversation_row(conversation_id)
+            if conversation is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(conversation, principal, allow_all)
+            if idempotency_key:
+                existing = self._db.execute(
+                    """
+                    SELECT result_json FROM v2_conversation_commands
+                    WHERE idempotency_key = ?
+                    """,
+                    (idempotency_key,),
+                ).fetchone()
+                if existing is not None:
+                    return json_loads(existing["result_json"])
+            latest = self._latest_execution_row(conversation_id)
+            if latest is None:
+                raise RuntimeError("conversation has no execution")
+            latest_task = self._task_row(latest["task_id"])
+            if latest_task is None:
+                raise RuntimeError("conversation execution task is missing")
+            pending_approval = self._db.execute(
+                """
+                SELECT 1 FROM v2_approvals
+                WHERE task_id = ? AND status = 'pending'
+                LIMIT 1
+                """,
+                (latest_task["task_id"],),
+            ).fetchone()
+            if latest_task["status"] in {"queued", "running"} or (
+                latest_task["status"] == "waiting_user" and pending_approval is not None
+            ):
+                event = self.append_message(
+                    latest_task["task_id"],
+                    message,
+                    principal=principal,
+                )
+                result = {
+                    "conversation_id": conversation_id,
+                    "execution_id": latest["execution_id"],
+                    "task_id": latest["task_id"],
+                    "event": event,
+                    "created_execution": False,
+                }
+            else:
+                if latest_task["status"] in {"waiting_user", "paused"}:
+                    self._set_task_status_locked(latest_task["task_id"], "cancelled")
+                    self._set_workflow_status_locked(latest_task["task_id"], "cancelled")
+                    self._append_event_locked(
+                        latest_task["task_id"],
+                        "task.superseded",
+                        principal,
+                        {"reason": "continued after approval revision or pause"},
+                    )
+                sequence = int(latest["sequence"]) + 1
+                previous_task = self.get_task(latest["task_id"])
+                task = self.create_task(
+                    {
+                        "goal": message,
+                        "mode": previous_task["mode"],
+                        "adapter": previous_task["adapter"],
+                        "channel": previous_task["channel"],
+                        "tenant_id": conversation["tenant_id"],
+                        "project_id": conversation["project_id"],
+                        "metadata": {
+                            "conversation_id": conversation_id,
+                            "execution_sequence": sequence,
+                            "continued_from_task_id": latest["task_id"],
+                        },
+                        "_defer_runner": True,
+                    },
+                    principal=principal,
+                    idempotency_key=f"message:{idempotency_key}"
+                    if idempotency_key
+                    else None,
+                )
+                execution_id = f"exec_{uuid4().hex}"
+                self._db.execute(
+                    """
+                    INSERT INTO v2_executions (
+                        execution_id, conversation_id, task_id, sequence, status,
+                        trigger_message, idempotency_key, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        execution_id,
+                        conversation_id,
+                        task["task_id"],
+                        sequence,
+                        task["status"],
+                        message,
+                        idempotency_key,
+                        task["created_at"],
+                        task["updated_at"],
+                    ),
+                )
+                result = {
+                    "conversation_id": conversation_id,
+                    "execution_id": execution_id,
+                    "task_id": task["task_id"],
+                    "event": None,
+                    "created_execution": True,
+                }
+                approval_spec = approval_spec_for_payload({}, message)
+                if approval_spec is not None:
+                    self._create_approval_locked(
+                        conversation_id=conversation_id,
+                        execution_id=execution_id,
+                        task_id=task["task_id"],
+                        payload=approval_spec,
+                        requested_by="risk-policy",
+                    )
+                else:
+                    self._ensure_runner(task["task_id"])
+            if idempotency_key:
+                self._db.execute(
+                    """
+                    INSERT INTO v2_conversation_commands (
+                        command_id, conversation_id, idempotency_key,
+                        result_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"cmd_{uuid4().hex}",
+                        conversation_id,
+                        idempotency_key,
+                        json_dumps(result),
+                        utc_now(),
+                    ),
+                )
+            self._sync_conversation_locked(conversation_id)
+            self._rebuild_conversation_projection_locked(conversation_id)
+            self._db.commit()
+            self._event_condition.notify_all()
+            return result
+
+    def stop_conversation(
+        self,
+        conversation_id: str,
+        *,
+        principal: str,
+        reason: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            conversation = self._conversation_row(conversation_id)
+            if conversation is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(conversation, principal, allow_all)
+            latest = self._latest_execution_row(conversation_id)
+            if latest and latest["status"] not in TERMINAL_TASK_STATUSES:
+                self.cancel_task(
+                    latest["task_id"],
+                    principal=principal,
+                    reason=reason or "conversation stopped by user",
+                )
+            self._sync_conversation_locked(conversation_id)
+            self._rebuild_conversation_projection_locked(conversation_id)
+            self._db.commit()
+            return self.get_conversation(
+                conversation_id,
+                principal=principal,
+                allow_all=allow_all,
+            )
+
+    def conversation_activity(
+        self,
+        conversation_id: str,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        conversation = self.get_conversation(
+            conversation_id,
+            principal=principal,
+            allow_all=allow_all,
+        )
+        latest = conversation.get("latest_execution")
+        task = self.get_task(latest["task_id"]) if latest else None
+        active_agent = None
+        if task and task.get("plan"):
+            active_agent = next(
+                (
+                    agent
+                    for agent in task["plan"]["agent_tasks"]
+                    if agent["status"] in {"queued", "running"}
+                ),
+                None,
+            )
+        return {
+            "conversation_id": conversation_id,
+            "status": conversation["status"],
+            "latest_execution": latest,
+            "active_agent": active_agent,
+            "progress": task.get("progress") if task else None,
+            "pending_approval_count": conversation["pending_approval_count"],
+            "updated_at": conversation["updated_at"],
+        }
+
+    def conversation_canvas(
+        self,
+        conversation_id: str,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        conversation = self.get_conversation(
+            conversation_id,
+            principal=principal,
+            allow_all=allow_all,
+        )
+        executions: list[dict[str, Any]] = []
+        for execution in conversation["executions"]:
+            task_id = execution["task_id"]
+            task = self.get_task(task_id)
+            executions.append(
+                {
+                    **execution,
+                    "plan": task.get("plan"),
+                    "workflow": self.workflow(task_id),
+                    "artifacts": self.artifacts(task_id),
+                    "evaluations": self.evaluations(task_id),
+                    "replays": self.replays(task_id),
+                    "events": task.get("events", []),
+                    "progress": task.get("progress"),
+                    "result": task.get("result"),
+                }
+            )
+        return {
+            "conversation_id": conversation_id,
+            "projection_version": CONVERSATION_PROJECTION_VERSION,
+            "executions": executions,
+            "latest_execution": executions[-1] if executions else None,
+        }
+
+    def list_approvals(
+        self,
+        *,
+        status: str | None = "pending",
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            self._expire_approvals_locked()
+            clauses: list[str] = []
+            values: list[Any] = []
+            if status and status != "all":
+                clauses.append("approval.status = ?")
+                values.append(status)
+            if principal and not allow_all:
+                clauses.append("conversation.created_by = ?")
+                values.append(principal)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            rows = self._db.execute(
+                f"""
+                SELECT approval.*
+                FROM v2_approvals AS approval
+                JOIN v2_conversations AS conversation
+                  ON conversation.conversation_id = approval.conversation_id
+                {where}
+                ORDER BY
+                  CASE json_extract(approval.impact_json, '$.level')
+                    WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2
+                  END,
+                  approval.created_at ASC
+                """,
+                values,
+            ).fetchall()
+            self._db.commit()
+            return [self._approval_from_row(row) for row in rows]
+
+    def get_approval(
+        self,
+        approval_id: str,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._expire_approvals_locked(approval_id)
+            row = self._approval_row(approval_id)
+            if row is None:
+                raise KeyError(approval_id)
+            conversation = self._conversation_row(row["conversation_id"])
+            if conversation is None:
+                raise KeyError(row["conversation_id"])
+            self._assert_conversation_access(conversation, principal, allow_all)
+            self._db.commit()
+            return self._approval_from_row(row)
+
+    def request_approval(
+        self,
+        conversation_id: str,
+        payload: dict[str, Any],
+        *,
+        principal: str,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            conversation = self._conversation_row(conversation_id)
+            if conversation is None:
+                raise KeyError(conversation_id)
+            self._assert_conversation_access(conversation, principal, allow_all)
+            execution = self._latest_execution_row(conversation_id)
+            if execution is None:
+                raise RuntimeError("conversation has no execution")
+            approval = self._create_approval_locked(
+                conversation_id=conversation_id,
+                execution_id=execution["execution_id"],
+                task_id=execution["task_id"],
+                payload=payload,
+                requested_by=principal,
+            )
+            self._sync_conversation_locked(conversation_id)
+            self._rebuild_conversation_projection_locked(conversation_id)
+            self._db.commit()
+            self._event_condition.notify_all()
+            return approval
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        payload: dict[str, Any],
+        *,
+        principal: str,
+        idempotency_key: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        action = str(payload.get("action") or payload.get("decision") or "").strip()
+        if action not in {"approve", "reject", "pause", "revise"}:
+            raise ValueError("action must be approve, reject, pause, or revise")
+        if payload.get("version") is None:
+            raise ValueError("version is required")
+        start_runner = False
+        with self._lock:
+            if idempotency_key:
+                existing = self._db.execute(
+                    "SELECT result_json FROM v2_approval_commands WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing is not None:
+                    return json_loads(existing["result_json"])
+            self._expire_approvals_locked(approval_id)
+            row = self._approval_row(approval_id)
+            if row is None:
+                raise KeyError(approval_id)
+            conversation = self._conversation_row(row["conversation_id"])
+            if conversation is None:
+                raise KeyError(row["conversation_id"])
+            self._assert_conversation_access(conversation, principal, allow_all)
+            if row["status"] != "pending":
+                raise ApprovalConflictError(
+                    f"approval is already {row['status']}"
+                )
+            expected_version = int(payload["version"])
+            if expected_version != int(row["version"]):
+                raise ApprovalConflictError("approval version is stale")
+            allowed_actions = json_loads(row["allowed_actions_json"])
+            if action not in allowed_actions:
+                raise ValueError(f"action {action} is not allowed")
+            impact = json_loads(row["impact_json"])
+            if (
+                action == "approve"
+                and impact.get("level") == "high"
+                and payload.get("confirmed") is not True
+            ):
+                raise ApprovalConfirmationRequiredError(
+                    "high-risk approval requires confirmed=true"
+                )
+            now = utc_now()
+            next_status = {
+                "approve": "approved",
+                "reject": "rejected",
+                "pause": "paused",
+                "revise": "revision_requested",
+            }[action]
+            result = self._db.execute(
+                """
+                UPDATE v2_approvals
+                SET status = ?, version = version + 1, decision = ?, reason = ?,
+                    decided_by = ?, decided_at = ?, updated_at = ?
+                WHERE approval_id = ? AND status = 'pending' AND version = ?
+                """,
+                (
+                    next_status,
+                    action,
+                    str(payload.get("reason") or "").strip() or None,
+                    principal,
+                    now,
+                    now,
+                    approval_id,
+                    expected_version,
+                ),
+            )
+            if result.rowcount != 1:
+                raise ApprovalConflictError("approval decision lost compare-and-set")
+            task_id = row["task_id"]
+            if action == "approve":
+                self._set_task_status_locked(task_id, "queued")
+                self._set_workflow_status_locked(task_id, "queued")
+                start_runner = True
+            elif action == "reject":
+                self._set_task_status_locked(task_id, "cancelled")
+                self._set_workflow_status_locked(task_id, "cancelled")
+                self._append_event_locked(
+                    task_id,
+                    "task.cancelled",
+                    principal,
+                    {"reason": payload.get("reason") or "approval rejected"},
+                )
+            elif action == "pause":
+                self._set_task_status_locked(task_id, "paused")
+                self._set_workflow_status_locked(task_id, "paused")
+            else:
+                self._set_task_status_locked(task_id, "waiting_user")
+                self._set_workflow_status_locked(task_id, "waiting_user")
+            self._append_event_locked(
+                task_id,
+                f"approval.{next_status}",
+                principal,
+                {
+                    "approval_id": approval_id,
+                    "decision": action,
+                    "reason": payload.get("reason"),
+                },
+            )
+            self._sync_conversation_locked(row["conversation_id"])
+            self._rebuild_conversation_projection_locked(row["conversation_id"])
+            approval = self._approval_from_row(self._approval_row(approval_id))
+            if idempotency_key:
+                self._db.execute(
+                    """
+                    INSERT INTO v2_approval_commands (
+                        command_id, approval_id, idempotency_key, result_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"apcmd_{uuid4().hex}",
+                        approval_id,
+                        idempotency_key,
+                        json_dumps(approval),
+                        now,
+                    ),
+                )
+            self._db.commit()
+            self._event_condition.notify_all()
+            if start_runner:
+                self._ensure_runner(task_id)
+            return approval
+
+    def mobile_snapshot(
+        self,
+        *,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> dict[str, Any]:
+        conversations = self.list_conversations(
+            principal=principal,
+            allow_all=allow_all,
+            include_archived=False,
+        )
+        approvals = self.list_approvals(
+            status="pending",
+            principal=principal,
+            allow_all=allow_all,
+        )
+        active = [
+            conversation
+            for conversation in conversations
+            if conversation["status"] in {"active", "waiting_user"}
+        ]
+        recent = conversations[:20]
+        return {
+            "snapshot_version": MOBILE_SNAPSHOT_VERSION,
+            "projection_version": CONVERSATION_PROJECTION_VERSION,
+            "notification_cursor": self._latest_mobile_notification_cursor(
+                principal=principal,
+                allow_all=allow_all,
+            ),
+            "generated_at": utc_now(),
+            "counts": {
+                "pending_approvals": len(approvals),
+                "active": sum(
+                    1 for conversation in active if conversation["status"] == "active"
+                ),
+                "waiting_user": sum(
+                    1
+                    for conversation in active
+                    if conversation["status"] == "waiting_user"
+                ),
+            },
+            "approvals": approvals,
+            "active_conversations": active,
+            "recent_conversations": recent,
+            "stateless": True,
+        }
+
+    def _latest_mobile_notification_cursor(
+        self,
+        *,
+        principal: str | None,
+        allow_all: bool,
+    ) -> int:
+        with self._lock:
+            if principal and not allow_all:
+                row = self._db.execute(
+                    """
+                    SELECT COALESCE(MAX(notification.cursor), 0) AS cursor
+                    FROM v2_mobile_notifications AS notification
+                    JOIN v2_conversations AS conversation
+                      ON conversation.conversation_id = notification.conversation_id
+                    WHERE conversation.created_by = ?
+                    """,
+                    (principal,),
+                ).fetchone()
+            else:
+                row = self._db.execute(
+                    "SELECT COALESCE(MAX(cursor), 0) AS cursor FROM v2_mobile_notifications"
+                ).fetchone()
+            return int(row["cursor"] if row is not None else 0)
+
+    def mobile_notifications(
+        self,
+        *,
+        after: int = 0,
+        limit: int = 100,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            clauses = ["notification.cursor > ?"]
+            values: list[Any] = [max(0, int(after))]
+            if principal and not allow_all:
+                clauses.append("conversation.created_by = ?")
+                values.append(principal)
+            values.append(max(1, min(int(limit), 200)))
+            rows = self._db.execute(
+                f"""
+                SELECT notification.*
+                FROM v2_mobile_notifications AS notification
+                JOIN v2_conversations AS conversation
+                  ON conversation.conversation_id = notification.conversation_id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY notification.cursor ASC
+                LIMIT ?
+                """,
+                values,
+            ).fetchall()
+            return [self._mobile_notification_from_row(row) for row in rows]
+
+    def wait_for_mobile_notifications(
+        self,
+        *,
+        after: int,
+        timeout: float,
+        principal: str | None = None,
+        allow_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        deadline = time.monotonic() + timeout
+        with self._event_condition:
+            while True:
+                if self._closed:
+                    return []
+                notifications = self.mobile_notifications(
+                    after=after,
+                    principal=principal,
+                    allow_all=allow_all,
+                )
+                if notifications:
+                    return notifications
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return []
+                self._event_condition.wait(timeout=remaining)
 
     def admin_overview(self) -> dict[str, Any]:
         with self._lock:
@@ -789,6 +1779,161 @@ class V2ControlPlane:
         self._ensure_runner(task_id)
         return self.get_task(task_id)
 
+    def retry_failed_steps(self, task_id: str, *, principal: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._task_row(task_id)
+            if row is None:
+                raise KeyError(task_id)
+            if row["created_by"] != principal:
+                raise PermissionError("task is not accessible to this principal")
+            if row["status"] != "failed":
+                raise ValueError("only a failed task can retry failed steps")
+            now = utc_now()
+            self._db.execute(
+                """
+                UPDATE v2_agent_tasks
+                SET status = 'queued', result_json = ?, completed_at = NULL, updated_at = ?
+                WHERE task_id = ? AND status != 'completed'
+                """,
+                (json_dumps({}), now, task_id),
+            )
+            self._set_task_status_locked(task_id, "queued")
+            current = self._workflow_run(task_id)
+            attempt = 1 if current is None else int(current["attempt"]) + 1
+            self._db.execute(
+                """
+                UPDATE v2_workflow_runs
+                SET status = ?, attempt = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
+                ("queued", attempt, now, task_id),
+            )
+            self._append_event_locked(
+                task_id,
+                "task.failed_steps_retry_requested",
+                principal,
+                {"attempt": attempt},
+            )
+            self._db.commit()
+        self._ensure_runner(task_id)
+        return self.get_task(task_id)
+
+    def accept_partial_result(self, task_id: str, *, principal: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._task_row(task_id)
+            if row is None:
+                raise KeyError(task_id)
+            if row["created_by"] != principal:
+                raise PermissionError("task is not accessible to this principal")
+            if row["status"] != "failed":
+                raise ValueError("only a failed task can accept a partial result")
+            completed = [
+                agent for agent in self._agent_tasks(task_id)
+                if agent["status"] == "completed"
+            ]
+            if not completed:
+                raise ValueError("no verified partial result is available")
+            self._set_task_status_locked(task_id, "completed")
+            self._set_workflow_status_locked(task_id, "completed")
+            self._append_event_locked(
+                task_id,
+                "task.partial_accepted",
+                principal,
+                {
+                    "completed_agent_tasks": len(completed),
+                    "summary": "用户接受了已经验证的部分结果。",
+                },
+            )
+            execution = self._db.execute(
+                "SELECT conversation_id FROM v2_executions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if execution is not None:
+                self._sync_conversation_locked(execution["conversation_id"])
+                self._rebuild_conversation_projection_locked(
+                    execution["conversation_id"]
+                )
+            self._db.commit()
+            return self.get_task(task_id)
+
+    def cancel_task(
+        self,
+        task_id: str,
+        *,
+        principal: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            row = self._task_row(task_id)
+            if row is None:
+                raise KeyError(task_id)
+            if row["status"] in TERMINAL_TASK_STATUSES:
+                return self.get_task(task_id)
+            now = utc_now()
+            self._set_task_status_locked(task_id, "cancelled")
+            self._set_workflow_status_locked(task_id, "cancelled")
+            process = self._processes.get(task_id)
+            if process is not None:
+                terminate_process_group(process)
+            self._db.execute(
+                """
+                UPDATE v2_agent_tasks
+                SET status = ?, updated_at = ?
+                WHERE task_id = ? AND status IN ('queued', 'running')
+                """,
+                ("cancelled", now, task_id),
+            )
+            self._db.execute(
+                """
+                UPDATE v2_workflow_steps
+                SET status = ?, updated_at = ?, completed_at = ?
+                WHERE task_id = ? AND status IN ('queued', 'running')
+                """,
+                ("cancelled", now, now, task_id),
+            )
+            self._append_event_locked(
+                task_id,
+                "task.cancelled",
+                principal,
+                {"reason": reason or "cancelled by user"},
+            )
+            approval_rows = self._db.execute(
+                """
+                SELECT approval_id, conversation_id FROM v2_approvals
+                WHERE task_id = ? AND status = 'pending'
+                """,
+                (task_id,),
+            ).fetchall()
+            for approval_row in approval_rows:
+                self._db.execute(
+                    """
+                    UPDATE v2_approvals
+                    SET status = 'cancelled', version = version + 1,
+                        decision = 'cancel', reason = ?, decided_by = ?,
+                        decided_at = ?, updated_at = ?
+                    WHERE approval_id = ? AND status = 'pending'
+                    """,
+                    (
+                        reason or "conversation stopped by user",
+                        principal,
+                        now,
+                        now,
+                        approval_row["approval_id"],
+                    ),
+                )
+                self._append_event_locked(
+                    task_id,
+                    "approval.cancelled",
+                    principal,
+                    {"approval_id": approval_row["approval_id"]},
+                )
+                self._sync_conversation_locked(approval_row["conversation_id"])
+                self._rebuild_conversation_projection_locked(
+                    approval_row["conversation_id"]
+                )
+            self._db.commit()
+            return self.get_task(task_id)
+
     def replay_task(self, task_id: str, *, principal: str) -> dict[str, Any]:
         with self._lock:
             task = self.get_task(task_id)
@@ -973,6 +2118,8 @@ class V2ControlPlane:
         }
 
     def _strategy_for(self, goal: str, mode: str) -> str:
+        if mode == "single":
+            return "single-agent-fast-path"
         complex_task = mode in {"multi-agent", "workflow"} or len(goal) > 160
         return "orchestrator-workers" if complex_task else "single-agent-fast-path"
 
@@ -1143,7 +2290,7 @@ class V2ControlPlane:
         try:
             with self._lock:
                 row = self._task_row(task_id)
-                if row is None or row["status"] in TERMINAL_TASK_STATUSES:
+                if row is None or row["status"] not in {"queued", "running"}:
                     return
                 self._set_task_status_locked(task_id, "running")
                 self._set_workflow_status_locked(task_id, "running")
@@ -1156,6 +2303,8 @@ class V2ControlPlane:
                 self._db.commit()
 
             for agent in self._agent_tasks(task_id):
+                if agent["status"] == "completed":
+                    continue
                 with self._lock:
                     if self._task_row(task_id)["status"] == "cancelled":
                         return
@@ -1181,8 +2330,19 @@ class V2ControlPlane:
                     )
                     self._db.commit()
                 time.sleep(0.05)
-                adapter_result = self._execute_agent_adapter(task_id, agent)
                 with self._lock:
+                    if self._task_row(task_id)["status"] == "cancelled":
+                        return
+                adapter_result = self._execute_agent_adapter(task_id, agent)
+                if adapter_result.get("success") is False:
+                    raise RuntimeError(
+                        f"{agent['adapter']} exited with code "
+                        f"{adapter_result.get('exit_code')}: "
+                        f"{adapter_result.get('error') or adapter_result.get('stderr') or adapter_result.get('summary')}"
+                    )
+                with self._lock:
+                    if self._task_row(task_id)["status"] == "cancelled":
+                        return
                     self._append_event_locked(
                         task_id,
                         "agent.message",
@@ -1247,6 +2407,8 @@ class V2ControlPlane:
                     self._db.commit()
 
             with self._lock:
+                if self._task_row(task_id)["status"] == "cancelled":
+                    return
                 self._set_task_status_locked(task_id, "completed")
                 self._set_workflow_status_locked(task_id, "completed")
                 self._append_event_locked(
@@ -1269,8 +2431,25 @@ class V2ControlPlane:
         except Exception as exc:  # pragma: no cover - defensive safety net
             with self._lock:
                 if self._task_row(task_id) is not None:
+                    failed_at = utc_now()
                     self._set_task_status_locked(task_id, "failed")
                     self._set_workflow_status_locked(task_id, "failed")
+                    self._db.execute(
+                        """
+                        UPDATE v2_agent_tasks
+                        SET status = 'failed', completed_at = ?, updated_at = ?
+                        WHERE task_id = ? AND status = 'running'
+                        """,
+                        (failed_at, failed_at, task_id),
+                    )
+                    self._db.execute(
+                        """
+                        UPDATE v2_workflow_steps
+                        SET status = 'failed', completed_at = ?, updated_at = ?
+                        WHERE task_id = ? AND status = 'running'
+                        """,
+                        (failed_at, failed_at, task_id),
+                    )
                     self._append_event_locked(
                         task_id,
                         "task.failed",
@@ -1514,7 +2693,8 @@ class V2ControlPlane:
             "opencode": "opencode",
         }[adapter]
         configured_command = os.environ.get(command_env)
-        executable = shutil.which(configured_command or default_command)
+        command_parts = shlex.split(configured_command) if configured_command else [default_command]
+        executable = shutil.which(command_parts[0])
         real_cli_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS") == "1"
         if not real_cli_enabled or executable is None:
             result = simulated_adapter_result(adapter, protocol, envelope)
@@ -1528,33 +2708,147 @@ class V2ControlPlane:
             )
             return result
 
+        task_row = self._task_row(task_id)
+        if task_row is None:
+            raise KeyError(task_id)
+        task_goal = str(task_row["goal"])
+        task_metadata = json_loads(task_row["metadata_json"])
+        workspace = self._adapter_workspace(task_metadata)
+        prompt = self._adapter_prompt(task_id, agent, task_goal)
+        command = [executable, *command_parts[1:]]
+        stdin_value: str | None = json_dumps(envelope)
+        if adapter == "qwen":
+            command.extend(["--prompt", prompt, "--output-format", "stream-json"])
+            model = str(os.environ.get("V2_QWEN_MODEL") or "").strip()
+            if model:
+                command.extend(["--model", model])
+            stdin_value = None
+        timeout_seconds = max(
+            20,
+            min(int(os.environ.get("V2_CLI_TIMEOUT_SECONDS", "600")), 3600),
+        )
+
         try:
-            completed = subprocess.run(
-                [executable],
-                input=json_dumps(envelope),
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                capture_output=True,
-                timeout=20,
-                cwd=self.root,
-                check=False,
+                cwd=workspace,
+                start_new_session=os.name == "posix",
             )
+            with self._lock:
+                self._processes[task_id] = process
+                if self._task_row(task_id)["status"] == "cancelled":
+                    terminate_process_group(process)
+            try:
+                stdout_value, stderr_value = process.communicate(
+                    input=stdin_value,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                terminate_process_group(process, force=True)
+                process.communicate(timeout=5)
+                raise
+            finally:
+                with self._lock:
+                    if self._processes.get(task_id) is process:
+                        self._processes.pop(task_id, None)
         except (OSError, subprocess.TimeoutExpired) as exc:
             result = simulated_adapter_result(adapter, protocol, envelope)
-            result.update({"execution_mode": "cli-error", "error": str(exc)})
+            result.update(
+                {
+                    "execution_mode": "cli-error",
+                    "success": False,
+                    "exit_code": None,
+                    "error": str(exc),
+                }
+            )
             return result
 
-        stdout = completed.stdout.strip()
-        stderr = completed.stderr.strip()
-        output = stdout or stderr or f"{adapter} completed with code {completed.returncode}"
+        stdout = stdout_value.strip()
+        stderr = stderr_value.strip()
+        output = stdout or stderr or f"{adapter} completed with code {process.returncode}"
+        summary = cli_result_summary(adapter, stdout) or output
         return {
             "adapter": adapter,
             "protocol": protocol,
             "execution_mode": "real-cli",
-            "exit_code": completed.returncode,
-            "message": output[:800],
-            "summary": output[:1200],
+            "exit_code": process.returncode,
+            "success": process.returncode == 0 and not cli_result_is_error(stdout),
+            "message": summary[:4000],
+            "summary": summary[:12000],
+            "raw_output": stdout[:20000],
+            "stderr": stderr[:4000],
+            "workspace": str(workspace),
+            "command": [Path(command[0]).name, *command[1:2]],
             "envelope": envelope,
         }
+
+    def _adapter_workspace(self, metadata: dict[str, Any]) -> Path:
+        configured_root = Path(
+            os.environ.get("V2_WORKSPACE_ROOT") or Path.cwd()
+        ).expanduser().resolve()
+        requested = str(metadata.get("workspace_path") or "").strip()
+        workspace = Path(requested).expanduser().resolve() if requested else configured_root
+        if workspace != configured_root and configured_root not in workspace.parents:
+            raise PermissionError("workspace_path must stay within V2_WORKSPACE_ROOT")
+        if not workspace.is_dir():
+            raise ValueError(f"workspace does not exist: {workspace}")
+        return workspace
+
+    def _adapter_prompt(
+        self,
+        task_id: str,
+        agent: dict[str, Any],
+        task_goal: str,
+    ) -> str:
+        role = str(agent["role"])
+        role_instruction = {
+            "brain": (
+                "Analyze the task, inspect only what is necessary, and produce an execution "
+                "plan with risks and acceptance checks. Do not modify files."
+            ),
+            "builder": (
+                "Execute the user task in the current workspace. Use tools when needed, make "
+                "requested files or changes, and verify the result."
+            ),
+            "reviewer": (
+                "Independently review the task result and current workspace. Run relevant "
+                "checks, identify residual risks, and do not modify files."
+            ),
+            "agent": (
+                "Complete the user task directly with bounded tool calls and verify the "
+                "result. Do not create subagents or nested sessions; AgentFlow owns "
+                "orchestration."
+            ),
+        }.get(role, "Complete your assigned part and verify it.")
+        prior_summaries = []
+        for prior in self._agent_tasks(task_id):
+            if prior["agent_task_id"] == agent["agent_task_id"]:
+                break
+            result = prior.get("result") or {}
+            summary = str(result.get("final_summary") or "").strip()
+            if summary:
+                prior_summaries.append(f"- {prior['role']}: {summary[:2000]}")
+        prior_context = (
+            "\nPrior agent summaries:\n" + "\n".join(prior_summaries)
+            if prior_summaries
+            else ""
+        )
+        return (
+            "You are one execution role in AgentFlow.\n"
+            f"User task:\n{task_goal}\n\n"
+            f"Your role: {role} ({agent.get('title') or role.title()})\n"
+            f"Role instruction: {role_instruction}\n"
+            "Coordination boundary: Do not create subagents or nested sessions; "
+            "AgentFlow owns orchestration.\n"
+            f"Artifact contract: {json_dumps(agent['artifact_contract'])}"
+            f"{prior_context}\n\n"
+            "Return a concise final report in Chinese with: outcome, evidence, checks run, "
+            "and remaining risks. Never claim a command or file change that you did not verify."
+        )
 
     def _ensure_runner(self, task_id: str) -> None:
         with self._lock:
@@ -1562,7 +2856,7 @@ class V2ControlPlane:
             if thread and thread.is_alive():
                 return
             row = self._task_row(task_id)
-            if row is None or row["status"] in TERMINAL_TASK_STATUSES:
+            if row is None or row["status"] not in {"queued", "running"}:
                 return
             thread = threading.Thread(
                 target=self._run_task,
@@ -1577,7 +2871,7 @@ class V2ControlPlane:
         rows = self._db.execute(
             """
             SELECT task_id FROM v2_tasks
-            WHERE status NOT IN ('completed', 'failed', 'cancelled')
+            WHERE status IN ('queued', 'running')
             """
         ).fetchall()
         for row in rows:
@@ -1627,7 +2921,26 @@ class V2ControlPlane:
 
     def _result(self, task_id: str) -> dict[str, Any] | None:
         row = self._task_row(task_id)
-        if row is None or row["status"] != "completed":
+        if row is None:
+            return None
+        if row["status"] == "failed":
+            failure = self._db.execute(
+                """
+                SELECT payload_json FROM v2_events
+                WHERE task_id = ? AND type = 'task.failed'
+                ORDER BY sequence DESC
+                LIMIT 1
+                """,
+                (task_id,),
+            ).fetchone()
+            details = json_loads(failure["payload_json"]) if failure is not None else {}
+            return {
+                "summary": "Task failed before its artifact contract was satisfied.",
+                "error": str(details.get("error") or "unknown execution failure"),
+                "artifacts": self.artifacts(task_id),
+                "evaluation": {"status": "failed", "checks": [], "items": []},
+            }
+        if row["status"] != "completed":
             return None
         artifacts = self.artifacts(task_id)
         evaluations = self.evaluations(task_id)
@@ -1636,16 +2949,546 @@ class V2ControlPlane:
             for agent in self._agent_tasks(task_id)
             if agent["result"].get("final_summary")
         ]
+        partial = self._db.execute(
+            "SELECT 1 FROM v2_events WHERE task_id = ? AND type = 'task.partial_accepted' LIMIT 1",
+            (task_id,),
+        ).fetchone() is not None
         return {
             "summary": " ".join(summaries) or "Task completed.",
             "artifacts": artifacts,
+            "partial": partial,
             "evaluation": {
-                "status": "passed"
-                if all(item["status"] == "passed" for item in evaluations)
-                else "failed",
+                "status": (
+                    "partial"
+                    if partial
+                    else "passed"
+                    if all(item["status"] == "passed" for item in evaluations)
+                    else "failed"
+                ),
                 "checks": [item["kind"] for item in evaluations] or ["contract"],
                 "items": evaluations,
             },
+        }
+
+    def _backfill_conversations(self) -> None:
+        with self._lock:
+            self._backfill_conversations_locked()
+            self._db.commit()
+
+    def _backfill_conversations_locked(self) -> None:
+        rows = self._db.execute(
+            """
+            SELECT task.* FROM v2_tasks AS task
+            LEFT JOIN v2_executions AS execution ON execution.task_id = task.task_id
+            WHERE execution.task_id IS NULL
+            ORDER BY task.created_at ASC
+            """
+        ).fetchall()
+        for task in rows:
+            metadata = json_loads(task["metadata_json"])
+            requested_conversation_id = str(metadata.get("conversation_id") or "")
+            conversation_id = requested_conversation_id or legacy_conversation_id(
+                task["task_id"]
+            )
+            now = task["created_at"]
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_conversations (
+                    conversation_id, tenant_id, project_id, created_by, title,
+                    status, unread_count, pending_approval_count, version,
+                    projection_version, last_meaningful_activity_at,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    task["tenant_id"],
+                    task["project_id"],
+                    task["created_by"],
+                    task["title"],
+                    conversation_status_for_task(task["status"]),
+                    CONVERSATION_PROJECTION_VERSION,
+                    task["updated_at"],
+                    now,
+                    task["updated_at"],
+                ),
+            )
+            requested_sequence = int(metadata.get("execution_sequence") or 0)
+            if requested_sequence > 0:
+                sequence = requested_sequence
+            else:
+                sequence_row = self._db.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                    FROM v2_executions WHERE conversation_id = ?
+                    """,
+                    (conversation_id,),
+                ).fetchone()
+                sequence = int(sequence_row["next_sequence"])
+            self._db.execute(
+                """
+                INSERT OR IGNORE INTO v2_executions (
+                    execution_id, conversation_id, task_id, sequence, status,
+                    trigger_message, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    legacy_execution_id(task["task_id"]),
+                    conversation_id,
+                    task["task_id"],
+                    sequence,
+                    task["status"],
+                    task["goal"],
+                    task["created_at"],
+                    task["updated_at"],
+                ),
+            )
+            self._sync_conversation_locked(conversation_id)
+            self._rebuild_conversation_projection_locked(conversation_id)
+
+    def _conversation_row(self, conversation_id: str) -> sqlite3.Row | None:
+        return self._db.execute(
+            "SELECT * FROM v2_conversations WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()
+
+    def _latest_execution_row(self, conversation_id: str) -> sqlite3.Row | None:
+        return self._db.execute(
+            """
+            SELECT * FROM v2_executions
+            WHERE conversation_id = ?
+            ORDER BY sequence DESC
+            LIMIT 1
+            """,
+            (conversation_id,),
+        ).fetchone()
+
+    def _assert_conversation_access(
+        self,
+        row: sqlite3.Row,
+        principal: str | None,
+        allow_all: bool,
+    ) -> None:
+        if principal and not allow_all and row["created_by"] != principal:
+            raise PermissionError("conversation is not accessible to this principal")
+
+    def _approval_row(self, approval_id: str) -> sqlite3.Row | None:
+        return self._db.execute(
+            "SELECT * FROM v2_approvals WHERE approval_id = ?",
+            (approval_id,),
+        ).fetchone()
+
+    def _create_approval_locked(
+        self,
+        *,
+        conversation_id: str,
+        execution_id: str,
+        task_id: str,
+        payload: dict[str, Any],
+        requested_by: str,
+    ) -> dict[str, Any]:
+        existing = self._db.execute(
+            """
+            SELECT * FROM v2_approvals
+            WHERE task_id = ? AND status = 'pending'
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (task_id,),
+        ).fetchone()
+        if existing is not None:
+            return self._approval_from_row(existing)
+        intent = str(payload.get("intent") or "").strip()
+        if not intent:
+            raise ValueError("approval intent is required")
+        evidence = payload.get("evidence") or []
+        if not isinstance(evidence, list) or not all(
+            isinstance(item, dict) for item in evidence
+        ):
+            raise ValueError("approval evidence must be a list of objects")
+        impact = dict(payload.get("impact") or {})
+        level = str(impact.get("level") or "medium").lower()
+        if level not in {"low", "medium", "high"}:
+            raise ValueError("approval impact level must be low, medium, or high")
+        impact = {
+            "level": level,
+            "summary": str(impact.get("summary") or "需要人工确认影响范围"),
+            "affected_resources": [
+                str(item) for item in impact.get("affected_resources") or []
+            ],
+            "reversible": bool(impact.get("reversible", False)),
+        }
+        allowed_actions = payload.get("allowed_actions") or [
+            "approve",
+            "reject",
+            "pause",
+            "revise",
+        ]
+        if not isinstance(allowed_actions, list) or not allowed_actions:
+            raise ValueError("approval allowed_actions must be a non-empty list")
+        allowed_actions = [str(action) for action in allowed_actions]
+        if any(
+            action not in {"approve", "reject", "pause", "revise"}
+            for action in allowed_actions
+        ):
+            raise ValueError("approval contains an unsupported action")
+        approval_id = str(payload.get("approval_id") or f"approval_{uuid4().hex}")
+        now = utc_now()
+        self._db.execute(
+            """
+            INSERT INTO v2_approvals (
+                approval_id, conversation_id, execution_id, task_id,
+                requested_by, intent, evidence_json, impact_json,
+                allowed_actions_json, scope_json, status, version, expires_at,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 1, ?, ?, ?)
+            """,
+            (
+                approval_id,
+                conversation_id,
+                execution_id,
+                task_id,
+                requested_by,
+                intent,
+                json_dumps(evidence),
+                json_dumps(impact),
+                json_dumps(allowed_actions),
+                json_dumps(payload.get("scope") or {}),
+                payload.get("expires_at"),
+                now,
+                now,
+            ),
+        )
+        self._create_mobile_notification_locked(
+            conversation_id=conversation_id,
+            approval_id=approval_id,
+            impact_level=level,
+        )
+        self._set_task_status_locked(task_id, "waiting_user")
+        self._set_workflow_status_locked(task_id, "waiting_user")
+        self._append_event_locked(
+            task_id,
+            "approval.requested",
+            requested_by,
+            {
+                "approval_id": approval_id,
+                "intent": intent,
+                "impact": impact,
+                "evidence_count": len(evidence),
+                "expires_at": payload.get("expires_at"),
+            },
+        )
+        return self._approval_from_row(self._approval_row(approval_id))
+
+    def _create_mobile_notification_locked(
+        self,
+        *,
+        conversation_id: str,
+        approval_id: str,
+        impact_level: str,
+    ) -> None:
+        """Relay only a decision signal; never copy task prompts, diffs, or secrets."""
+        high_risk = impact_level == "high"
+        self._db.execute(
+            """
+            INSERT INTO v2_mobile_notifications (
+                notification_id, conversation_id, approval_id, kind,
+                title, body, action_path, created_at
+            ) VALUES (?, ?, ?, 'approval.requested', ?, ?, ?, ?)
+            """,
+            (
+                f"mobile_{uuid4().hex}",
+                conversation_id,
+                approval_id,
+                "高风险操作等待确认" if high_risk else "AgentFlow 需要你的决定",
+                "请打开移动决策台核对意图、证据和影响。",
+                f"/approvals/{approval_id}",
+                utc_now(),
+            ),
+        )
+
+    def _mobile_notification_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "cursor": int(row["cursor"]),
+            "notification_id": row["notification_id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "body": row["body"],
+            "action_path": row["action_path"],
+            "created_at": row["created_at"],
+        }
+
+    def _expire_approvals_locked(self, approval_id: str | None = None) -> None:
+        clauses = ["status = 'pending'", "expires_at IS NOT NULL"]
+        values: list[Any] = []
+        if approval_id:
+            clauses.append("approval_id = ?")
+            values.append(approval_id)
+        rows = self._db.execute(
+            f"SELECT * FROM v2_approvals WHERE {' AND '.join(clauses)}",
+            values,
+        ).fetchall()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if not timestamp_is_expired(row["expires_at"], now):
+                continue
+            updated_at = utc_now()
+            self._db.execute(
+                """
+                UPDATE v2_approvals
+                SET status = 'expired', version = version + 1,
+                    updated_at = ?, decided_at = ?
+                WHERE approval_id = ? AND status = 'pending'
+                """,
+                (updated_at, updated_at, row["approval_id"]),
+            )
+            self._append_event_locked(
+                row["task_id"],
+                "approval.expired",
+                "approval-policy",
+                {"approval_id": row["approval_id"]},
+            )
+            self._sync_conversation_locked(row["conversation_id"])
+            self._rebuild_conversation_projection_locked(row["conversation_id"])
+
+    def _approval_from_row(self, row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            raise KeyError("approval")
+        return {
+            "approval_id": row["approval_id"],
+            "conversation_id": row["conversation_id"],
+            "execution_id": row["execution_id"],
+            "task_id": row["task_id"],
+            "requested_by": row["requested_by"],
+            "intent": row["intent"],
+            "evidence": json_loads(row["evidence_json"]),
+            "impact": json_loads(row["impact_json"]),
+            "allowed_actions": json_loads(row["allowed_actions_json"]),
+            "scope": json_loads(row["scope_json"]),
+            "status": row["status"],
+            "version": row["version"],
+            "expires_at": row["expires_at"],
+            "decision": row["decision"],
+            "reason": row["reason"],
+            "decided_by": row["decided_by"],
+            "decided_at": row["decided_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _sync_conversation_locked(self, conversation_id: str) -> None:
+        conversation = self._conversation_row(conversation_id)
+        if conversation is None:
+            return
+        executions = self._db.execute(
+            """
+            SELECT execution.execution_id, execution.sequence,
+                   task.status, task.updated_at
+            FROM v2_executions AS execution
+            JOIN v2_tasks AS task ON task.task_id = execution.task_id
+            WHERE execution.conversation_id = ?
+            ORDER BY execution.sequence ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+        if not executions:
+            return
+        for execution in executions:
+            self._db.execute(
+                """
+                UPDATE v2_executions
+                SET status = ?, updated_at = ?
+                WHERE execution_id = ?
+                  AND (status != ? OR updated_at != ?)
+                """,
+                (
+                    execution["status"],
+                    execution["updated_at"],
+                    execution["execution_id"],
+                    execution["status"],
+                    execution["updated_at"],
+                ),
+            )
+        statuses = [str(execution["status"]) for execution in executions]
+        latest_status = statuses[-1]
+        if any(status == "waiting_user" for status in statuses):
+            status = "waiting_user"
+        elif any(status in {"queued", "running"} for status in statuses):
+            status = "active"
+        elif latest_status == "failed":
+            status = "failed"
+        elif latest_status == "completed":
+            status = "completed"
+        else:
+            status = "idle"
+        pending_row = self._db.execute(
+            """
+            SELECT COUNT(*) AS count FROM v2_approvals
+            WHERE conversation_id = ? AND status = 'pending'
+            """,
+            (conversation_id,),
+        ).fetchone()
+        pending_approval_count = int(pending_row["count"] if pending_row else 0)
+        last_activity = max(str(execution["updated_at"]) for execution in executions)
+        changed = (
+            status != conversation["status"]
+            or last_activity != conversation["last_meaningful_activity_at"]
+            or pending_approval_count != int(conversation["pending_approval_count"])
+        )
+        if changed:
+            self._db.execute(
+                """
+                UPDATE v2_conversations
+                SET status = ?, pending_approval_count = ?,
+                    last_meaningful_activity_at = ?, updated_at = ?,
+                    version = version + 1
+                WHERE conversation_id = ?
+                """,
+                (
+                    status,
+                    pending_approval_count,
+                    last_activity,
+                    last_activity,
+                    conversation_id,
+                ),
+            )
+
+    def _rebuild_conversation_projection_locked(
+        self,
+        conversation_id: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        conversation = self._conversation_row(conversation_id)
+        if conversation is None:
+            return
+        requires_full_rebuild = (
+            force
+            or int(conversation["projection_version"])
+            != CONVERSATION_PROJECTION_VERSION
+        )
+        executions = self._db.execute(
+            """
+            SELECT * FROM v2_executions
+            WHERE conversation_id = ?
+            ORDER BY sequence ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+        if requires_full_rebuild:
+            self._db.execute(
+                "DELETE FROM v2_conversation_messages WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+        for execution in executions:
+            latest_cursor = None
+            if not requires_full_rebuild:
+                latest_row = self._db.execute(
+                    """
+                    SELECT MAX(cursor) AS cursor
+                    FROM v2_conversation_messages
+                    WHERE conversation_id = ? AND execution_id = ?
+                    """,
+                    (conversation_id, execution["execution_id"]),
+                ).fetchone()
+                latest_cursor = latest_row["cursor"] if latest_row else None
+            after_sequence = (
+                max(
+                    0,
+                    int(latest_cursor) - int(execution["sequence"]) * 1_000_000,
+                )
+                if latest_cursor is not None
+                else 0
+            )
+            events = self._db.execute(
+                """
+                SELECT * FROM v2_events
+                WHERE task_id = ? AND sequence > ?
+                ORDER BY sequence ASC
+                """,
+                (execution["task_id"], after_sequence),
+            ).fetchall()
+            for event_row in events:
+                event = event_from_row(event_row)
+                projection = project_conversation_event(event)
+                if projection is None:
+                    continue
+                cursor = int(execution["sequence"]) * 1_000_000 + int(event["sequence"])
+                self._db.execute(
+                    """
+                    INSERT OR IGNORE INTO v2_conversation_messages (
+                        message_id, conversation_id, execution_id, cursor,
+                        role, kind, content_json, source_event_id,
+                        created_at, revision
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"msg_{event['event_id']}",
+                        conversation_id,
+                        execution["execution_id"],
+                        cursor,
+                        projection["role"],
+                        projection["kind"],
+                        json_dumps(projection["content"]),
+                        event["event_id"],
+                        event["created_at"],
+                        CONVERSATION_PROJECTION_VERSION,
+                    ),
+                )
+        if requires_full_rebuild:
+            self._db.execute(
+                """
+                UPDATE v2_conversations
+                SET projection_version = ?
+                WHERE conversation_id = ?
+                """,
+                (CONVERSATION_PROJECTION_VERSION, conversation_id),
+            )
+
+    def _conversation_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "conversation_id": row["conversation_id"],
+            "tenant_id": row["tenant_id"],
+            "project_id": row["project_id"],
+            "created_by": row["created_by"],
+            "title": row["title"],
+            "status": row["status"],
+            "unread_count": row["unread_count"],
+            "pending_approval_count": row["pending_approval_count"],
+            "pinned_at": row["pinned_at"],
+            "archived_at": row["archived_at"],
+            "version": row["version"],
+            "projection_version": row["projection_version"],
+            "last_meaningful_activity_at": row["last_meaningful_activity_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _execution_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "execution_id": row["execution_id"],
+            "conversation_id": row["conversation_id"],
+            "task_id": row["task_id"],
+            "sequence": row["sequence"],
+            "status": row["status"],
+            "trigger_message": row["trigger_message"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _conversation_message_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "message_id": row["message_id"],
+            "conversation_id": row["conversation_id"],
+            "execution_id": row["execution_id"],
+            "cursor": row["cursor"],
+            "role": row["role"],
+            "kind": row["kind"],
+            "content": json_loads(row["content_json"]),
+            "created_at": row["created_at"],
+            "revision": row["revision"],
         }
 
     def _find_task_by_idempotency_key(self, key: str) -> dict[str, Any] | None:
@@ -1713,6 +3556,7 @@ class V2ControlPlane:
             ),
         )
         self._touch_task_locked(task_id, updated_at=created_at)
+        self._event_condition.notify_all()
         return {
             "event_id": event_id,
             "task_id": task_id,
@@ -2057,6 +3901,113 @@ class V2ControlPlane:
                     FOREIGN KEY(task_id) REFERENCES v2_tasks(task_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS v2_conversations (
+                    conversation_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    unread_count INTEGER NOT NULL DEFAULT 0,
+                    pending_approval_count INTEGER NOT NULL DEFAULT 0,
+                    pinned_at TEXT,
+                    archived_at TEXT,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    projection_version INTEGER NOT NULL,
+                    idempotency_key TEXT UNIQUE,
+                    last_meaningful_activity_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_executions (
+                    execution_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL UNIQUE,
+                    sequence INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    trigger_message TEXT NOT NULL,
+                    idempotency_key TEXT UNIQUE,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(conversation_id, sequence),
+                    FOREIGN KEY(conversation_id) REFERENCES v2_conversations(conversation_id),
+                    FOREIGN KEY(task_id) REFERENCES v2_tasks(task_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_conversation_messages (
+                    message_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    execution_id TEXT NOT NULL,
+                    cursor INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    content_json TEXT NOT NULL,
+                    source_event_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    UNIQUE(conversation_id, cursor),
+                    FOREIGN KEY(conversation_id) REFERENCES v2_conversations(conversation_id),
+                    FOREIGN KEY(execution_id) REFERENCES v2_executions(execution_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_conversation_commands (
+                    command_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    result_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(conversation_id) REFERENCES v2_conversations(conversation_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_approvals (
+                    approval_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    execution_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    requested_by TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    impact_json TEXT NOT NULL,
+                    allowed_actions_json TEXT NOT NULL,
+                    scope_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    expires_at TEXT,
+                    decision TEXT,
+                    reason TEXT,
+                    decided_by TEXT,
+                    decided_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(conversation_id) REFERENCES v2_conversations(conversation_id),
+                    FOREIGN KEY(execution_id) REFERENCES v2_executions(execution_id),
+                    FOREIGN KEY(task_id) REFERENCES v2_tasks(task_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_approval_commands (
+                    command_id TEXT PRIMARY KEY,
+                    approval_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    result_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(approval_id) REFERENCES v2_approvals(approval_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS v2_mobile_notifications (
+                    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notification_id TEXT NOT NULL UNIQUE,
+                    conversation_id TEXT NOT NULL,
+                    approval_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    action_path TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(conversation_id) REFERENCES v2_conversations(conversation_id),
+                    FOREIGN KEY(approval_id) REFERENCES v2_approvals(approval_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_v2_tasks_status
                     ON v2_tasks(status);
                 CREATE INDEX IF NOT EXISTS idx_v2_events_task_sequence
@@ -2077,6 +4028,18 @@ class V2ControlPlane:
                     ON v2_channel_messages(platform, created_at);
                 CREATE INDEX IF NOT EXISTS idx_v2_tenant_users_tenant
                     ON v2_tenant_users(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_v2_conversations_activity
+                    ON v2_conversations(archived_at, last_meaningful_activity_at);
+                CREATE INDEX IF NOT EXISTS idx_v2_executions_conversation
+                    ON v2_executions(conversation_id, sequence);
+                CREATE INDEX IF NOT EXISTS idx_v2_conversation_messages_cursor
+                    ON v2_conversation_messages(conversation_id, cursor);
+                CREATE INDEX IF NOT EXISTS idx_v2_approvals_status
+                    ON v2_approvals(status, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_v2_approvals_conversation
+                    ON v2_approvals(conversation_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_v2_mobile_notifications_conversation
+                    ON v2_mobile_notifications(conversation_id, cursor);
                 """
             )
             self._db.commit()
@@ -2104,6 +4067,206 @@ def json_loads(value: str | None) -> Any:
     return json.loads(value)
 
 
+def approval_spec_for_payload(
+    payload: dict[str, Any], goal: str
+) -> dict[str, Any] | None:
+    explicit = payload.get("approval")
+    if explicit is None:
+        explicit = dict(payload.get("metadata") or {}).get("approval")
+    if explicit is False:
+        return None
+    if isinstance(explicit, dict):
+        return explicit
+    normalized = " ".join(goal.lower().split())
+    high_risk_actions = (
+        "deploy to production",
+        "production deploy",
+        "push to production",
+        "delete production",
+        "drop database",
+        "rotate production",
+        "发布到生产",
+        "生产发布",
+        "部署到生产",
+        "删除生产",
+        "删除数据库",
+        "推送到生产",
+        "轮换生产",
+    )
+    english_risk_pair = (
+        any(action in normalized for action in ("deploy", "push", "delete", "rotate"))
+        and any(target in normalized for target in ("production", "prod ", " prod"))
+    ) or ("drop" in normalized and "database" in normalized)
+    chinese_risk_pair = any(
+        action in normalized for action in ("部署", "发布", "推送", "删除", "轮换")
+    ) and any(target in normalized for target in ("生产", "数据库"))
+    if not (
+        any(action in normalized for action in high_risk_actions)
+        or english_risk_pair
+        or chinese_risk_pair
+    ):
+        return None
+    return {
+        "intent": summarize_goal(goal),
+        "evidence": [
+            {
+                "type": "user_request",
+                "label": "触发审批的用户指令",
+                "summary": goal[:500],
+            }
+        ],
+        "impact": {
+            "level": "high",
+            "summary": "该操作可能改变生产环境，执行前需要你明确确认。",
+            "affected_resources": ["production"],
+            "reversible": False,
+        },
+        "allowed_actions": ["approve", "reject", "pause", "revise"],
+        "scope": {"environment": "production", "source": "risk-policy"},
+    }
+
+
+def timestamp_is_expired(value: str, now: datetime | None = None) -> bool:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed <= (now or datetime.now(timezone.utc))
+
+
+def terminate_process_group(
+    process: subprocess.Popen[str],
+    *,
+    force: bool = False,
+) -> None:
+    """Terminate a CLI and descendants that inherited its stdio pipes."""
+
+    try:
+        if os.name == "posix":
+            os.killpg(
+                os.getpgid(process.pid),
+                signal.SIGKILL if force else signal.SIGTERM,
+            )
+        elif process.poll() is None:
+            process.kill() if force else process.terminate()
+    except (OSError, ProcessLookupError):
+        if process.poll() is None:
+            try:
+                process.kill() if force else process.terminate()
+            except OSError:
+                pass
+
+
+def cli_result_summary(adapter: str, stdout: str) -> str | None:
+    if not stdout:
+        return None
+    events = cli_result_events(stdout)
+    if not events:
+        return stdout
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "result" and isinstance(event.get("result"), str):
+            return str(event["result"])
+        if adapter == "qwen":
+            message = event.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, list):
+                    texts = [
+                        str(item.get("text"))
+                        for item in content
+                        if isinstance(item, dict)
+                        and item.get("type") == "text"
+                        and item.get("text")
+                    ]
+                    if texts:
+                        return "\n".join(texts)
+    return stdout
+
+
+def cli_result_is_error(stdout: str) -> bool:
+    if not stdout:
+        return False
+    events = cli_result_events(stdout)
+    return any(
+        isinstance(event, dict)
+        and event.get("type") == "result"
+        and event.get("is_error") is True
+        for event in events
+    )
+
+
+def cli_result_events(stdout: str) -> list[dict[str, Any]]:
+    """Decode supported headless CLI formats without leaking startup noise.
+
+    Qwen normally returns one JSON array, but optional MCP startup warnings can
+    precede it and stream-json returns one object per line. Keep the raw output
+    for audit evidence while extracting only structured event objects for the
+    user-facing summary and success decision.
+    """
+
+    if not stdout:
+        return []
+
+    def normalize(value: Any) -> list[dict[str, Any]]:
+        values = value if isinstance(value, list) else [value]
+        return [item for item in values if isinstance(item, dict)]
+
+    decoders = (json.JSONDecoder(), json.JSONDecoder(strict=False))
+    for decoder in decoders:
+        try:
+            events = normalize(decoder.decode(stdout))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if events:
+            return events
+
+    line_events: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        candidate = line.strip()
+        if not candidate or candidate[0] not in "[{":
+            continue
+        for decoder in decoders:
+            try:
+                decoded = decoder.decode(candidate)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            line_events.extend(normalize(decoded))
+            break
+    if any(event.get("type") == "result" for event in line_events):
+        return line_events
+
+    scanned_events = list(line_events)
+    position = 0
+    while position < len(stdout):
+        candidates = [
+            index
+            for token in ("[", "{")
+            for index in [stdout.find(token, position)]
+            if index >= 0
+        ]
+        if not candidates:
+            break
+        start = min(candidates)
+        decoded_value: Any | None = None
+        consumed = 0
+        for decoder in decoders:
+            try:
+                decoded_value, consumed = decoder.raw_decode(stdout[start:])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            break
+        if consumed:
+            scanned_events.extend(normalize(decoded_value))
+            position = start + consumed
+        else:
+            position = start + 1
+    return scanned_events
+
+
 def simulated_adapter_result(
     adapter: str,
     protocol: str,
@@ -2120,6 +4283,152 @@ def simulated_adapter_result(
         "summary": summary,
         "envelope": envelope,
     }
+
+
+def legacy_conversation_id(task_id: str) -> str:
+    return f"conv_{task_id.removeprefix('task_')}"
+
+
+def legacy_execution_id(task_id: str) -> str:
+    return f"exec_{task_id.removeprefix('task_')}"
+
+
+def conversation_status_for_task(status: str) -> str:
+    if status in {"queued", "running"}:
+        return "active"
+    if status == "waiting_user":
+        return "waiting_user"
+    if status == "failed":
+        return "failed"
+    if status == "completed":
+        return "completed"
+    return "idle"
+
+
+def project_conversation_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    event_type = str(event.get("type") or "")
+    payload = dict(event.get("payload") or {})
+
+    def text_block(text: Any) -> dict[str, str]:
+        return {"type": "text", "text": str(text or "")}
+
+    if event_type == "task.created":
+        return {
+            "role": "user",
+            "kind": "text",
+            "content": [text_block(payload.get("goal") or payload.get("title"))],
+        }
+    if event_type == "user.message":
+        return {
+            "role": "user",
+            "kind": "text",
+            "content": [text_block(payload.get("message"))],
+        }
+    if event_type == "plan.created":
+        return {
+            "role": "agent",
+            "kind": "plan",
+            "content": [
+                text_block(
+                    f"已生成执行计划，将由 {int(payload.get('agent_task_count') or 0)} 个 Agent 协作完成。"
+                ),
+                {
+                    "type": "entity_ref",
+                    "entity_type": "plan",
+                    "entity_id": str(payload.get("plan_id") or ""),
+                    "label": "查看计划与 Agent",
+                },
+            ],
+        }
+    if event_type == "task.started":
+        return {
+            "role": "system",
+            "kind": "brief",
+            "content": [text_block("执行已经开始，任务会在后台持续推进。")],
+        }
+    if event_type == "agent.message":
+        agent_task_id = str(payload.get("agent_task_id") or "")
+        return {
+            "role": "agent",
+            "kind": "brief",
+            "content": [
+                text_block(payload.get("message")),
+                {
+                    "type": "entity_ref",
+                    "entity_type": "agents",
+                    "entity_id": agent_task_id,
+                    "label": "在 Canvas 查看此 Agent",
+                },
+            ]
+            if agent_task_id
+            else [text_block(payload.get("message"))],
+        }
+    if event_type == "task.completed":
+        return {
+            "role": "agent",
+            "kind": "result",
+            "content": [
+                text_block(payload.get("summary") or "工作已完成。"),
+                {
+                    "type": "entity_ref",
+                    "entity_type": "artifacts",
+                    "entity_id": str(event.get("task_id") or ""),
+                    "label": "查看产物与验收结果",
+                },
+            ],
+        }
+    if event_type == "task.partial_accepted":
+        return {
+            "role": "agent",
+            "kind": "result",
+            "content": [
+                text_block(payload.get("summary") or "已保留并接受通过验证的部分结果。"),
+                {
+                    "type": "entity_ref",
+                    "entity_type": "artifacts",
+                    "entity_id": str(event.get("task_id") or ""),
+                    "label": "查看已生成的产物",
+                },
+            ],
+        }
+    if event_type == "task.failed":
+        return {
+            "role": "system",
+            "kind": "error",
+            "content": [
+                text_block(
+                    f"执行未能完成：{payload.get('error') or '未知错误'}。你可以调整要求后继续。"
+                )
+            ],
+        }
+    if event_type == "task.cancelled":
+        return {
+            "role": "system",
+            "kind": "brief",
+            "content": [text_block("任务已停止。你可以补充要求后发起新的执行。")],
+        }
+    if event_type == "approval.requested":
+        return {
+            "role": "system",
+            "kind": "approval",
+            "content": [
+                text_block(payload.get("intent") or "需要你的批准后才能继续。"),
+                {
+                    "type": "entity_ref",
+                    "entity_type": "approval",
+                    "entity_id": str(payload.get("approval_id") or ""),
+                    "label": "查看审批",
+                },
+            ],
+        }
+    if event_type.startswith("approval.") and event_type != "approval.requested":
+        action = event_type.split(".", 1)[1]
+        return {
+            "role": "system",
+            "kind": "brief",
+            "content": [text_block(f"审批状态已更新：{action}。")],
+        }
+    return None
 
 
 def event_from_row(row: sqlite3.Row) -> dict[str, Any]:

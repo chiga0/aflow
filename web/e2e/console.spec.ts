@@ -14,7 +14,7 @@ test("signs in from the responsive login page", async ({ page, isMobile }) => {
   await page.getByLabel("密码").fill("secret");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(
-    page.getByRole("heading", { name: "Client Workspace" }),
+    page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
 });
 
@@ -22,58 +22,57 @@ test("creates a task from the client workspace", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Client Workspace" }),
+    page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
   await page
-    .getByPlaceholder(
-      "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
-    )
+    .getByPlaceholder("向 AgentFlow 描述你的任务……")
     .fill("整理交付审计清单");
   const createRequest = page.waitForRequest(
     (request) =>
-      request.method() === "POST" && request.url().includes("/v2/tasks"),
+      request.method() === "POST" && request.url().endsWith("/conversations"),
   );
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "发送任务" }).click();
   await createRequest;
 
   await expect(
     page.getByRole("heading", { name: "Ship the control plane" }),
   ).toBeVisible();
-  await expect(page.getByText("Plan DAG")).toBeVisible();
-  await expect(page.getByText("Agent Chat")).toBeVisible();
-  await expect(page.getByText("Qwen WebShell")).toBeVisible();
-  await expect(page.getByText("Canonical Events")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "执行计划", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("会话消息")).toBeVisible();
+  await expect(page.getByText("3 个工作方向")).toBeVisible();
   const followUpRequest = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
-      request.url().includes("/v2/tasks/task_v2_1/messages"),
+      request.url().includes("/conversations/conv_v2_1/messages"),
   );
-  await page
-    .getByPlaceholder("Add context or a follow-up instruction")
-    .fill("请继续完善清单");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByLabel("继续对话").fill("请继续完善清单");
+  await page.getByRole("button", { name: "发送消息" }).click();
   await followUpRequest;
 });
 
-test("uses the client and admin control-plane surfaces", async ({ page }) => {
+test("uses the client and admin control-plane surfaces", async ({
+  page,
+  isMobile,
+}) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Client Workspace" }),
+    page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
   await page
-    .getByPlaceholder(
-      "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
-    )
+    .getByPlaceholder("向 AgentFlow 描述你的任务……")
     .fill("Ship the control plane");
-  await page.getByRole("button", { name: /Multi-agent/ }).click();
-  await page.getByRole("button", { name: /Feishu/ }).click();
-  await page.getByRole("button", { name: /qwen-code/ }).click();
+  await page.getByText("执行设置", { exact: false }).click();
+  await page.getByLabel("执行方式").selectOption("multi-agent");
+  await page.getByLabel("来源渠道").selectOption("feishu");
+  await page.getByLabel("Agent CLI").selectOption("qwen");
   const createRequest = page.waitForRequest(
     (request) =>
-      request.method() === "POST" && request.url().includes("/v2/tasks"),
+      request.method() === "POST" && request.url().endsWith("/conversations"),
   );
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "发送任务" }).click();
   const request = await createRequest;
   expect(request.postDataJSON()).toMatchObject({
     adapter: "qwen",
@@ -84,26 +83,29 @@ test("uses the client and admin control-plane surfaces", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Ship the control plane" }),
   ).toBeVisible();
-  await expect(page.getByText("Plan DAG")).toBeVisible();
-  await expect(page.getByText("Canonical Events")).toBeVisible();
-  await expect(page.getByText("Agent Contracts")).toBeVisible();
   await expect(
-    page.getByText("orchestrator-workers", { exact: true }),
+    page.getByRole("heading", { name: "执行计划", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("task.created")).toBeVisible();
+  await expect(page.getByText("3 个工作方向")).toBeVisible();
+  await page.getByRole("button", { name: "活动", exact: true }).click();
+  await expect(page.getByText("执行历史")).toBeVisible();
 
   const messageRequest = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
-      request.url().includes("/v2/tasks/task_v2_1/messages"),
+      request.url().includes("/conversations/conv_v2_1/messages"),
   );
-  await page
-    .getByPlaceholder("Add context or a follow-up instruction")
-    .fill("Include deployment sizing notes");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByLabel("继续对话").fill("Include deployment sizing notes");
+  await page.getByRole("button", { name: "发送消息" }).click();
   await messageRequest;
 
-  await page.getByRole("link", { name: /Admin|管理后台/ }).first().click();
+  if (isMobile) {
+    await page.getByLabel("打开会话导航").click();
+  }
+  await page
+    .getByRole("link", { name: /Admin|管理后台/ })
+    .first()
+    .click();
   await expect(
     page.getByRole("heading", { name: "Admin Control Plane" }),
   ).toBeVisible();
@@ -117,7 +119,7 @@ test("hides backend navigation for a member user", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Client Workspace" }),
+    page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: /管理后台/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /运行/ })).toHaveCount(0);
@@ -127,12 +129,16 @@ test("hides backend navigation for a member user", async ({ page }) => {
 
 test("manages runs, permissions, profiles, and operations", async ({
   page,
+  isMobile,
 }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Client Workspace" }),
+    page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
+  if (isMobile) {
+    await page.getByLabel("打开会话导航").click();
+  }
   await page.getByRole("link", { name: /Admin|管理后台/ }).click();
   await expect(
     page.getByRole("heading", { name: "Admin Control Plane" }),
@@ -241,10 +247,62 @@ test("manages runs, permissions, profiles, and operations", async ({
 
 test("keeps navigation usable on mobile", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile project only");
+  await page.goto("/#/");
+  const newTaskForm = page.getByRole("form", { name: "New Task" });
+  await newTaskForm.locator("summary").click();
+  const mobileTargets = newTaskForm.locator("summary, select, button");
+  const targetSizes = await mobileTargets.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    }),
+  );
+  expect(
+    targetSizes.every((size) => size.width >= 44 && size.height >= 44),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+
   await page.goto("/#/admin");
   await page.getByLabel("打开导航").click();
   await page.getByRole("link", { name: /任务编排/ }).click();
   await expect(page.getByRole("heading", { name: "任务编排" })).toBeVisible();
+});
+
+test("triages and confirms a high-risk approval across desktop and mobile", async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto(isMobile ? "/#/mobile" : "/#/approvals/approval_e2e");
+  if (isMobile) {
+    await expect(
+      page.getByRole("heading", { name: "移动决策台" }),
+    ).toBeVisible();
+    await expect(page.getByText("将已审核版本部署到生产环境")).toBeVisible();
+    await page.getByText("将已审核版本部署到生产环境").click();
+  }
+
+  await expect(page.getByText("Agent 想做什么")).toBeVisible();
+  await expect(page.getByText("生产变更摘要")).toBeVisible();
+  await page.getByRole("button", { name: "批准并继续" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "再次确认高风险操作" }),
+  ).toBeVisible();
+  const decisionRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().endsWith("/approvals/approval_e2e/decision"),
+  );
+  await page.getByRole("button", { name: "我已核对，批准执行" }).click();
+  const request = await decisionRequest;
+  expect(request.postDataJSON()).toMatchObject({
+    action: "approve",
+    confirmed: true,
+    version: 1,
+  });
 });
 
 async function mockRuntime(
@@ -391,7 +449,11 @@ async function mockRuntime(
         nodes: [
           { id: "brain", title: "Plan the work", depends_on: [] },
           { id: "builder", title: "Execute the work", depends_on: ["brain"] },
-          { id: "reviewer", title: "Review and package", depends_on: ["builder"] },
+          {
+            id: "reviewer",
+            title: "Review and package",
+            depends_on: ["builder"],
+          },
         ],
       },
       artifact_contract: { required: ["final_summary"] },
@@ -464,6 +526,146 @@ async function mockRuntime(
       ],
       evaluation: { status: "passed", checks: ["contract"] },
     },
+  };
+  const conversationExecution = {
+    execution_id: "exec_v2_1",
+    conversation_id: "conv_v2_1",
+    task_id: v2Task.task_id,
+    sequence: 1,
+    status: v2Task.status,
+    trigger_message: v2Task.goal,
+    created_at: now,
+    updated_at: now,
+  };
+  const conversation = {
+    conversation_id: "conv_v2_1",
+    tenant_id: v2Task.tenant_id,
+    project_id: v2Task.project_id,
+    created_by: v2Task.created_by,
+    title: v2Task.title,
+    status: "completed",
+    unread_count: 0,
+    pending_approval_count: 0,
+    pinned_at: null,
+    archived_at: null,
+    version: 1,
+    projection_version: 1,
+    last_meaningful_activity_at: now,
+    created_at: now,
+    updated_at: now,
+    executions: [conversationExecution],
+    latest_execution: conversationExecution,
+  };
+  const conversationMessages = {
+    projection_version: 1,
+    messages: [
+      {
+        message_id: "msg_created",
+        conversation_id: conversation.conversation_id,
+        execution_id: conversationExecution.execution_id,
+        cursor: 1_000_001,
+        role: "user",
+        kind: "text",
+        content: [{ type: "text", text: v2Task.goal }],
+        created_at: now,
+        revision: 1,
+      },
+      {
+        message_id: "msg_plan",
+        conversation_id: conversation.conversation_id,
+        execution_id: conversationExecution.execution_id,
+        cursor: 1_000_002,
+        role: "agent",
+        kind: "plan",
+        content: [
+          { type: "text", text: "已生成执行计划，将由 3 个 Agent 协作完成。" },
+          {
+            type: "entity_ref",
+            entity_type: "plan",
+            entity_id: "plan_v2_1",
+            label: "查看计划与 Agent",
+          },
+        ],
+        created_at: now,
+        revision: 1,
+      },
+      {
+        message_id: "msg_result",
+        conversation_id: conversation.conversation_id,
+        execution_id: conversationExecution.execution_id,
+        cursor: 1_000_003,
+        role: "agent",
+        kind: "result",
+        content: [
+          { type: "text", text: v2Task.result.summary },
+          {
+            type: "entity_ref",
+            entity_type: "artifacts",
+            entity_id: v2Task.task_id,
+            label: "查看产物与验收结果",
+          },
+        ],
+        created_at: now,
+        revision: 1,
+      },
+    ],
+  };
+  const conversationCanvasExecution = {
+    ...conversationExecution,
+    plan: v2Task.plan,
+    workflow: { run: null, steps: [] },
+    artifacts: [],
+    evaluations: [],
+    replays: [],
+    progress: v2Task.progress,
+    result: v2Task.result,
+  };
+  const conversationCanvas = {
+    conversation_id: conversation.conversation_id,
+    projection_version: 1,
+    executions: [conversationCanvasExecution],
+    latest_execution: conversationCanvasExecution,
+  };
+  const conversationActivity = {
+    conversation_id: conversation.conversation_id,
+    status: conversation.status,
+    latest_execution: conversationExecution,
+    active_agent: null,
+    progress: v2Task.progress,
+    pending_approval_count: 0,
+    updated_at: now,
+  };
+  const approval = {
+    approval_id: "approval_e2e",
+    conversation_id: conversation.conversation_id,
+    execution_id: conversationExecution.execution_id,
+    task_id: v2Task.task_id,
+    requested_by: "risk-policy",
+    intent: "将已审核版本部署到生产环境",
+    evidence: [
+      {
+        type: "diff",
+        label: "生产变更摘要",
+        summary: "更新 API 与 Web 镜像标签。",
+      },
+    ],
+    impact: {
+      level: "high",
+      summary: "将影响生产 API 与 Web 服务。",
+      affected_resources: ["production/api", "production/web"],
+      reversible: true,
+    },
+    allowed_actions: ["approve", "reject", "pause", "revise"],
+    scope: { environment: "production" },
+    status: "pending",
+    version: 1,
+    expires_at: null,
+    decision: null,
+    reason: null,
+    decided_by: null,
+    decided_at: null,
+    created_at: now,
+    updated_at: now,
   };
   const v2Overview = {
     generated_at: now,
@@ -648,6 +850,26 @@ async function mockRuntime(
       generated_at: now,
     },
     "v2/tasks": { tasks: [v2Task] },
+    conversations: { conversations: [conversation] },
+    approvals: { approvals: [approval] },
+    "approvals/approval_e2e": approval,
+    "mobile/snapshot": {
+      snapshot_version: 1,
+      projection_version: 1,
+      notification_cursor: 1,
+      generated_at: now,
+      counts: { pending_approvals: 1, active: 1, waiting_user: 1 },
+      approvals: [approval],
+      active_conversations: [
+        { ...conversation, status: "waiting_user", pending_approval_count: 1 },
+      ],
+      recent_conversations: [],
+      stateless: true,
+    },
+    "conversations/conv_v2_1": conversation,
+    "conversations/conv_v2_1/messages": conversationMessages,
+    "conversations/conv_v2_1/canvas": conversationCanvas,
+    "conversations/conv_v2_1/activity": conversationActivity,
     "v2/tasks/task_v2_1": v2Task,
     "v2/tasks/task_v2_1/events.json": {
       events: [
@@ -993,7 +1215,9 @@ async function mockRuntime(
       await route.fulfill({ json: created, status: 201 });
       return;
     }
-    const authUserMatch = path.match(/^auth\/users\/([^/]+)\/(roles|status|password)$/);
+    const authUserMatch = path.match(
+      /^auth\/users\/([^/]+)\/(roles|status|password)$/,
+    );
     if (request.method() === "POST" && authUserMatch) {
       const email = decodeURIComponent(authUserMatch[1]);
       const action = authUserMatch[2];
@@ -1036,6 +1260,50 @@ async function mockRuntime(
       await route.fulfill({
         status: 201,
         json: createdWorkspaceTask,
+      });
+      return;
+    }
+    if (request.method() === "POST" && path === "conversations") {
+      fixtures.conversations = { conversations: [conversation] };
+      await route.fulfill({ status: 201, json: conversation });
+      return;
+    }
+    if (
+      request.method() === "POST" &&
+      path === "approvals/approval_e2e/decision"
+    ) {
+      await route.fulfill({
+        status: 202,
+        json: {
+          ...approval,
+          status: "approved",
+          version: 2,
+          decision: "approve",
+        },
+      });
+      return;
+    }
+    if (
+      request.method() === "POST" &&
+      path === "conversations/conv_v2_1/messages"
+    ) {
+      await route.fulfill({
+        status: 202,
+        json: {
+          conversation_id: conversation.conversation_id,
+          execution_id: "exec_v2_2",
+          task_id: "task_v2_2",
+          event: null,
+          created_execution: true,
+        },
+      });
+      return;
+    }
+    if (path === "conversations/conv_v2_1/events") {
+      await route.fulfill({
+        body: `id: 1000003\ndata: ${JSON.stringify(conversationMessages.messages[2])}\n\n`,
+        contentType: "text/event-stream",
+        status: 200,
       });
       return;
     }

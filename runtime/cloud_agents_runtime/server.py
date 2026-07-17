@@ -10,7 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
 from .access import roles_allow, scopes_allow
@@ -27,6 +27,12 @@ from .models import RunSpec
 from .supervisor import qwen_supervisor_from_env
 from .temporal_poc import agent_run_workflow_plan, mission_workflow_plan
 from .ui_projection import project_event, project_events
+from .v2_control_plane import (
+    ApprovalConfirmationRequiredError,
+    ApprovalConflictError,
+    CONVERSATION_PROJECTION_VERSION,
+    ConversationConflictError,
+)
 
 
 def make_handler(
@@ -76,6 +82,180 @@ def make_handler(
                 return
             if path == "/v2/capabilities":
                 self.write_json(manager.v2.capabilities())
+                return
+            if path == "/conversations":
+                self.write_json(
+                    {
+                        "conversations": manager.v2.list_conversations(
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                            include_archived=parse_boolean_query(
+                                urlparse(self.path).query,
+                                "include_archived",
+                            ),
+                        )
+                    }
+                )
+                return
+            if path == "/approvals":
+                status = parse_qs(urlparse(self.path).query).get("status", ["pending"])[0]
+                self.write_json(
+                    {
+                        "approvals": manager.v2.list_approvals(
+                            status=str(status or "pending"),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    }
+                )
+                return
+            if len(parts) == 2 and parts[0] == "approvals":
+                try:
+                    self.write_json(
+                        manager.v2.get_approval(
+                            unquote(parts[1]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "approval not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+            if path == "/mobile/snapshot":
+                self.write_json(
+                    manager.v2.mobile_snapshot(
+                        principal=self.principal_id(),
+                        allow_all=self.can_access_all_conversations(),
+                    )
+                )
+                return
+            if path == "/mobile/notifications":
+                query = parse_qs(urlparse(self.path).query)
+                self.write_json(
+                    {
+                        "notifications": manager.v2.mobile_notifications(
+                            after=parse_positive_int(query.get("after", ["0"])[0]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    }
+                )
+                return
+            if path == "/mobile/notifications/events":
+                self.stream_mobile_notifications()
+                return
+            if (
+                len(parts) == 2
+                and parts[0] == "conversations"
+            ):
+                try:
+                    self.write_json(
+                        manager.v2.get_conversation(
+                            unquote(parts[1]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "conversations"
+                and parts[2] == "messages"
+            ):
+                query = parse_qs(urlparse(self.path).query)
+                try:
+                    self.write_json(
+                        {
+                            "messages": manager.v2.conversation_messages(
+                                unquote(parts[1]),
+                                after=parse_positive_int(query.get("after", ["0"])[0]),
+                                before=(
+                                    parse_positive_int(query["before"][0])
+                                    if query.get("before")
+                                    else None
+                                ),
+                                limit=parse_positive_int(
+                                    query.get("limit", ["200"])[0],
+                                    default=200,
+                                ),
+                                principal=self.principal_id(),
+                                allow_all=self.can_access_all_conversations(),
+                            ),
+                            "projection_version": CONVERSATION_PROJECTION_VERSION,
+                        }
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "conversations"
+                and parts[2] == "activity"
+            ):
+                try:
+                    self.write_json(
+                        manager.v2.conversation_activity(
+                            unquote(parts[1]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "conversations"
+                and parts[2] == "canvas"
+            ):
+                try:
+                    self.write_json(
+                        manager.v2.conversation_canvas(
+                            unquote(parts[1]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "conversations"
+                and parts[2] == "events"
+            ):
+                self.stream_conversation_events(unquote(parts[1]))
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "v2"
+                and parts[1] == "tasks"
+                and parts[3] == "conversation"
+            ):
+                try:
+                    self.write_json(
+                        manager.v2.conversation_for_task(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
                 return
             if path == "/v2/tasks":
                 self.write_json({"tasks": manager.v2.list_tasks()})
@@ -517,6 +697,40 @@ def make_handler(
                 return
             self.write_error(HTTPStatus.NOT_FOUND, "not found")
 
+        def do_PATCH(self) -> None:
+            path = urlparse(self.path).path
+            if not self.require_auth(path):
+                return
+            parts = split_path(path)
+            try:
+                payload = self.read_json()
+            except (json.JSONDecodeError, ValueError):
+                self.write_error(HTTPStatus.BAD_REQUEST, "invalid json")
+                return
+            if len(parts) == 2 and parts[0] == "conversations":
+                try:
+                    conversation = manager.v2.update_conversation(
+                        unquote(parts[1]),
+                        payload,
+                        principal=self.principal_id() or "authenticated",
+                        allow_all=self.can_access_all_conversations(),
+                    )
+                except KeyError:
+                    self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                    return
+                except PermissionError as exc:
+                    self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                    return
+                except ConversationConflictError as exc:
+                    self.write_error(HTTPStatus.CONFLICT, str(exc))
+                    return
+                except ValueError as exc:
+                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    return
+                self.write_json(conversation)
+                return
+            self.write_error(HTTPStatus.NOT_FOUND, "not found")
+
         def do_POST(self) -> None:
             path = urlparse(self.path).path
             if path == "/auth/login":
@@ -565,6 +779,92 @@ def make_handler(
                 return
             try:
                 payload = self.read_json()
+                if len(parts) == 1 and parts[0] == "conversations":
+                    try:
+                        conversation = manager.v2.create_conversation(
+                            payload,
+                            principal=self.principal_id() or "authenticated",
+                            idempotency_key=self.headers.get("idempotency-key"),
+                        )
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(conversation, status=HTTPStatus.CREATED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "approvals"
+                    and parts[2] == "decision"
+                ):
+                    try:
+                        approval = manager.v2.decide_approval(
+                            unquote(parts[1]),
+                            payload,
+                            principal=self.principal_id() or "authenticated",
+                            idempotency_key=self.headers.get("idempotency-key"),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "approval not found")
+                        return
+                    except PermissionError as exc:
+                        self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                        return
+                    except ApprovalConfirmationRequiredError as exc:
+                        self.write_error(HTTPStatus.CONFLICT, str(exc))
+                        return
+                    except ApprovalConflictError as exc:
+                        self.write_error(HTTPStatus.CONFLICT, str(exc))
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(approval, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "conversations"
+                    and parts[2] == "messages"
+                ):
+                    try:
+                        result = manager.v2.append_conversation_message(
+                            unquote(parts[1]),
+                            str(payload.get("message") or payload.get("prompt") or ""),
+                            principal=self.principal_id() or "authenticated",
+                            idempotency_key=self.headers.get("idempotency-key"),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    except PermissionError as exc:
+                        self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                        return
+                    self.write_json(result, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 3
+                    and parts[0] == "conversations"
+                    and parts[2] == "stop"
+                ):
+                    try:
+                        conversation = manager.v2.stop_conversation(
+                            unquote(parts[1]),
+                            principal=self.principal_id() or "authenticated",
+                            reason=str(payload.get("reason") or ""),
+                            allow_all=self.can_access_all_conversations(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                        return
+                    except PermissionError as exc:
+                        self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                        return
+                    self.write_json(conversation, status=HTTPStatus.ACCEPTED)
+                    return
                 if len(parts) == 2 and parts[0] == "v2" and parts[1] == "tasks":
                     try:
                         task = manager.v2.create_task(
@@ -596,6 +896,67 @@ def make_handler(
                         self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
                         return
                     self.write_json({"event": event}, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "cancel"
+                ):
+                    try:
+                        task = manager.v2.cancel_task(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                            reason=str(payload.get("reason") or ""),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "retry-failed"
+                ):
+                    try:
+                        task = manager.v2.retry_failed_steps(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    except PermissionError as exc:
+                        self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[0] == "v2"
+                    and parts[1] == "tasks"
+                    and parts[3] == "accept-partial"
+                ):
+                    try:
+                        task = manager.v2.accept_partial_result(
+                            unquote(parts[2]),
+                            principal=self.principal_id(),
+                        )
+                    except KeyError:
+                        self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                        return
+                    except PermissionError as exc:
+                        self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                        return
+                    except ValueError as exc:
+                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    self.write_json(task, status=HTTPStatus.ACCEPTED)
                     return
                 if (
                     len(parts) == 4
@@ -1052,6 +1413,94 @@ def make_handler(
             except (BrokenPipeError, ConnectionResetError):
                 return
 
+        def stream_conversation_events(self, conversation_id: str) -> None:
+            try:
+                manager.v2.get_conversation(
+                    conversation_id,
+                    principal=self.principal_id(),
+                    allow_all=self.can_access_all_conversations(),
+                )
+            except KeyError:
+                self.write_error(HTTPStatus.NOT_FOUND, "conversation not found")
+                return
+            except PermissionError as exc:
+                self.write_error(HTTPStatus.FORBIDDEN, str(exc))
+                return
+
+            query = parse_qs(urlparse(self.path).query)
+            last_cursor = parse_last_event_id(self.headers.get("Last-Event-ID"))
+            if last_cursor == 0:
+                last_cursor = parse_positive_int(query.get("after", ["0"])[0])
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/event-stream; charset=utf-8")
+            self.send_header("cache-control", "no-cache")
+            self.send_header("connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            last_heartbeat = time.monotonic()
+            try:
+                while True:
+                    messages = manager.v2.wait_for_conversation_messages(
+                        conversation_id,
+                        after=last_cursor,
+                        timeout=1.0,
+                        principal=self.principal_id(),
+                        allow_all=self.can_access_all_conversations(),
+                    )
+                    if manager.v2.closed:
+                        return
+                    for message in messages:
+                        self.write_sse(
+                            int(message["cursor"]),
+                            "conversation.message",
+                            message,
+                        )
+                        last_cursor = int(message["cursor"])
+                    if time.monotonic() - last_heartbeat >= 10:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        last_heartbeat = time.monotonic()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+        def stream_mobile_notifications(self) -> None:
+            query = parse_qs(urlparse(self.path).query)
+            last_cursor = parse_last_event_id(self.headers.get("Last-Event-ID"))
+            if last_cursor == 0:
+                last_cursor = parse_positive_int(query.get("after", ["0"])[0])
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/event-stream; charset=utf-8")
+            self.send_header("cache-control", "no-cache")
+            self.send_header("connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            last_heartbeat = time.monotonic()
+            try:
+                while True:
+                    notifications = manager.v2.wait_for_mobile_notifications(
+                        after=last_cursor,
+                        timeout=1.0,
+                        principal=self.principal_id(),
+                        allow_all=self.can_access_all_conversations(),
+                    )
+                    if manager.v2.closed:
+                        return
+                    for notification in notifications:
+                        self.write_sse(
+                            int(notification["cursor"]),
+                            "mobile.notification",
+                            notification,
+                        )
+                        last_cursor = int(notification["cursor"])
+                    if time.monotonic() - last_heartbeat >= 10:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        last_heartbeat = time.monotonic()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
         def projected_session_events(self, session_id: str) -> list[dict[str, Any]]:
             run = manager.get_run(session_id)
             if run is None:
@@ -1248,6 +1697,10 @@ def make_handler(
                 return None
             return [role for role in roles if isinstance(role, str)]
 
+        def can_access_all_conversations(self) -> bool:
+            roles = set(self.current_roles() or [])
+            return bool(roles.intersection({"owner", "operator", "auditor"}))
+
         def access_context(self) -> dict[str, Any] | None:
             if not self.current_identity:
                 return None
@@ -1419,6 +1872,12 @@ def spa_redirect_target(path: str, headers: Any) -> str | None:
         hash_path = "/v2/admin"
     elif parts[0] == "v2" and len(parts) == 3 and parts[1] == "tasks":
         hash_path = "/" + "/".join(parts)
+    elif parts[0] == "conversations" and 1 <= len(parts) <= 4:
+        hash_path = "/" + "/".join(parts)
+    elif parts[0] == "approvals" and len(parts) <= 2:
+        hash_path = "/" + "/".join(parts)
+    elif parts[0] == "mobile" and len(parts) == 1:
+        hash_path = "/mobile"
     elif parts[0] in {"runs", "missions", "tasks"} and len(parts) <= 2:
         hash_path = "/" + "/".join(parts)
     if not hash_path:
@@ -1453,6 +1912,18 @@ def parse_last_event_id(value: str | None) -> int:
         return 0
 
 
+def parse_positive_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return max(0, default)
+
+
+def parse_boolean_query(query: str, name: str) -> bool:
+    value = parse_qs(query).get(name, [""])[0]
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def required_scope_for(method: str, path: str) -> str | None:
     parts = split_path(path)
     method = method.upper()
@@ -1464,6 +1935,18 @@ def required_scope_for(method: str, path: str) -> str | None:
         return None
     if parts[0] == "auth":
         return "access:read" if method == "GET" else "access:write"
+    if parts[0] == "conversations":
+        if method == "GET":
+            if len(parts) >= 3 and parts[2] in {"messages", "events", "activity", "canvas"}:
+                return "events:read"
+            return "tasks:read"
+        if method == "POST" and len(parts) == 1:
+            return "tasks:create"
+        return "tasks:write"
+    if parts[0] == "approvals":
+        return "permissions:read" if method == "GET" else "permissions:resolve"
+    if parts[0] == "mobile":
+        return "tasks:read"
     if parts[0] == "v2":
         if len(parts) >= 2 and parts[1] == "admin":
             return "access:read" if method == "GET" else "access:write"
@@ -1480,7 +1963,9 @@ def required_scope_for(method: str, path: str) -> str | None:
             }:
                 return "events:read"
             return "tasks:read"
-        if len(parts) >= 4 and parts[3] in {"messages", "retry", "replay"}:
+        if len(parts) >= 4 and parts[3] in {
+            "messages", "retry", "retry-failed", "accept-partial", "replay", "cancel"
+        }:
             return "tasks:write"
         return "tasks:create"
     if parts[0] == "workers":

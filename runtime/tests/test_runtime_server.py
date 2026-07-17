@@ -11,7 +11,7 @@ import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from runtime.cloud_agents_runtime.auth import AuthConfig
 from runtime.cloud_agents_runtime.server import build_server, main as server_main
@@ -200,6 +200,12 @@ class RuntimeServerTest(unittest.TestCase):
                 payload={},
                 headers=headers,
             )
+            cancelled = request_json(
+                f"{base_url}/v2/tasks/{task_id}/cancel",
+                method="POST",
+                payload={"reason": "stop from client"},
+                headers=headers,
+            )
             unit = request_json(
                 f"{base_url}/v2/admin/execution-units",
                 method="POST",
@@ -281,6 +287,7 @@ class RuntimeServerTest(unittest.TestCase):
             self.assertEqual(replay["status"], "created")
             self.assertTrue(replays["replays"])
             self.assertIn(retried["status"], {"queued", "running", "completed"})
+            self.assertEqual(cancelled["status"], "cancelled")
             self.assertEqual(unit["unit_id"], "docker-http")
             self.assertEqual(tenant["tenant_id"], "tenant_http")
             self.assertEqual(user["roles"], ["operator"])
@@ -295,6 +302,198 @@ class RuntimeServerTest(unittest.TestCase):
             self.assertIn("database", ha)
             self.assertIn("engines", engines)
             self.assertIn("units", discovery)
+
+    def test_conversation_projection_multi_execution_and_versioned_api(self) -> None:
+        with running_runtime(token="secret") as base_url:
+            headers = {
+                "authorization": "Bearer secret",
+                "idempotency-key": "conversation-http-1",
+            }
+            created = request_json(
+                f"{base_url}/conversations",
+                method="POST",
+                payload={"goal": "Audit the conversation HTTP projection", "adapter": "fake"},
+                headers=headers,
+            )
+            conversation_id = created["conversation_id"]
+            task_id = created["latest_execution"]["task_id"]
+            deadline = time.time() + 3
+            current = created
+            while time.time() < deadline:
+                current = request_json(
+                    f"{base_url}/conversations/{conversation_id}",
+                    headers={"authorization": "Bearer secret"},
+                )
+                if current["status"] == "completed":
+                    break
+                time.sleep(0.05)
+
+            messages = request_json(
+                f"{base_url}/conversations/{conversation_id}/messages",
+                headers={"authorization": "Bearer secret"},
+            )
+            streamed = read_first_sse(
+                f"{base_url}/conversations/{conversation_id}/events",
+                headers={"authorization": "Bearer secret"},
+            )
+            canvas = request_json(
+                f"{base_url}/conversations/{conversation_id}/canvas",
+                headers={"authorization": "Bearer secret"},
+            )
+            activity = request_json(
+                f"{base_url}/conversations/{conversation_id}/activity",
+                headers={"authorization": "Bearer secret"},
+            )
+            projected_from_task = request_json(
+                f"{base_url}/v2/tasks/{task_id}/conversation",
+                headers={"authorization": "Bearer secret"},
+            )
+
+            self.assertEqual(current["status"], "completed")
+            self.assertIn("result", [message["kind"] for message in messages["messages"]])
+            self.assertEqual(messages["projection_version"], 2)
+            self.assertEqual(streamed["event"], "conversation.message")
+            self.assertEqual(canvas["projection_version"], 2)
+            self.assertTrue(canvas["latest_execution"]["events"])
+            self.assertEqual(activity["conversation_id"], conversation_id)
+            self.assertEqual(projected_from_task["conversation_id"], conversation_id)
+
+            updated = request_json(
+                f"{base_url}/conversations/{conversation_id}",
+                method="PATCH",
+                payload={
+                    "title": "Versioned conversation",
+                    "pinned": True,
+                    "version": current["version"],
+                },
+                headers={"authorization": "Bearer secret"},
+            )
+            self.assertEqual(updated["title"], "Versioned conversation")
+            with self.assertRaises(urllib.error.HTTPError) as stale_ctx:
+                request_json(
+                    f"{base_url}/conversations/{conversation_id}",
+                    method="PATCH",
+                    payload={"archived": True, "version": current["version"]},
+                    headers={"authorization": "Bearer secret"},
+                )
+            self.assertEqual(stale_ctx.exception.code, HTTPStatus.CONFLICT)
+
+            continuation_headers = {
+                "authorization": "Bearer secret",
+                "idempotency-key": "conversation-message-http-1",
+            }
+            continued = request_json(
+                f"{base_url}/conversations/{conversation_id}/messages",
+                method="POST",
+                payload={"message": "Generate the follow-up checklist"},
+                headers=continuation_headers,
+            )
+            repeated = request_json(
+                f"{base_url}/conversations/{conversation_id}/messages",
+                method="POST",
+                payload={"message": "Duplicate request"},
+                headers=continuation_headers,
+            )
+            self.assertTrue(continued["created_execution"])
+            self.assertEqual(repeated, continued)
+            latest = request_json(
+                f"{base_url}/conversations/{conversation_id}",
+                headers={"authorization": "Bearer secret"},
+            )
+            self.assertEqual(len(latest["executions"]), 2)
+
+    def test_mobile_approval_http_flow_requires_confirmed_versioned_decision(self) -> None:
+        with running_runtime(token="secret") as base_url:
+            auth = {"authorization": "Bearer secret"}
+            created = request_json(
+                f"{base_url}/conversations",
+                method="POST",
+                payload={
+                    "goal": "Deploy the verified release to production",
+                    "adapter": "fake",
+                },
+                headers={**auth, "idempotency-key": "approval-http-create"},
+            )
+            conversation_id = created["conversation_id"]
+            task_id = created["latest_execution"]["task_id"]
+
+            approvals = request_json(
+                f"{base_url}/approvals?status=pending", headers=auth
+            )["approvals"]
+            self.assertEqual(len(approvals), 1)
+            approval = approvals[0]
+            self.assertEqual(approval["impact"]["level"], "high")
+            detail = request_json(
+                f"{base_url}/approvals/{approval['approval_id']}", headers=auth
+            )
+            self.assertEqual(detail["version"], approval["version"])
+            snapshot = request_json(f"{base_url}/mobile/snapshot", headers=auth)
+            self.assertTrue(snapshot["stateless"])
+            self.assertEqual(snapshot["counts"]["pending_approvals"], 1)
+            self.assertNotIn("workspace", snapshot)
+            notifications = request_json(
+                f"{base_url}/mobile/notifications?after=0", headers=auth
+            )["notifications"]
+            self.assertEqual(len(notifications), 1)
+            self.assertEqual(snapshot["notification_cursor"], notifications[0]["cursor"])
+            self.assertNotIn("verified release", json.dumps(notifications[0]))
+            self.assertEqual(
+                request_json(
+                    f"{base_url}/mobile/notifications?after={notifications[0]['cursor']}",
+                    headers=auth,
+                )["notifications"],
+                [],
+            )
+
+            with self.assertRaises(urllib.error.HTTPError) as unconfirmed:
+                request_json(
+                    f"{base_url}/approvals/{approval['approval_id']}/decision",
+                    method="POST",
+                    payload={"action": "approve", "version": approval["version"]},
+                    headers={**auth, "idempotency-key": "approval-unconfirmed"},
+                )
+            self.assertEqual(unconfirmed.exception.code, HTTPStatus.CONFLICT)
+
+            approved = request_json(
+                f"{base_url}/approvals/{approval['approval_id']}/decision",
+                method="POST",
+                payload={
+                    "action": "approve",
+                    "version": approval["version"],
+                    "confirmed": True,
+                },
+                headers={**auth, "idempotency-key": "approval-confirmed"},
+            )
+            self.assertEqual(approved["status"], "approved")
+            with self.assertRaises(urllib.error.HTTPError) as stale:
+                request_json(
+                    f"{base_url}/approvals/{approval['approval_id']}/decision",
+                    method="POST",
+                    payload={
+                        "action": "reject",
+                        "version": approval["version"],
+                        "reason": "decision from a stale device",
+                    },
+                    headers={**auth, "idempotency-key": "approval-stale"},
+                )
+            self.assertEqual(stale.exception.code, HTTPStatus.CONFLICT)
+
+            deadline = time.time() + 3
+            task = request_json(f"{base_url}/v2/tasks/{task_id}", headers=auth)
+            while time.time() < deadline and task["status"] != "completed":
+                time.sleep(0.05)
+                task = request_json(f"{base_url}/v2/tasks/{task_id}", headers=auth)
+            self.assertEqual(task["status"], "completed")
+            current = request_json(
+                f"{base_url}/conversations/{conversation_id}", headers=auth
+            )
+            self.assertEqual(current["pending_approval_count"], 0)
+            self.assertEqual(
+                request_json(f"{base_url}/approvals?status=pending", headers=auth)[
+                    "approvals"
+                ],
+                [],
+            )
 
     def test_console_login_session_cookie_authorizes_api(self) -> None:
         with running_runtime(
@@ -1538,6 +1737,11 @@ class FakeQwenHandler(BaseHTTPRequestHandler):
         return
 
 
+class ResponseMetadata(NamedTuple):
+    status: int
+    headers: Any
+
+
 def request_json(
     url: str,
     method: str = "GET",
@@ -1548,10 +1752,15 @@ def request_json(
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     if payload is not None:
         request.add_header("content-type", "application/json")
-    with urllib.request.urlopen(request, timeout=5) as response:
-        parsed = json.loads(response.read().decode("utf-8"))
-        assert isinstance(parsed, dict)
-        return parsed
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+            assert isinstance(parsed, dict)
+            return parsed
+    except urllib.error.HTTPError as response:
+        response.read()
+        response.close()
+        raise
 
 
 def request_raw(
@@ -1559,12 +1768,13 @@ def request_raw(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-) -> urllib.response.addinfourl:
+) -> Any:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     if payload is not None:
         request.add_header("content-type", "application/json")
-    return urllib.request.urlopen(request, timeout=5)
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return ResponseMetadata(response.status, response.headers)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -1577,16 +1787,19 @@ def request_no_redirect(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-) -> urllib.response.addinfourl:
+) -> Any:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     if payload is not None:
         request.add_header("content-type", "application/json")
     opener = urllib.request.build_opener(NoRedirect)
     try:
-        return opener.open(request, timeout=5)
+        with opener.open(request, timeout=5) as response:
+            return ResponseMetadata(response.status, response.headers)
     except urllib.error.HTTPError as response:
-        return response
+        response.read()
+        response.close()
+        return ResponseMetadata(response.code, response.headers)
 
 
 def request_text(url: str, headers: dict[str, str] | None = None) -> str:
@@ -1629,6 +1842,25 @@ def read_sse(url: str, headers: dict[str, str] | None = None) -> list[dict[str, 
                 data_lines = []
                 event_name = None
     return events
+
+
+def read_first_sse(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        event_name: str | None = None
+        data_lines: list[str] = []
+        for raw_line in response:
+            line = raw_line.decode("utf-8").rstrip("\n")
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].strip())
+            elif line == "" and data_lines:
+                return {
+                    "event": event_name,
+                    "data": json.loads("\n".join(data_lines)),
+                }
+    raise AssertionError("SSE stream ended before the first event")
 
 
 if __name__ == "__main__":

@@ -8,10 +8,12 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { onlineManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App, __testUtils, queryClient, router } from "./app";
 import { __shellTestUtils } from "./components/shell";
+import { __productTestUtils } from "./product";
 
 const run = {
   run_id: "run_1",
@@ -170,7 +172,11 @@ const v2Task = {
       nodes: [
         { id: "brain", title: "Plan the work", depends_on: [] },
         { id: "builder", title: "Execute the work", depends_on: ["brain"] },
-        { id: "reviewer", title: "Review and package", depends_on: ["builder"] },
+        {
+          id: "reviewer",
+          title: "Review and package",
+          depends_on: ["builder"],
+        },
       ],
     },
     artifact_contract: { required: ["final_summary"] },
@@ -186,7 +192,9 @@ const v2Task = {
         adapter: "fake",
         order_index: 0,
         depends_on: [],
-        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        artifact_contract: {
+          evaluation: "must produce non-empty result summary",
+        },
         result: { final_summary: "Plan complete." },
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -203,7 +211,9 @@ const v2Task = {
         adapter: "fake",
         order_index: 1,
         depends_on: ["brain"],
-        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        artifact_contract: {
+          evaluation: "must produce non-empty result summary",
+        },
         result: { final_summary: "Build complete." },
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -220,7 +230,9 @@ const v2Task = {
         adapter: "fake",
         order_index: 2,
         depends_on: ["builder"],
-        artifact_contract: { evaluation: "must produce non-empty result summary" },
+        artifact_contract: {
+          evaluation: "must produce non-empty result summary",
+        },
         result: { final_summary: "Review complete." },
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -232,7 +244,9 @@ const v2Task = {
   },
   result: {
     summary: "Plan complete. Build complete. Review complete.",
-    artifacts: [{ name: "final_summary", kind: "summary", status: "available" }],
+    artifacts: [
+      { name: "final_summary", kind: "summary", status: "available" },
+    ],
     evaluation: { status: "passed", checks: ["contract"] },
   },
 };
@@ -254,6 +268,168 @@ const v2FallbackTask = {
   },
   plan: null,
   result: null,
+};
+
+const v2RunningTask = {
+  ...v2Task,
+  task_id: "task_v2_running",
+  title: "Audit authentication flow",
+  goal: "Audit the authentication flow with multiple agents",
+  status: "running",
+  progress: {
+    completed_steps: 0,
+    running_steps: 1,
+    total_steps: 3,
+    percent: 0,
+  },
+  plan: {
+    ...v2Task.plan,
+    task_id: "task_v2_running",
+    agent_tasks: v2Task.plan.agent_tasks.map((agent, index) => ({
+      ...agent,
+      task_id: "task_v2_running",
+      status: index === 0 ? "running" : "queued",
+    })),
+  },
+  result: null,
+};
+
+const v2FailedTask = {
+  ...v2FallbackTask,
+  task_id: "task_v2_failed",
+  title: "Review deployment failure",
+  goal: "Diagnose the failed deployment",
+  status: "failed",
+};
+
+const v2CancelledTask = {
+  ...v2FallbackTask,
+  task_id: "task_v2_cancelled",
+  title: "Stopped dependency upgrade",
+  goal: "Upgrade workspace dependencies",
+  status: "cancelled",
+};
+
+const v2PausedTask = {
+  ...v2FallbackTask,
+  task_id: "task_v2_paused",
+  title: "Paused migration review",
+  goal: "Review the migration plan before continuing",
+  status: "paused",
+};
+
+function conversationFromTask(
+  taskValue: {
+    task_id: string;
+    tenant_id: string;
+    project_id: string;
+    created_by: string;
+    title: string;
+    goal: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  },
+  status = taskValue.status === "running" || taskValue.status === "queued"
+    ? "active"
+    : taskValue.status === "completed"
+      ? "completed"
+      : taskValue.status === "failed"
+        ? "failed"
+        : "idle",
+) {
+  const suffix = taskValue.task_id.replace("task_", "");
+  const execution = {
+    execution_id: `exec_${suffix}`,
+    conversation_id: `conv_${suffix}`,
+    task_id: taskValue.task_id,
+    sequence: 1,
+    status: taskValue.status,
+    trigger_message: taskValue.goal,
+    created_at: taskValue.created_at,
+    updated_at: taskValue.updated_at,
+  };
+  return {
+    conversation_id: `conv_${suffix}`,
+    tenant_id: taskValue.tenant_id,
+    project_id: taskValue.project_id,
+    created_by: taskValue.created_by,
+    title: taskValue.title,
+    status,
+    unread_count: 0,
+    pending_approval_count: 0,
+    pinned_at: null,
+    archived_at: null,
+    version: 1,
+    projection_version: 1,
+    last_meaningful_activity_at: taskValue.updated_at,
+    created_at: taskValue.created_at,
+    updated_at: taskValue.updated_at,
+    executions: [execution],
+    latest_execution: execution,
+  };
+}
+
+const completedConversation = conversationFromTask(v2Task);
+const runningConversation = conversationFromTask(v2RunningTask);
+const fallbackConversation = conversationFromTask(v2FallbackTask);
+const failedConversation = conversationFromTask(v2FailedTask);
+const cancelledConversation = conversationFromTask(v2CancelledTask);
+const pausedConversation = conversationFromTask(v2PausedTask);
+
+const conversationMessages = {
+  projection_version: 1,
+  messages: [
+    {
+      message_id: "msg_created",
+      conversation_id: completedConversation.conversation_id,
+      execution_id: completedConversation.latest_execution.execution_id,
+      cursor: 1_000_001,
+      role: "user",
+      kind: "text",
+      content: [{ type: "text", text: v2Task.goal }],
+      created_at: v2Task.created_at,
+      revision: 1,
+    },
+    {
+      message_id: "msg_plan",
+      conversation_id: completedConversation.conversation_id,
+      execution_id: completedConversation.latest_execution.execution_id,
+      cursor: 1_000_002,
+      role: "agent",
+      kind: "plan",
+      content: [
+        { type: "text", text: "已生成执行计划，将由 3 个 Agent 协作完成。" },
+        {
+          type: "entity_ref",
+          entity_type: "plan",
+          entity_id: "plan_v2_1",
+          label: "查看计划与 Agent",
+        },
+      ],
+      created_at: v2Task.updated_at,
+      revision: 1,
+    },
+    {
+      message_id: "msg_result",
+      conversation_id: completedConversation.conversation_id,
+      execution_id: completedConversation.latest_execution.execution_id,
+      cursor: 1_000_003,
+      role: "agent",
+      kind: "result",
+      content: [
+        { type: "text", text: v2Task.result.summary },
+        {
+          type: "entity_ref",
+          entity_type: "artifacts",
+          entity_id: v2Task.task_id,
+          label: "查看产物与验收结果",
+        },
+      ],
+      created_at: v2Task.updated_at,
+      revision: 1,
+    },
+  ],
 };
 
 const v2Events = [
@@ -307,18 +483,32 @@ const v2Workflow = {
 };
 
 const v2Artifacts = {
-  artifacts: v2Task.plan.agent_tasks.map((agent) => ({
-    artifact_id: `artifact_${agent.role}`,
-    task_id: "task_v2_1",
-    agent_task_id: agent.agent_task_id,
-    name: "final_summary",
-    kind: "summary",
-    status: "available",
-    content: { final_summary: agent.result.final_summary },
-    ref: `v2/task_v2_1/artifact_${agent.role}.json`,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })),
+  artifacts: [
+    ...v2Task.plan.agent_tasks.map((agent) => ({
+      artifact_id: `artifact_${agent.role}`,
+      task_id: "task_v2_1",
+      agent_task_id: agent.agent_task_id,
+      name: "final_summary",
+      kind: "summary",
+      status: "available",
+      content: { final_summary: agent.result.final_summary },
+      ref: `v2/task_v2_1/artifact_${agent.role}.json`,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+    {
+      artifact_id: "artifact_patch",
+      task_id: "task_v2_1",
+      agent_task_id: "agent_builder",
+      name: "client.patch",
+      kind: "patch",
+      status: "available",
+      content: { diff: "--- a/client.ts\n+++ b/client.ts" },
+      ref: "v2/task_v2_1/artifact_patch.json",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
 };
 
 const v2Evaluations = {
@@ -341,6 +531,329 @@ const v2Replay = {
   status: "created",
   snapshot: { task: v2Task, workflow: v2Workflow },
   created_at: new Date().toISOString(),
+};
+
+const conversationCanvas = {
+  conversation_id: completedConversation.conversation_id,
+  projection_version: 1,
+  executions: [
+    {
+      ...completedConversation.latest_execution,
+      plan: v2Task.plan,
+      workflow: v2Workflow,
+      artifacts: v2Artifacts.artifacts,
+      evaluations: v2Evaluations.evaluations,
+      replays: [v2Replay],
+      progress: v2Task.progress,
+      result: v2Task.result,
+    },
+  ],
+  latest_execution: {
+    ...completedConversation.latest_execution,
+    plan: v2Task.plan,
+    workflow: v2Workflow,
+    artifacts: v2Artifacts.artifacts,
+    evaluations: v2Evaluations.evaluations,
+    replays: [v2Replay],
+    progress: v2Task.progress,
+    result: v2Task.result,
+  },
+};
+
+const conversationActivity = {
+  conversation_id: completedConversation.conversation_id,
+  status: "completed",
+  latest_execution: completedConversation.latest_execution,
+  active_agent: null,
+  progress: v2Task.progress,
+  pending_approval_count: 0,
+  updated_at: v2Task.updated_at,
+};
+
+const runningConversationMessages = {
+  projection_version: 1,
+  messages: [
+    {
+      ...conversationMessages.messages[0],
+      message_id: "msg_running_created",
+      conversation_id: runningConversation.conversation_id,
+      execution_id: runningConversation.latest_execution.execution_id,
+      content: [{ type: "text", text: v2RunningTask.goal }],
+    },
+    {
+      ...conversationMessages.messages[1],
+      message_id: "msg_running_plan",
+      conversation_id: runningConversation.conversation_id,
+      execution_id: runningConversation.latest_execution.execution_id,
+      content: [
+        { type: "text", text: "已生成运行中的审计计划。" },
+        {
+          type: "entity_ref",
+          entity_type: "plan",
+          entity_id: "plan_v2_running",
+          label: "查看计划与 Agent",
+        },
+      ],
+    },
+  ],
+};
+
+const runningConversationCanvas = {
+  conversation_id: runningConversation.conversation_id,
+  projection_version: 1,
+  executions: [
+    {
+      ...runningConversation.latest_execution,
+      plan: v2RunningTask.plan,
+      workflow: { run: null, steps: [] },
+      artifacts: [],
+      evaluations: [],
+      replays: [],
+      progress: v2RunningTask.progress,
+      result: null,
+    },
+  ],
+  latest_execution: {
+    ...runningConversation.latest_execution,
+    plan: v2RunningTask.plan,
+    workflow: { run: null, steps: [] },
+    artifacts: [],
+    evaluations: [],
+    replays: [],
+    progress: v2RunningTask.progress,
+    result: null,
+  },
+};
+
+const runningConversationActivity = {
+  conversation_id: runningConversation.conversation_id,
+  status: "active",
+  latest_execution: runningConversation.latest_execution,
+  active_agent: v2RunningTask.plan.agent_tasks[0],
+  progress: v2RunningTask.progress,
+  pending_approval_count: 0,
+  updated_at: v2RunningTask.updated_at,
+};
+
+const fallbackConversationMessages = {
+  projection_version: 1,
+  messages: [],
+};
+
+const fallbackConversationCanvas = {
+  conversation_id: fallbackConversation.conversation_id,
+  projection_version: 1,
+  executions: [
+    {
+      ...fallbackConversation.latest_execution,
+      plan: null,
+      workflow: { run: null, steps: [] },
+      artifacts: [],
+      evaluations: [],
+      replays: [],
+      progress: v2FallbackTask.progress,
+      result: null,
+    },
+  ],
+  latest_execution: {
+    ...fallbackConversation.latest_execution,
+    plan: null,
+    workflow: { run: null, steps: [] },
+    artifacts: [],
+    evaluations: [],
+    replays: [],
+    progress: v2FallbackTask.progress,
+    result: null,
+  },
+};
+
+const fallbackConversationActivity = {
+  conversation_id: fallbackConversation.conversation_id,
+  status: fallbackConversation.status,
+  latest_execution: fallbackConversation.latest_execution,
+  active_agent: null,
+  progress: v2FallbackTask.progress,
+  pending_approval_count: 0,
+  updated_at: v2FallbackTask.updated_at,
+};
+
+const waitingConversation = {
+  ...completedConversation,
+  conversation_id: "conv_waiting_review",
+  title: "Approve production rollout",
+  status: "waiting_user",
+  pending_approval_count: 1,
+  version: 3,
+  executions: [
+    completedConversation.latest_execution,
+    {
+      ...completedConversation.latest_execution,
+      execution_id: "exec_waiting_review",
+      conversation_id: "conv_waiting_review",
+      task_id: "task_waiting_review",
+      sequence: 2,
+      status: "waiting_user",
+      trigger_message: "Deploy the reviewed release",
+    },
+  ],
+  latest_execution: {
+    ...completedConversation.latest_execution,
+    execution_id: "exec_waiting_review",
+    conversation_id: "conv_waiting_review",
+    task_id: "task_waiting_review",
+    sequence: 2,
+    status: "waiting_user",
+    trigger_message: "Deploy the reviewed release",
+  },
+};
+
+const waitingConversationMessages = {
+  projection_version: 1,
+  messages: [
+    conversationMessages.messages[0],
+    {
+      message_id: "msg_waiting_user",
+      conversation_id: waitingConversation.conversation_id,
+      execution_id: waitingConversation.latest_execution.execution_id,
+      cursor: 2_000_001,
+      role: "user",
+      kind: "text",
+      content: [{ type: "text", text: "Deploy the reviewed release" }],
+      created_at: v2Task.updated_at,
+      revision: 1,
+    },
+    {
+      message_id: "msg_waiting_approval",
+      conversation_id: waitingConversation.conversation_id,
+      execution_id: waitingConversation.latest_execution.execution_id,
+      cursor: 2_000_002,
+      role: "system",
+      kind: "approval",
+      content: [
+        { type: "text", text: "生产发布需要你的批准。" },
+        {
+          type: "entity_ref",
+          entity_type: "approval",
+          entity_id: "approval_1",
+          label: "查看审批",
+        },
+        {
+          type: "attachment",
+          name: "deployment-diff.patch",
+          href: "/artifacts/deployment-diff.patch",
+        },
+      ],
+      created_at: v2Task.updated_at,
+      revision: 1,
+    },
+  ],
+};
+
+const waitingConversationCanvas = {
+  conversation_id: waitingConversation.conversation_id,
+  projection_version: 1,
+  executions: [
+    conversationCanvas.executions[0],
+    {
+      ...waitingConversation.latest_execution,
+      plan: null,
+      workflow: { run: null, steps: [] },
+      artifacts: [],
+      evaluations: [],
+      replays: [],
+      progress: {
+        completed_steps: 0,
+        running_steps: 0,
+        total_steps: 1,
+        percent: 0,
+      },
+      result: null,
+    },
+  ],
+  latest_execution: {
+    ...waitingConversation.latest_execution,
+    plan: null,
+    workflow: { run: null, steps: [] },
+    artifacts: [],
+    evaluations: [],
+    replays: [],
+    progress: {
+      completed_steps: 0,
+      running_steps: 0,
+      total_steps: 1,
+      percent: 0,
+    },
+    result: null,
+  },
+};
+
+const waitingConversationActivity = {
+  conversation_id: waitingConversation.conversation_id,
+  status: "waiting_user",
+  latest_execution: waitingConversation.latest_execution,
+  active_agent: null,
+  progress: null,
+  pending_approval_count: 1,
+  updated_at: v2Task.updated_at,
+};
+
+const pendingApproval = {
+  approval_id: "approval_1",
+  conversation_id: waitingConversation.conversation_id,
+  execution_id: waitingConversation.latest_execution.execution_id,
+  task_id: waitingConversation.latest_execution.task_id,
+  requested_by: "system",
+  intent: "将已审核版本部署到生产环境",
+  evidence: [
+    {
+      type: "diff",
+      label: "部署变更摘要",
+      summary: "修改 3 个配置文件并更新生产镜像标签。",
+      ref: "deployment-diff.patch",
+    },
+  ],
+  impact: {
+    level: "high",
+    summary: "会更新生产环境服务，错误发布可能造成短暂不可用。",
+    affected_resources: ["production/api", "production/web"],
+    reversible: true,
+  },
+  allowed_actions: ["approve", "reject", "pause", "revise"],
+  scope: { environment: "production" },
+  status: "pending",
+  version: 1,
+  expires_at: null,
+  decision: null,
+  reason: null,
+  decided_by: null,
+  decided_at: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+
+const resolvedApproval = {
+  ...pendingApproval,
+  approval_id: "approval_resolved",
+  status: "rejected",
+  version: 2,
+  decision: "reject",
+  reason: "缺少回滚演练证据",
+  decided_by: "owner@example.com",
+  decided_at: new Date().toISOString(),
+};
+
+const lowRiskApproval = {
+  ...pendingApproval,
+  approval_id: "approval_low",
+  intent: "在测试环境刷新缓存",
+  evidence: [],
+  impact: {
+    level: "low",
+    summary: "仅影响测试缓存。",
+    affected_resources: [],
+    reversible: false,
+  },
+  allowed_actions: ["approve"],
 };
 
 const v2Overview = {
@@ -541,6 +1054,9 @@ const daemonEvents = [
 ] as const;
 
 let authSessionAuthenticated = true;
+let failV2TaskCreate = false;
+let failConversationMessage = false;
+let emptyApprovalQueues = false;
 
 const fixtures: Record<string, unknown> = {
   "auth/session": {
@@ -677,14 +1193,108 @@ const fixtures: Record<string, unknown> = {
     completed: false,
     generated_at: new Date().toISOString(),
   },
-  "v2/tasks": { tasks: [v2Task, v2FallbackTask] },
+  "v2/tasks": {
+    tasks: [
+      v2Task,
+      v2RunningTask,
+      v2FallbackTask,
+      v2FailedTask,
+      v2CancelledTask,
+      v2PausedTask,
+    ],
+  },
+  "conversations?include_archived=true": {
+    conversations: [
+      completedConversation,
+      runningConversation,
+      fallbackConversation,
+      failedConversation,
+      cancelledConversation,
+      pausedConversation,
+      waitingConversation,
+    ],
+  },
+  "approvals?status=pending": { approvals: [pendingApproval] },
+  "approvals?status=all": { approvals: [pendingApproval, resolvedApproval] },
+  "approvals/approval_1": pendingApproval,
+  "approvals/approval_resolved": resolvedApproval,
+  "approvals/approval_low": lowRiskApproval,
+  "mobile/snapshot": {
+    snapshot_version: 1,
+    projection_version: 3,
+    notification_cursor: 1,
+    generated_at: new Date().toISOString(),
+    counts: { pending_approvals: 1, active: 2, waiting_user: 1 },
+    approvals: [pendingApproval],
+    active_conversations: [runningConversation, waitingConversation],
+    recent_conversations: [completedConversation],
+    stateless: true,
+  },
+  [`conversations/${completedConversation.conversation_id}`]:
+    completedConversation,
+  [`conversations/${completedConversation.conversation_id}/messages?after=0`]:
+    conversationMessages,
+  [`conversations/${completedConversation.conversation_id}/canvas`]:
+    conversationCanvas,
+  [`conversations/${completedConversation.conversation_id}/activity`]:
+    conversationActivity,
+  [`conversations/${runningConversation.conversation_id}`]: runningConversation,
+  [`conversations/${runningConversation.conversation_id}/messages?after=0`]:
+    runningConversationMessages,
+  [`conversations/${runningConversation.conversation_id}/canvas`]:
+    runningConversationCanvas,
+  [`conversations/${runningConversation.conversation_id}/activity`]:
+    runningConversationActivity,
+  [`conversations/${fallbackConversation.conversation_id}`]:
+    fallbackConversation,
+  [`conversations/${fallbackConversation.conversation_id}/messages?after=0`]:
+    fallbackConversationMessages,
+  [`conversations/${fallbackConversation.conversation_id}/canvas`]:
+    fallbackConversationCanvas,
+  [`conversations/${fallbackConversation.conversation_id}/activity`]:
+    fallbackConversationActivity,
+  [`conversations/${failedConversation.conversation_id}`]: failedConversation,
+  [`conversations/${failedConversation.conversation_id}/messages?after=0`]:
+    conversationMessages,
+  [`conversations/${failedConversation.conversation_id}/canvas`]:
+    conversationCanvas,
+  [`conversations/${failedConversation.conversation_id}/activity`]: {
+    ...conversationActivity,
+    conversation_id: failedConversation.conversation_id,
+    status: "failed",
+    latest_execution: failedConversation.latest_execution,
+  },
+  [`conversations/${waitingConversation.conversation_id}`]: waitingConversation,
+  [`conversations/${waitingConversation.conversation_id}/messages?after=0`]:
+    waitingConversationMessages,
+  [`conversations/${waitingConversation.conversation_id}/canvas`]:
+    waitingConversationCanvas,
+  [`conversations/${waitingConversation.conversation_id}/activity`]:
+    waitingConversationActivity,
   "v2/tasks/task_v2_1": v2Task,
+  "v2/tasks/task_v2_1/conversation": completedConversation,
   "v2/tasks/task_v2_1/events.json": { events: v2Events },
   "v2/tasks/task_v2_1/webshell/events.json": { events: daemonEvents },
   "v2/tasks/task_v2_1/workflow": v2Workflow,
   "v2/tasks/task_v2_1/artifacts": v2Artifacts,
   "v2/tasks/task_v2_1/evaluations": v2Evaluations,
   "v2/tasks/task_v2_1/replays": { replays: [v2Replay] },
+  "v2/tasks/task_v2_legacy": v2FallbackTask,
+  "v2/tasks/task_v2_legacy/conversation": fallbackConversation,
+  "v2/tasks/task_v2_legacy/events.json": { events: [] },
+  "v2/tasks/task_v2_legacy/webshell/events.json": { events: [] },
+  "v2/tasks/task_v2_legacy/workflow": { run: null, steps: [] },
+  "v2/tasks/task_v2_legacy/artifacts": { artifacts: [] },
+  "v2/tasks/task_v2_legacy/evaluations": { evaluations: [] },
+  "v2/tasks/task_v2_legacy/replays": { replays: [] },
+  "v2/tasks/task_v2_running": v2RunningTask,
+  "v2/tasks/task_v2_running/conversation": runningConversation,
+  "v2/tasks/task_v2_running/events.json": { events: [] },
+  "v2/tasks/task_v2_running/webshell/events.json": { events: [] },
+  "v2/tasks/task_v2_running/workflow": { run: null, steps: [] },
+  "v2/tasks/task_v2_running/artifacts": { artifacts: [] },
+  "v2/tasks/task_v2_running/evaluations": { evaluations: [] },
+  "v2/tasks/task_v2_running/replays": { replays: [] },
   "v2/admin/overview": v2Overview,
   "v2/admin/execution-units": { units: v2Overview.execution_units },
   "v2/admin/channels": { channels: v2Overview.channels },
@@ -974,8 +1584,12 @@ const fixtures: Record<string, unknown> = {
 
 describe("AgentFlow console", () => {
   beforeEach(async () => {
+    onlineManager.setOnline(true);
     queryClient.clear();
     authSessionAuthenticated = true;
+    failV2TaskCreate = false;
+    failConversationMessage = false;
+    emptyApprovalQueues = false;
     localStorage.clear();
     window.location.hash = "";
     document.documentElement.classList.remove("dark");
@@ -986,6 +1600,7 @@ describe("AgentFlow console", () => {
   });
 
   afterEach(() => {
+    onlineManager.setOnline(true);
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -996,10 +1611,10 @@ describe("AgentFlow console", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Client Workspace" }),
+      await screen.findByRole("heading", { name: "今天想完成什么？" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Channel Ready")).toBeInTheDocument();
-    expect(screen.getByText("Task Track")).toBeInTheDocument();
+    expect(screen.getByLabelText("搜索会话")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "新建会话" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "管理后台" }));
     expect(
@@ -1012,6 +1627,34 @@ describe("AgentFlow console", () => {
       await screen.findByRole("heading", { name: "Admin Control Plane" }),
     ).toBeInTheDocument();
     expect(localStorage.getItem("agentflow-locale")).toBe("en");
+  });
+
+  it("filters, collapses, and personalizes the conversation sidebar", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "今天想完成什么？" });
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+    expect(screen.getByText("返回全部会话")).toBeInTheDocument();
+    expect(screen.getByText("Ship the control plane")).toBeInTheDocument();
+    expect(screen.queryByText("Legacy recovered task")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回全部会话" }));
+    const search = screen.getByLabelText("搜索会话");
+    await user.type(search, "missing conversation");
+    expect(screen.getByText("没有匹配的会话")).toBeInTheDocument();
+    await user.clear(search);
+    expect(screen.getByText("Legacy recovered task")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("收起会话导航"));
+    await user.click(screen.getByLabelText("展开会话导航"));
+    await user.click(screen.getByLabelText("切换主题"));
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+    await user.click(screen.getByLabelText("退出登录"));
+    expect(
+      await screen.findByRole("heading", { name: "登录" }),
+    ).toBeInTheDocument();
   });
 
   it("shows login page and signs in with session credentials", async () => {
@@ -1031,7 +1674,7 @@ describe("AgentFlow console", () => {
     await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Client Workspace" }),
+      await screen.findByRole("heading", { name: "今天想完成什么？" }),
     ).toBeInTheDocument();
   });
 
@@ -1040,24 +1683,22 @@ describe("AgentFlow console", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Client Workspace" }),
+      await screen.findByRole("heading", { name: "今天想完成什么？" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Channel Ready")).toBeInTheDocument();
 
     await user.type(
-      screen.getByPlaceholderText(
-        "Describe the outcome you want. The platform will choose a plan, agents, runtime, and artifacts.",
-      ),
+      screen.getByPlaceholderText("向 AgentFlow 描述你的任务……"),
       "Ship the control plane",
     );
-    await user.click(screen.getByRole("button", { name: /Multi-agent/ }));
-    await user.click(screen.getByRole("button", { name: /Feishu/ }));
-    await user.click(screen.getByRole("button", { name: /codex cli/ }));
-    await user.click(screen.getByRole("button", { name: "Start" }));
+    await user.click(screen.getByText("执行设置", { exact: false }));
+    await user.selectOptions(screen.getByLabelText("执行方式"), "multi-agent");
+    await user.selectOptions(screen.getByLabelText("来源渠道"), "feishu");
+    await user.selectOptions(screen.getByLabelText("Agent CLI"), "codex");
+    await user.click(screen.getByRole("button", { name: "发送任务" }));
 
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/v2/tasks",
+        "/conversations",
         expect.objectContaining({
           method: "POST",
           body: expect.stringMatching(
@@ -1069,19 +1710,30 @@ describe("AgentFlow console", () => {
     expect(
       await screen.findByRole("heading", { name: "Ship the control plane" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Plan DAG")).toBeInTheDocument();
-    expect(screen.getByText("Agent Chat")).toBeInTheDocument();
-    expect(screen.getByText("Durable Workflow")).toBeInTheDocument();
-    expect(screen.getByText("Artifacts")).toBeInTheDocument();
-    expect(screen.getByText("Evaluations")).toBeInTheDocument();
-    expect(screen.getByText("Replay Snapshots")).toBeInTheDocument();
-    expect(screen.getByText("Canonical Events")).toBeInTheDocument();
-    expect(screen.getByText("Agent Contracts")).toBeInTheDocument();
-    expect(screen.getByText("orchestrator-workers")).toBeInTheDocument();
-    expect(screen.getByText("task.created")).toBeInTheDocument();
+    expect(screen.getByText("执行计划")).toBeInTheDocument();
+    expect(screen.getByLabelText("会话消息")).toBeInTheDocument();
+    expect(screen.getByText("3 个工作方向")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByText("Agent 协作")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "在 Chat 中定位相关简报" }),
+    ).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "变更" }));
+    expect(screen.getByText("client.patch")).toBeInTheDocument();
+    expect(screen.getByText(/\+\+\+ b\/client.ts/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "文件" }));
+    expect(screen.getByText("文件与引用")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "流程" }));
+    expect(screen.getByText("工作流程")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "产物" }));
+    expect(screen.getByText("任务产物")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "验收" }));
+    expect(screen.getByText("验收结果")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "活动" }));
+    expect(screen.getByText("执行历史")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Replay" }));
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "保存回放" }));
+    await user.click(screen.getByRole("button", { name: "重新执行" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/v2/tasks/task_v2_1/replay",
@@ -1093,14 +1745,11 @@ describe("AgentFlow console", () => {
       expect.objectContaining({ method: "POST" }),
     );
 
-    await user.type(
-      screen.getByPlaceholderText("Add context or a follow-up instruction"),
-      "Include audit notes",
-    );
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.type(screen.getByLabelText("继续对话"), "Include audit notes");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/v2/tasks/task_v2_1/messages",
+        `/conversations/${completedConversation.conversation_id}/messages`,
         expect.objectContaining({
           method: "POST",
           body: expect.stringContaining("Include audit notes"),
@@ -1115,9 +1764,751 @@ describe("AgentFlow console", () => {
     fireEvent.submit(await screen.findByRole("form", { name: "New Task" }));
 
     expect(fetch).not.toHaveBeenCalledWith(
-      "/v2/tasks",
+      "/conversations",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("preserves a follow-up when the relay cannot accept it", async () => {
+    const user = userEvent.setup();
+    failConversationMessage = true;
+    await act(async () => {
+      await router.navigate({
+        to: "/conversations/$conversationId",
+        params: { conversationId: completedConversation.conversation_id },
+      });
+    });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ship the control plane" });
+
+    await user.type(screen.getByLabelText("继续对话"), "Keep this draft");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(
+      await screen.findByText("消息未发送。内容仍保留在输入框中，请重试。"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("继续对话")).toHaveValue("Keep this draft");
+  });
+
+  it("explains when a new conversation cannot be started", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "今天想完成什么？" });
+    failV2TaskCreate = true;
+
+    await user.type(
+      screen.getByPlaceholderText("向 AgentFlow 描述你的任务……"),
+      "Start a task while disconnected",
+    );
+    await user.click(screen.getByRole("button", { name: "发送任务" }));
+
+    expect(
+      await screen.findByText("任务暂时无法启动，请检查连接后重试。"),
+    ).toBeInTheDocument();
+  });
+
+  it("explains that a missing legacy task link has expired", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: "task_missing" },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText("这个旧任务链接已失效", undefined, {
+        timeout: 4000,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "任务可能已被删除或迁移记录不存在。你可以返回会话列表继续工作。",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "返回会话列表" }));
+    expect(await screen.findByText("今天想完成什么？")).toBeInTheDocument();
+  });
+
+  it("keeps retry available when legacy task migration is temporarily unavailable", async () => {
+    await act(async () => {
+      await router.navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: "task_unavailable" },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText("暂时无法加载这个会话", undefined, {
+        timeout: 4000,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("请检查网络连接后重试。远端任务可能仍在运行。"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新同步" })).toBeEnabled();
+  });
+
+  it("keeps durable conversation recovery controls available after a projection error", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/conversations/$conversationId",
+        params: { conversationId: "conv_missing" },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText(
+        "请检查网络连接后重试。远端执行不会因此中断。",
+        undefined,
+        {
+          timeout: 4000,
+        },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("会话正在准备中")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "活动" }));
+    expect(screen.getByText("暂无执行记录")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重新同步" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/conversations/conv_missing",
+        expect.any(Object),
+      ),
+    );
+  });
+
+  it("shows an active projected conversation and stops it safely", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: "task_v2_legacy" },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Legacy recovered task" }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(
+      `/conversations/${fallbackConversation.conversation_id}`,
+    );
+    expect(screen.getByText("尚未生成执行计划")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "流程" }));
+    expect(screen.getByText("暂无工作流步骤")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "产物" }));
+    expect(screen.getByText("暂无产物")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "验收" }));
+    expect(screen.getByText("暂无验收结果")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "活动" }));
+    await user.click(screen.getByText("展开原始事件"));
+    expect(screen.getByText("暂无活动记录")).toBeInTheDocument();
+    expect(screen.getByText("暂无回放快照")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "停止" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/conversations/${fallbackConversation.conversation_id}/stop`,
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("summarizes the currently active agent without exposing raw logs", async () => {
+    await act(async () => {
+      await router.navigate({
+        to: "/tasks/$taskId",
+        params: { taskId: "task_v2_running" },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Audit authentication flow" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Agent 正在后台继续工作，你可以安全切换到其他会话。"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("brain · Plan the work")).toBeInTheDocument();
+  });
+
+  it("streams a conversation, survives offline mode, and stops the active execution", async () => {
+    const user = userEvent.setup();
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+      url: string;
+
+      constructor(url: string) {
+        this.url = url;
+        FakeEventSource.instance = this;
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    await act(async () => {
+      await router.navigate({
+        to: "/conversations/$conversationId",
+        params: { conversationId: runningConversation.conversation_id },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Audit authentication flow" }),
+    ).toBeInTheDocument();
+    expect(FakeEventSource.instance.url).toContain(
+      `/conversations/${runningConversation.conversation_id}/events`,
+    );
+    const canvasNavigation = screen.getByRole("navigation", {
+      name: "Canvas 视图",
+    });
+    expect(within(canvasNavigation).getAllByRole("button")).toHaveLength(8);
+    await user.click(screen.getByRole("button", { name: "查看计划与 Agent" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        `/conversations/${runningConversation.conversation_id}/canvas/plan/plan_v2_running`,
+      ),
+    );
+    expect(screen.getByText("执行计划")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "变更" }));
+    expect(screen.getByText("本次执行没有结构化文件变更")).toBeInTheDocument();
+    await act(async () => FakeEventSource.instance.onopen?.());
+    expect(screen.getByText("实时")).toBeInTheDocument();
+    await act(async () => {
+      FakeEventSource.instance.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify(runningConversationMessages.messages[1]),
+        }),
+      );
+      FakeEventSource.instance.onmessage?.(
+        new MessageEvent("message", { data: "malformed" }),
+      );
+      FakeEventSource.instance.onerror?.();
+    });
+    expect(screen.getByText("同步中")).toBeInTheDocument();
+
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    expect(
+      screen.getByText("当前离线。会话仍保留在远端，恢复连接后会自动同步。"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("继续对话")).toBeDisabled();
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(screen.getByLabelText("继续对话")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "活动" }));
+    expect(screen.getByText("当前微状态")).toBeInTheDocument();
+    expect(screen.getByText("第 1 次执行")).toBeInTheDocument();
+    await user.click(screen.getByText("展开原始事件"));
+    expect(screen.getByText("暂无活动记录")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "停止" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/conversations/${runningConversation.conversation_id}/stop`,
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("renders approval context and switches between conversation executions", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/conversations/$conversationId/canvas/$canvasTab",
+        params: {
+          conversationId: waitingConversation.conversation_id,
+          canvasTab: "artifacts",
+        },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Approve production rollout",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("生产发布需要你的批准。")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "deployment-diff.patch" }),
+    ).toHaveAttribute("href", "/artifacts/deployment-diff.patch");
+    expect(screen.getByText("暂无产物")).toBeInTheDocument();
+    expect(screen.getByLabelText("选择执行")).toHaveValue(
+      "exec_waiting_review",
+    );
+
+    await user.selectOptions(screen.getByLabelText("选择执行"), "exec_v2_1");
+    expect(await screen.findAllByText("final_summary")).not.toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "查看审批" }));
+    expect(await screen.findByText("Agent 想做什么")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/approvals/approval_1");
+  });
+
+  it("reviews a high-risk approval with evidence, reasons, and explicit confirmation", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/approvals/$approvalId",
+        params: { approvalId: pendingApproval.approval_id },
+      });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("Agent 想做什么")).toBeInTheDocument();
+    expect(screen.getAllByText(pendingApproval.intent).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("部署变更摘要")).toBeInTheDocument();
+    expect(screen.getByText("影响面评估")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "要求修改" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "拒绝并停止" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("决策原因"), "先补充回滚演练");
+    await user.click(screen.getByRole("button", { name: "要求修改" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/approvals/${pendingApproval.approval_id}/decision`,
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"action":"revise"'),
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "拒绝并停止" }));
+
+    await user.click(screen.getByRole("button", { name: "批准并继续" }));
+    expect(
+      screen.getByRole("dialog", { name: "再次确认高风险操作" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回检查" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批准并继续" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "批准并继续" }));
+    await user.click(
+      screen.getByRole("button", { name: "我已核对，批准执行" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/approvals/${pendingApproval.approval_id}/decision`,
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"confirmed":true'),
+        }),
+      ),
+    );
+  });
+
+  it("prevents approval decisions while the client is offline", async () => {
+    await act(async () => {
+      await router.navigate({
+        to: "/approvals/$approvalId",
+        params: { approvalId: pendingApproval.approval_id },
+      });
+    });
+    render(<App />);
+    await screen.findByText("Agent 想做什么");
+
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    expect(screen.getByText(/恢复连接前不能提交决策/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批准并继续" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDisabled();
+  });
+
+  it("shows resolved approval history without decision controls", async () => {
+    await act(async () => {
+      await router.navigate({
+        to: "/approvals/$approvalId",
+        params: { approvalId: resolvedApproval.approval_id },
+      });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("最近已处理（1）")).toBeInTheDocument();
+    expect(
+      screen.getByText("此请求已拒绝：缺少回滚演练证据"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "批准并继续" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("approves a low-risk request directly and explains missing evidence", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/approvals/$approvalId",
+        params: { approvalId: lowRiskApproval.approval_id },
+      });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText("此请求没有附加证据，不建议直接批准。"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("低风险")).toBeInTheDocument();
+    expect(screen.getByText("不可自动回滚")).toBeInTheDocument();
+    expect(screen.queryByText(/影响资源：/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "要求修改" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "批准并继续" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/approvals/${lowRiskApproval.approval_id}/decision`,
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"action":"approve"'),
+        }),
+      ),
+    );
+  });
+
+  it("shows a calm empty approval inbox", async () => {
+    emptyApprovalQueues = true;
+    await act(async () => {
+      await router.navigate({ to: "/approvals" });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("已清空")).toBeInTheDocument();
+    expect(await screen.findByText("目前没有待处理事项")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "无需处理" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the first pending decision from the approval inbox", async () => {
+    await act(async () => {
+      await router.navigate({ to: "/approvals" });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("Agent 想做什么")).toBeInTheDocument();
+    expect(screen.getAllByText(pendingApproval.intent).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("renders a stateless mobile triage snapshot", async () => {
+    await act(async () => {
+      await router.navigate({ to: "/mobile" });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "移动决策台" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("只同步状态快照与审批请求")).toBeInTheDocument();
+    expect(screen.getByText("等待我处理")).toBeInTheDocument();
+    expect(await screen.findByText(pendingApproval.intent)).toBeInTheDocument();
+    expect(screen.getByText("远端正在执行")).toBeInTheDocument();
+    expect(screen.getAllByText("最近完成").length).toBeGreaterThan(1);
+    expect(screen.getByText("Agent 正在后台推进")).toBeInTheDocument();
+    expect(screen.getAllByText("等待你的决定").length).toBeGreaterThan(0);
+  });
+
+  it("shows empty mobile snapshot states without inventing progress", async () => {
+    emptyApprovalQueues = true;
+    await act(async () => {
+      await router.navigate({ to: "/mobile" });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("没有待处理决策")).toBeInTheDocument();
+    expect(screen.getByText("没有正在执行的任务")).toBeInTheDocument();
+    expect(screen.getByText("invalid-date")).toBeInTheDocument();
+  });
+
+  it("labels a cached mobile snapshot as stale while offline", async () => {
+    await act(async () => {
+      await router.navigate({ to: "/mobile" });
+    });
+    render(<App />);
+    await screen.findByText(pendingApproval.intent);
+
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    expect(screen.getByText(/正在显示最近同步的状态快照/)).toBeInTheDocument();
+  });
+
+  it("receives a redacted mobile relay event and enables system notifications", async () => {
+    const user = userEvent.setup();
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      listeners = new Map<string, EventListener>();
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onopen: (() => void) | null = null;
+      close = vi.fn();
+      constructor(public url: string) {
+        FakeEventSource.instance = this;
+      }
+      addEventListener(type: string, listener: EventListener) {
+        this.listeners.set(type, listener);
+      }
+    }
+    class FakeNotification {
+      static permission: NotificationPermission = "default";
+      static created: FakeNotification[] = [];
+      static requestPermission = vi.fn(async () => {
+        FakeNotification.permission = "granted";
+        return "granted" as NotificationPermission;
+      });
+      onclick: (() => void) | null = null;
+      close = vi.fn();
+      constructor(
+        public title: string,
+        public options?: NotificationOptions,
+      ) {
+        FakeNotification.created.push(this);
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("Notification", FakeNotification);
+    await act(async () => {
+      await router.navigate({ to: "/mobile" });
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "移动决策台" });
+    await user.click(screen.getByRole("button", { name: "开启审批通知" }));
+    expect(FakeNotification.requestPermission).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(FakeEventSource.instance.url).toContain(
+        "mobile/notifications/events?after=1",
+      ),
+    );
+    await act(async () => {
+      FakeEventSource.instance.listeners.get("mobile.notification")?.(
+        new MessageEvent("mobile.notification", {
+          data: JSON.stringify({
+            cursor: 2,
+            notification_id: "mobile_2",
+            kind: "approval.requested",
+            title: "高风险操作等待确认",
+            body: "请打开移动决策台核对意图、证据和影响。",
+            action_path: "/approvals/approval_1",
+            created_at: new Date().toISOString(),
+          }),
+        }),
+      );
+      FakeEventSource.instance.listeners.get("mobile.notification")?.(
+        new MessageEvent("mobile.notification", { data: "malformed" }),
+      );
+    });
+    expect(FakeNotification.created[0]?.title).toBe("高风险操作等待确认");
+    expect(FakeNotification.created[0]?.options?.body).not.toContain("部署");
+    vi.spyOn(window, "focus").mockImplementation(() => undefined);
+    await act(async () => FakeNotification.created[0]?.onclick?.());
+    expect(FakeNotification.created[0]?.close).toHaveBeenCalledOnce();
+    expect(window.location.hash).toBe("#/approvals/approval_1");
+  });
+
+  it("explains when browser notification permission is denied", async () => {
+    class DeniedNotification {
+      static permission: NotificationPermission = "denied";
+      static requestPermission = vi.fn();
+    }
+    vi.stubGlobal("Notification", DeniedNotification);
+    await act(async () => {
+      await router.navigate({ to: "/mobile" });
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText(/系统通知已被浏览器关闭/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "开启审批通知" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers focused recovery choices for a partially failed execution", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({
+        to: "/conversations/$conversationId",
+        params: { conversationId: failedConversation.conversation_id },
+      });
+    });
+    render(<App />);
+
+    expect(await screen.findByText("这次执行没有全部完成")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "仅重试失败步骤" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/tasks/task_v2_failed/retry-failed",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "接受已有结果" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/tasks/task_v2_failed/accept-partial",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "修改目标后继续" }));
+    expect(screen.getByLabelText("继续对话")).toHaveFocus();
+  });
+
+  it("validates cached mobile snapshots and decision labels defensively", () => {
+    localStorage.removeItem("agentflow-mobile-snapshot-v1");
+    expect(__productTestUtils.readCachedMobileSnapshot()).toBeNull();
+    localStorage.setItem("agentflow-mobile-snapshot-v1", "not-json");
+    expect(__productTestUtils.readCachedMobileSnapshot()).toBeNull();
+    localStorage.setItem(
+      "agentflow-mobile-snapshot-v1",
+      JSON.stringify({ snapshot_version: 2, stateless: true }),
+    );
+    expect(__productTestUtils.readCachedMobileSnapshot()).toBeNull();
+    localStorage.setItem(
+      "agentflow-mobile-snapshot-v1",
+      JSON.stringify({ snapshot_version: 1, stateless: false }),
+    );
+    expect(__productTestUtils.readCachedMobileSnapshot()).toBeNull();
+    localStorage.setItem(
+      "agentflow-mobile-snapshot-v1",
+      JSON.stringify({
+        snapshot_version: 1,
+        projection_version: 1,
+        notification_cursor: 0,
+        generated_at: new Date().toISOString(),
+        counts: { pending_approvals: 0, active: 0, waiting_user: 0 },
+        approvals: [],
+        active_conversations: [],
+        recent_conversations: [],
+        stateless: true,
+      }),
+    );
+    expect(__productTestUtils.readCachedMobileSnapshot()).toMatchObject({
+      snapshot_version: 1,
+      stateless: true,
+    });
+
+    expect(__productTestUtils.impactLabel("high")).toBe("高风险");
+    expect(__productTestUtils.impactLabel("medium")).toBe("中风险");
+    expect(__productTestUtils.impactLabel("low")).toBe("低风险");
+    expect(__productTestUtils.approvalStatusLabel("approved")).toBe("批准");
+    expect(__productTestUtils.approvalStatusLabel("pending")).toBe("等待处理");
+    expect(__productTestUtils.approvalStatusLabel("rejected")).toBe("拒绝");
+    expect(__productTestUtils.approvalStatusLabel("expired")).toBe("过期");
+    expect(__productTestUtils.approvalStatusLabel("cancelled")).toBe("取消");
+    expect(__productTestUtils.approvalStatusLabel("paused")).toBe("暂停");
+    expect(__productTestUtils.approvalStatusLabel("revision_requested")).toBe(
+      "退回修改",
+    );
+    expect(__productTestUtils.formatDateTime("invalid-date")).toBe(
+      "invalid-date",
+    );
+    expect(
+      __productTestUtils.formatDateTime("2026-07-17T08:00:00.000Z"),
+    ).not.toBe("2026-07-17T08:00:00.000Z");
+
+    for (const tab of [
+      "plan",
+      "agents",
+      "diff",
+      "files",
+      "artifacts",
+      "workflow",
+      "evaluation",
+      "activity",
+    ]) {
+      expect(__productTestUtils.normalizeCanvasTab(tab)).toBe(tab);
+    }
+    expect(__productTestUtils.normalizeCanvasTab("unknown")).toBe("plan");
+    expect(__productTestUtils.normalizeCanvasTab()).toBe("plan");
+
+    const artifact = (content: Record<string, unknown>) =>
+      ({ content }) as Parameters<
+        typeof __productTestUtils.artifactStructuredText
+      >[0];
+    expect(
+      __productTestUtils.artifactStructuredText(
+        artifact({ diff: "diff body", patch: "ignored" }),
+      ),
+    ).toBe("diff body");
+    expect(
+      __productTestUtils.artifactStructuredText(
+        artifact({ patch: "patch body" }),
+      ),
+    ).toBe("patch body");
+    expect(
+      __productTestUtils.artifactStructuredText(
+        artifact({ text: "text body" }),
+      ),
+    ).toBe("text body");
+    expect(
+      __productTestUtils.artifactStructuredText(
+        artifact({ content: "content body" }),
+      ),
+    ).toBe("content body");
+    expect(
+      __productTestUtils.artifactStructuredText(artifact({ structured: true })),
+    ).toContain('"structured": true');
+
+    expect(__productTestUtils.modeLabel("multi-agent")).toBe("Multi-agent");
+    expect(__productTestUtils.modeLabel("custom-mode")).toBe("custom-mode");
+    expect(__productTestUtils.adapterLabel("qwen")).toBe("qwen-code");
+    expect(__productTestUtils.adapterLabel("custom-adapter")).toBe(
+      "custom-adapter",
+    );
+    const channels = [
+      { platform: "mobile", status: "configured" },
+    ] as Parameters<typeof __productTestUtils.channelStatus>[0];
+    expect(__productTestUtils.channelStatus(channels, "mobile")).toBe(
+      "configured",
+    );
+    expect(__productTestUtils.channelStatus([], "web")).toBe("configured");
+    expect(__productTestUtils.channelStatus([], "slack")).toBe("reserved");
+    expect(__productTestUtils.tenantSlug(" Example Team ")).toBe(
+      "tenant_example_team",
+    );
+    expect(__productTestUtils.tenantSlug("___")).toBe("tenant_new");
+  });
+
+  it("pins and archives conversations with versioned updates", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "今天想完成什么？" });
+    const conversationTitle = await screen.findByText("Ship the control plane");
+    const pin = conversationTitle
+      .closest(".group")
+      ?.querySelector<HTMLButtonElement>('button[aria-label="置顶会话"]');
+    expect(pin).toBeTruthy();
+    await user.click(pin!);
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/conversations\/conv_/),
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining('"pinned":true'),
+        }),
+      ),
+    );
+    const archive = (await screen.findByText("Ship the control plane"))
+      .closest(".group")
+      ?.querySelector<HTMLButtonElement>('button[aria-label="归档会话"]');
+    expect(archive).toBeTruthy();
+    await user.click(archive!);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/conversations\/conv_/),
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining('"archived":true'),
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "已归档" }));
+    expect(screen.getByText("返回全部会话")).toBeInTheDocument();
   });
 
   it("shows the admin control plane overview", async () => {
@@ -1137,7 +2528,10 @@ describe("AgentFlow console", () => {
     expect(screen.getByText("sqlite:v2_events")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Discover" }));
-    await user.type(screen.getByLabelText("Webhook URL"), "https://bot.example");
+    await user.type(
+      screen.getByLabelText("Webhook URL"),
+      "https://bot.example",
+    );
     await user.type(screen.getByLabelText("Callback token"), "token");
     await user.click(screen.getByRole("button", { name: "Configure" }));
     await user.clear(screen.getByLabelText("Outbound test"));
@@ -1145,7 +2539,10 @@ describe("AgentFlow console", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
     await user.type(screen.getByLabelText("Tenant name"), "Acme");
     await user.click(screen.getByRole("button", { name: "Create" }));
-    await user.type(screen.getByLabelText("Default tenant user"), "new@example.com");
+    await user.type(
+      screen.getByLabelText("Default tenant user"),
+      "new@example.com",
+    );
     await user.click(screen.getByRole("button", { name: "Add" }));
   });
 
@@ -1401,7 +2798,9 @@ describe("AgentFlow console", () => {
     await user.selectOptions(screen.getAllByLabelText("Role")[1], "auditor");
     await user.click(screen.getAllByRole("button", { name: "Save role" })[0]);
     await user.type(screen.getAllByLabelText("New password")[0], "reset-12345");
-    await user.click(screen.getAllByRole("button", { name: "Reset password" })[0]);
+    await user.click(
+      screen.getAllByRole("button", { name: "Reset password" })[0],
+    );
     await user.click(screen.getAllByRole("button", { name: "Disable" })[0]);
     expect(await screen.findByText("cat_created_secret")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke" }));
@@ -1580,8 +2979,10 @@ describe("AgentFlow console", () => {
     const user = userEvent.setup();
     render(<App />);
 
+    await user.click(await screen.findByLabelText("打开会话导航"));
+    expect(screen.getAllByLabelText("搜索会话")).toHaveLength(2);
+    await user.click(screen.getAllByRole("link", { name: "管理后台" }).at(-1)!);
     await user.click(await screen.findByLabelText("打开导航"));
-    expect(screen.getByText("导航")).toBeInTheDocument();
     await user.click(screen.getAllByRole("link", { name: /任务编排/ }).at(-1)!);
     expect(
       await screen.findByRole("heading", { name: "任务编排" }),
@@ -2905,7 +4306,12 @@ describe("AgentFlow console", () => {
     ).toBeUndefined();
     expect(
       __shellTestUtils.dockPendingPermission([
-        event("permission.requested", 1, { raw: { data: { requestId: "perm_2" } } }, now),
+        event(
+          "permission.requested",
+          1,
+          { raw: { data: { requestId: "perm_2" } } },
+          now,
+        ),
         event("permission.resolve_requested", 2, { requestId: "perm_2" }, now),
       ]),
     ).toBeUndefined();
@@ -3093,6 +4499,22 @@ async function switchToEnglish(user: ReturnType<typeof userEvent.setup>) {
 async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   const url = typeof input === "string" ? input : input.toString();
   const path = url.replace(/^https?:\/\/[^/]+\//, "").replace(/^\//, "");
+  if (emptyApprovalQueues && path.startsWith("approvals?status=")) {
+    return jsonResponse({ approvals: [] });
+  }
+  if (emptyApprovalQueues && path === "mobile/snapshot") {
+    return jsonResponse({
+      snapshot_version: 1,
+      projection_version: 1,
+      notification_cursor: 0,
+      generated_at: "invalid-date",
+      counts: { pending_approvals: 0, active: 0, waiting_user: 0 },
+      approvals: [],
+      active_conversations: [],
+      recent_conversations: [],
+      stateless: true,
+    });
+  }
   if (path === "auth/session") {
     return jsonResponse({
       authenticated: authSessionAuthenticated,
@@ -3181,8 +4603,73 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   if (init?.method === "POST" && path === "tasks/run_1/cancel") {
     return jsonResponse({ ...task, status: "cancelled" });
   }
+  if (init?.method === "POST" && path === "conversations") {
+    if (failV2TaskCreate) {
+      return jsonResponse({ error: "offline" }, 503);
+    }
+    return jsonResponse(completedConversation);
+  }
+  if (path.startsWith("conversations/conv_missing")) {
+    return jsonResponse({ error: "not found" }, 404);
+  }
+  if (
+    init?.method === "POST" &&
+    path === `conversations/${completedConversation.conversation_id}/messages`
+  ) {
+    if (failConversationMessage) {
+      return jsonResponse({ error: "relay unavailable" }, 503);
+    }
+    return jsonResponse({
+      conversation_id: completedConversation.conversation_id,
+      execution_id: "exec_v2_2",
+      task_id: "task_v2_2",
+      event: null,
+      created_execution: true,
+    });
+  }
+  if (
+    init?.method === "POST" &&
+    path.startsWith("conversations/") &&
+    path.endsWith("/stop")
+  ) {
+    return jsonResponse({ ...completedConversation, status: "idle" });
+  }
+  if (init?.method === "POST" && /^approvals\/[^/]+\/decision$/.test(path)) {
+    const body = JSON.parse(String(init.body ?? "{}")) as {
+      action?: "approve" | "reject" | "pause" | "revise";
+    };
+    const status = {
+      approve: "approved",
+      reject: "rejected",
+      pause: "paused",
+      revise: "revision_requested",
+    }[body.action ?? "approve"];
+    return jsonResponse(
+      {
+        ...(path.includes(lowRiskApproval.approval_id)
+          ? lowRiskApproval
+          : pendingApproval),
+        status,
+        decision: body.action,
+        version: 2,
+      },
+      202,
+    );
+  }
+  if (init?.method === "PATCH" && path.startsWith("conversations/")) {
+    return jsonResponse({ ...completedConversation, version: 2 });
+  }
   if (init?.method === "POST" && path === "v2/tasks") {
+    if (failV2TaskCreate) {
+      return jsonResponse({ error: "offline" }, 503);
+    }
     return jsonResponse(v2Task);
+  }
+  if (path.startsWith("v2/tasks/task_missing")) {
+    return jsonResponse({ error: "not found" }, 404);
+  }
+  if (path.startsWith("v2/tasks/task_unavailable")) {
+    return jsonResponse({ error: "relay unavailable" }, 503);
   }
   if (init?.method === "POST" && path === "v2/tasks/task_v2_1/messages") {
     return jsonResponse({
@@ -3202,6 +4689,21 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   }
   if (init?.method === "POST" && path === "v2/tasks/task_v2_1/replay") {
     return jsonResponse(v2Replay);
+  }
+  if (
+    init?.method === "POST" &&
+    path === "v2/tasks/task_v2_failed/retry-failed"
+  ) {
+    return jsonResponse({ ...v2FailedTask, status: "queued" }, 202);
+  }
+  if (
+    init?.method === "POST" &&
+    path === "v2/tasks/task_v2_failed/accept-partial"
+  ) {
+    return jsonResponse({ ...v2FailedTask, status: "completed" }, 202);
+  }
+  if (init?.method === "POST" && path === "v2/tasks/task_v2_legacy/cancel") {
+    return jsonResponse({ ...v2FallbackTask, status: "cancelled" });
   }
   if (path === "runs/run_created") {
     return jsonResponse({ ...run, run_id: "run_created", status: "queued" });
@@ -3286,7 +4788,9 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
     ).users.push(created);
     return jsonResponse(created);
   }
-  const authUserMatch = path.match(/^auth\/users\/([^/]+)\/(roles|status|password)$/);
+  const authUserMatch = path.match(
+    /^auth\/users\/([^/]+)\/(roles|status|password)$/,
+  );
   if (init?.method === "POST" && authUserMatch) {
     const email = decodeURIComponent(authUserMatch[1]);
     const action = authUserMatch[2];
