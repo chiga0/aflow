@@ -24,6 +24,18 @@ TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 SUPPORTED_MODES = {"auto", "single", "workflow", "multi-agent"}
 SUPPORTED_CHANNELS = {"web", "mobile", "dingtalk", "feishu", "wecom"}
 SUPPORTED_ADAPTERS = {"auto", "fake", "qwen", "codex", "claude", "opencode"}
+CLI_ADAPTER_COMMAND_ENV = {
+    "qwen": "V2_QWEN_CODE_COMMAND",
+    "codex": "V2_CODEX_CLI_COMMAND",
+    "claude": "V2_CLAUDE_CODE_COMMAND",
+    "opencode": "V2_OPENCODE_COMMAND",
+}
+CLI_ADAPTER_DEFAULT_COMMAND = {
+    "qwen": "qwen",
+    "codex": "codex",
+    "claude": "claude",
+    "opencode": "opencode",
+}
 CONVERSATION_PROJECTION_VERSION = 2
 MOBILE_SNAPSHOT_VERSION = 1
 APPROVAL_TERMINAL_STATUSES = {
@@ -2130,7 +2142,11 @@ class V2ControlPlane:
         channel: str,
         strategy: str,
     ) -> dict[str, Any]:
-        adapter = "fake" if requested_adapter == "auto" else requested_adapter
+        adapter = (
+            self._configured_auto_adapter()
+            if requested_adapter == "auto"
+            else requested_adapter
+        )
         unit = self._select_execution_unit(adapter)
         channel_config = self._channel_by_platform(channel)
         live_channel = channel_config["status"] == "configured"
@@ -2153,6 +2169,29 @@ class V2ControlPlane:
             },
             "reason": self._dispatch_reason(requested_adapter, adapter, unit, channel_config),
         }
+
+    def _configured_auto_adapter(self) -> str:
+        configured = normalize_choice(
+            os.environ.get("V2_AUTO_ADAPTER"),
+            SUPPORTED_ADAPTERS - {"auto"},
+            "fake",
+        )
+        if configured == "fake" or self._real_cli_adapter_available(configured):
+            return configured
+        return "fake"
+
+    def _real_cli_adapter_available(self, adapter: str) -> bool:
+        if os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS") != "1":
+            return False
+        command_env = CLI_ADAPTER_COMMAND_ENV.get(adapter)
+        default_command = CLI_ADAPTER_DEFAULT_COMMAND.get(adapter)
+        if not command_env or not default_command:
+            return False
+        configured_command = os.environ.get(command_env)
+        command_parts = (
+            shlex.split(configured_command) if configured_command else [default_command]
+        )
+        return bool(command_parts and shutil.which(command_parts[0]))
 
     def _select_execution_unit(self, adapter: str) -> dict[str, Any]:
         active_units = [unit for unit in self.execution_units() if unit["status"] == "active"]
@@ -2680,18 +2719,8 @@ class V2ControlPlane:
         if adapter == "fake":
             return simulated_adapter_result(adapter, protocol, envelope)
 
-        command_env = {
-            "qwen": "V2_QWEN_CODE_COMMAND",
-            "codex": "V2_CODEX_CLI_COMMAND",
-            "claude": "V2_CLAUDE_CODE_COMMAND",
-            "opencode": "V2_OPENCODE_COMMAND",
-        }[adapter]
-        default_command = {
-            "qwen": "qwen",
-            "codex": "codex",
-            "claude": "claude",
-            "opencode": "opencode",
-        }[adapter]
+        command_env = CLI_ADAPTER_COMMAND_ENV[adapter]
+        default_command = CLI_ADAPTER_DEFAULT_COMMAND[adapter]
         configured_command = os.environ.get(command_env)
         command_parts = shlex.split(configured_command) if configured_command else [default_command]
         executable = shutil.which(command_parts[0])
@@ -2729,6 +2758,12 @@ class V2ControlPlane:
         )
 
         try:
+            child_env = os.environ.copy()
+            # A CLI agent may legitimately run this repository's tests. Do not let
+            # those nested processes inherit the parent control plane's auto=qwen
+            # setting and recursively launch more real agents.
+            child_env["V2_ENABLE_REAL_CLI_ADAPTERS"] = "0"
+            child_env["V2_AUTO_ADAPTER"] = "fake"
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -2736,6 +2771,7 @@ class V2ControlPlane:
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=workspace,
+                env=child_env,
                 start_new_session=os.name == "posix",
             )
             with self._lock:
@@ -3662,7 +3698,14 @@ class V2ControlPlane:
                     "active",
                     json_dumps({"region": "local", "tier": "dev"}),
                     json_dumps({"cpu": 2, "memory_mb": 2048}),
-                    json_dumps(["fake", "qwen", "codex", "claude", "opencode"]),
+                    json_dumps(
+                        ["fake"]
+                        + [
+                            adapter
+                            for adapter in ["qwen", "codex", "claude", "opencode"]
+                            if self._real_cli_adapter_available(adapter)
+                        ]
+                    ),
                     json_dumps(["workspace", "artifacts", "events", "cli-adapters"]),
                     now,
                     now,

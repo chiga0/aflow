@@ -266,6 +266,14 @@ test("keeps navigation usable on mobile", async ({ page, isMobile }) => {
     ),
   ).toBe(true);
 
+  await page.goto("/#/mobile");
+  await expect(page.getByRole("heading", { name: "移动决策台" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+
   await page.goto("/#/admin");
   await page.getByLabel("打开导航").click();
   await page.getByRole("link", { name: /任务编排/ }).click();

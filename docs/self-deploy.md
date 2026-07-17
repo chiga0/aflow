@@ -2,6 +2,8 @@
 
 AgentFlow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署，一台 VPS 运行 runtime + Nginx + qwen foundation。资源紧张时，再把控制面和 worker 拆开。
 
+如果你希望先在一台机器上最快跑通 Client + runtime + 真实 Qwen，请直接使用 [Docker 部署](docker-deployment.md)。它提供随机凭据初始化、2C2G 限制、只读根文件系统以及 fake/真实 Qwen 双重 smoke。
+
 ## 部署形态选择
 
 | 形态 | 适合谁 | 说明 |

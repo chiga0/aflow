@@ -8,6 +8,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
@@ -33,14 +34,16 @@ def smoke_direct(args: argparse.Namespace) -> dict[str, Any]:
             "goal": args.goal,
             "mode": args.mode,
             "channel": "ci",
-            "adapter": "fake",
+            "adapter": args.adapter,
             "metadata": {"smoke": True},
         },
         principal="ci-smoke",
-        idempotency_key="ci-v2-smoke",
+        idempotency_key=args.idempotency_key
+        or f"ci-v2-smoke-{args.adapter}-{args.mode}-{uuid.uuid4().hex}",
     )
     task = wait_for(lambda: control.get_task(task["task_id"]), args.timeout)
     assert_task_completed(task)
+    assert_execution_mode(task, args.expect_execution_mode)
     overview = control.admin_overview()
     assert overview["tasks"]["total"] >= 1
     return {
@@ -63,14 +66,18 @@ def smoke_http(args: argparse.Namespace) -> dict[str, Any]:
             "goal": args.goal,
             "mode": args.mode,
             "channel": "smoke",
-            "adapter": "fake",
+            "adapter": args.adapter,
             "metadata": {"smoke": True},
         },
-        headers={"Idempotency-Key": "http-v2-smoke"},
+        headers={
+            "Idempotency-Key": args.idempotency_key
+            or f"http-v2-smoke-{args.adapter}-{args.mode}-{uuid.uuid4().hex}"
+        },
     )
     task_id = task["task_id"]
     task = wait_for(lambda: client.get(f"/v2/tasks/{task_id}"), args.timeout)
     assert_task_completed(task)
+    assert_execution_mode(task, args.expect_execution_mode)
     overview = client.get("/v2/admin/overview")
     assert overview["tasks"]["total"] >= 1
     return {
@@ -104,6 +111,21 @@ def assert_task_completed(task: dict[str, Any]) -> None:
         raise RuntimeError("expected task result")
     if not task.get("plan", {}).get("agent_tasks"):
         raise RuntimeError("expected plan agent tasks")
+
+
+def assert_execution_mode(task: dict[str, Any], expected: str | None) -> None:
+    if not expected:
+        return
+    modes = {
+        str(
+            agent.get("result", {}).get("adapter", {}).get("execution_mode")
+            or agent.get("result", {}).get("execution_mode")
+            or ""
+        )
+        for agent in task.get("plan", {}).get("agent_tasks", [])
+    }
+    if modes != {expected}:
+        raise RuntimeError(f"expected execution mode {expected}, got {sorted(modes)}")
 
 
 class HttpClient:
@@ -165,6 +187,17 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         default="multi-agent",
         choices=["auto", "workflow", "multi-agent"],
+    )
+    parser.add_argument(
+        "--adapter",
+        default="fake",
+        choices=["auto", "fake", "qwen", "codex", "claude", "opencode"],
+    )
+    parser.add_argument("--expect-execution-mode")
+    parser.add_argument(
+        "--idempotency-key",
+        default="",
+        help="Optional stable key. By default every smoke run creates a fresh task.",
     )
     parser.add_argument("--timeout", type=int, default=10)
     return parser.parse_args()

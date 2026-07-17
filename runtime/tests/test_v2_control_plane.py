@@ -575,6 +575,35 @@ class V2ControlPlaneTest(unittest.TestCase):
             [event["type"] for event in control.events(task["task_id"])],
         )
 
+        old_auto = os.environ.get("V2_AUTO_ADAPTER")
+        old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
+        old_command = os.environ.get("V2_QWEN_CODE_COMMAND")
+        try:
+            os.environ["V2_AUTO_ADAPTER"] = "qwen"
+            os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_QWEN_CODE_COMMAND"] = "/usr/bin/true"
+            self.assertEqual(
+                control._dispatch_decision(
+                    requested_adapter="auto",
+                    channel="web",
+                    strategy="single-agent-fast-path",
+                )["adapter"],
+                "qwen",
+            )
+            os.environ["V2_QWEN_CODE_COMMAND"] = "/missing/qwen"
+            self.assertEqual(
+                control._dispatch_decision(
+                    requested_adapter="auto",
+                    channel="web",
+                    strategy="single-agent-fast-path",
+                )["adapter"],
+                "fake",
+            )
+        finally:
+            restore_env("V2_AUTO_ADAPTER", old_auto)
+            restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
+            restore_env("V2_QWEN_CODE_COMMAND", old_command)
+
     def test_durable_workflow_artifact_evaluation_retry_and_replay(self):
         control = V2ControlPlane(self.tmp_path())
         task = control.create_task(
@@ -700,7 +729,7 @@ class V2ControlPlaneTest(unittest.TestCase):
         script.write_text(
             "#!/usr/bin/env python3\n"
             "import json, os, pathlib, sys\n"
-            f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args': sys.argv[1:], 'cwd': os.getcwd()}}))\n"
+            f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args': sys.argv[1:], 'cwd': os.getcwd(), 'real_cli': os.environ.get('V2_ENABLE_REAL_CLI_ADAPTERS'), 'auto_adapter': os.environ.get('V2_AUTO_ADAPTER')}}))\n"
             "print(json.dumps([{'type': 'result', 'is_error': False, 'result': '真实 Qwen 验证完成'}]))\n",
             encoding="utf-8",
         )
@@ -738,6 +767,8 @@ class V2ControlPlaneTest(unittest.TestCase):
                 invocation["args"][invocation["args"].index("--output-format") + 1],
                 "stream-json",
             )
+            self.assertEqual(invocation["real_cli"], "0")
+            self.assertEqual(invocation["auto_adapter"], "fake")
             self.assertNotIn("agentflow-v2-acp-a2a", invocation["args"])
         finally:
             restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)

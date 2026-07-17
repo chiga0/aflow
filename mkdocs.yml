@@ -19,6 +19,7 @@ nav:
       - Client 使用指南: user-guide.md
       - Admin 管理指南: admin-guide.md
   - 部署与接入:
+      - Docker 部署: docker-deployment.md
       - 部署指南: deployment-runbook.md
       - 自托管与 CI: self-deploy.md
       - 执行单元注册与调度: execution-units.md

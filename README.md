@@ -13,6 +13,7 @@ Start with the learner-facing docs before jumping into the design notes:
 - [核心概念](docs/concepts.md)
 - [使用管理台](docs/user-guide.md)
 - [从部署到可用产品的完整教程](docs/deployment-runbook.md)
+- [Docker 单机部署](docs/docker-deployment.md)
 - [钉钉、飞书、企业微信机器人接入](docs/channel-integrations.md)
 - [执行单元发现、注册与调度](docs/execution-units.md)
 - [架构走读](docs/architecture-walkthrough.md)
@@ -36,3 +37,18 @@ artifact/audit APIs over a pluggable SAEU adapter boundary.
 python3 -m runtime.cloud_agents_runtime --host 127.0.0.1 --port 8765
 python3 -m unittest discover -s runtime/tests
 ```
+
+## Docker quick start
+
+```bash
+python3 scripts/init_docker_env.py \
+  --workspace /absolute/path/to/workspace \
+  --qwen-settings /absolute/path/to/.qwen/settings.json
+./scripts/docker_deploy.sh up
+./scripts/docker_deploy.sh smoke
+./scripts/docker_deploy.sh qwen-smoke
+```
+
+The client is then available at `http://127.0.0.1:8765/#/`. See the
+[Docker deployment guide](docs/docker-deployment.md) for 2C2G limits, HTTPS,
+credentials, backup, and recovery.

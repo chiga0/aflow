@@ -51,6 +51,16 @@
     min-height: 100%;
   }
 
+  /* Grid items use an automatic minimum width by default. A long conversation
+     title must shrink inside the mobile triage column instead of widening the
+     entire decision console. */
+  .mobile-triage-main,
+  .mobile-triage-main > *,
+  .mobile-triage-main section,
+  .mobile-triage-main section > * {
+    min-width: 0;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

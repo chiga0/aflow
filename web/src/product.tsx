@@ -1751,7 +1751,7 @@ export function ProductMobileTriagePage() {
         </span>
       </header>
 
-      <main className="grid gap-6 p-4 pb-12">
+      <main className="mobile-triage-main grid min-w-0 gap-6 p-4 pb-12">
         {!online ? (
           <div
             role="status"

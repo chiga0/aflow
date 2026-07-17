@@ -1,0 +1,45 @@
+ARG NODE_IMAGE=node:22-bookworm-slim
+ARG PYTHON_IMAGE=python:3.13-slim
+FROM ${NODE_IMAGE} AS qwen
+
+ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.11
+RUN npm install -g "${QWEN_NODE_PACKAGE}" \
+    && qwen --version
+
+FROM ${PYTHON_IMAGE}
+
+ARG RUNTIME_UID=1000
+ARG RUNTIME_GID=1000
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        git \
+        procps \
+        ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && if ! getent group "${RUNTIME_GID}" >/dev/null; then groupadd --gid "${RUNTIME_GID}" runtime; fi \
+    && useradd --uid "${RUNTIME_UID}" --gid "${RUNTIME_GID}" --create-home --shell /bin/bash runtime
+
+COPY --from=qwen /usr/local/bin/node /usr/local/bin/node
+COPY --from=qwen /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/@qwen-code/qwen-code/cli-entry.js /usr/local/bin/qwen
+
+WORKDIR /app
+COPY runtime /app/runtime
+COPY scripts /app/scripts
+
+RUN qwen --version \
+    && mkdir -p /data/artifacts /home/runtime/.qwen /workspace \
+    && chown -R "${RUNTIME_UID}:${RUNTIME_GID}" /data/artifacts /home/runtime /workspace /app
+
+ENV HOME=/home/runtime \
+    PYTHONUNBUFFERED=1 \
+    V2_WORKSPACE_ROOT=/workspace
+
+USER runtime
+
+EXPOSE 8765
+
+CMD ["python3", "-m", "runtime.cloud_agents_runtime", "--host", "0.0.0.0", "--port", "8765", "--artifact-root", "/data/artifacts", "--protect-health"]
