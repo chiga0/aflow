@@ -157,6 +157,7 @@ export function ProductClientPage() {
   const [mode, setMode] = useState("auto");
   const [channel, setChannel] = useState("web");
   const [adapter, setAdapter] = useState("auto");
+  const [executionUnitId, setExecutionUnitId] = useState("auto");
   const conversations = useQuery({
     queryKey: ["conversations", { includeArchived: true }],
     queryFn: () => runtimeApi.conversations(true),
@@ -197,7 +198,13 @@ export function ProductClientPage() {
       mode,
       channel,
       adapter,
-      metadata: { product_surface: "client", conversation_projection: true },
+      metadata: {
+        product_surface: "client",
+        conversation_projection: true,
+        ...(executionUnitId === "auto"
+          ? {}
+          : { execution_unit_id: executionUnitId }),
+      },
     });
   };
 
@@ -262,7 +269,7 @@ export function ProductClientPage() {
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 执行设置（高级）
               </summary>
-              <div className="absolute bottom-14 z-20 grid w-[min(420px,calc(100vw-3rem))] gap-3 rounded-lg border border-border bg-card p-3 shadow-xl sm:grid-cols-3">
+              <div className="absolute bottom-14 z-20 grid w-[min(560px,calc(100vw-3rem))] gap-3 rounded-lg border border-border bg-card p-3 shadow-xl sm:grid-cols-2">
                 <Field label="执行方式">
                   <Select
                     className="h-11 sm:h-9"
@@ -307,6 +314,22 @@ export function ProductClientPage() {
                           : "（未配置）"}
                       </option>
                     ))}
+                  </Select>
+                </Field>
+                <Field label="执行单元">
+                  <Select
+                    className="h-11 sm:h-9"
+                    value={executionUnitId}
+                    onChange={(event) => setExecutionUnitId(event.target.value)}
+                  >
+                    <option value="auto">自动调度（推荐）</option>
+                    {units
+                      .filter((unit) => unit.status === "active")
+                      .map((unit) => (
+                        <option key={unit.unit_id} value={unit.unit_id}>
+                          {executionUnitLabel(unit)}
+                        </option>
+                      ))}
                   </Select>
                 </Field>
               </div>
@@ -366,6 +389,11 @@ function channelStatus(
     channels.find((channel) => channel.platform === platform)?.status ??
     (platform === "web" ? "configured" : "reserved")
   );
+}
+
+function executionUnitLabel(unit: V2AdminOverview["execution_units"][number]) {
+  const region = String(unit.labels.region ?? unit.labels.zone ?? "").trim();
+  return `${unit.unit_id}${region ? ` · ${region}` : ""}`;
 }
 
 type ConversationCanvasTab =

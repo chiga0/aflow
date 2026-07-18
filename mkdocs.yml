@@ -21,6 +21,7 @@ nav:
   - 部署与接入:
       - Docker 部署: docker-deployment.md
       - 部署指南: deployment-runbook.md
+      - 远端 ECS 执行单元: remote-ecs-workers.md
       - 自托管与 CI: self-deploy.md
       - 执行单元注册与调度: execution-units.md
       - IM 机器人接入: channel-integrations.md

@@ -873,6 +873,30 @@ const v2Overview = {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
+    {
+      unit_id: "ecs-test",
+      kind: "ecs",
+      status: "active",
+      labels: {},
+      resources: { cpu: 2 },
+      adapters: ["qwen"],
+      features: ["remote-worker", "artifacts"],
+      heartbeat_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      unit_id: "ecs-offline",
+      kind: "ecs",
+      status: "offline",
+      labels: { region: "offline" },
+      resources: { cpu: 2 },
+      adapters: ["qwen"],
+      features: ["remote-worker"],
+      heartbeat_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
   ],
   channels: [
     {
@@ -1691,9 +1715,16 @@ describe("AgentFlow console", () => {
       "Ship the control plane",
     );
     await user.click(screen.getByText("执行设置", { exact: false }));
+    expect(
+      screen.getByRole("option", { name: "ecs-test" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /ecs-offline/ }),
+    ).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("执行方式"), "multi-agent");
     await user.selectOptions(screen.getByLabelText("来源渠道"), "feishu");
     await user.selectOptions(screen.getByLabelText("Agent CLI"), "codex");
+    await user.selectOptions(screen.getByLabelText("执行单元"), "local-dev");
     await user.click(screen.getByRole("button", { name: "发送任务" }));
 
     await waitFor(() =>
@@ -1702,7 +1733,7 @@ describe("AgentFlow console", () => {
         expect.objectContaining({
           method: "POST",
           body: expect.stringMatching(
-            /Ship the control plane.*multi-agent.*feishu.*codex/s,
+            /Ship the control plane.*multi-agent.*feishu.*codex.*local-dev/s,
           ),
         }),
       ),

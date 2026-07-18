@@ -11,8 +11,9 @@ import threading
 import time
 import weakref
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib import request
 from urllib.error import URLError
 from uuid import uuid4
@@ -68,7 +69,7 @@ class V2ControlPlane:
     enough for local product iteration.
     """
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, auto_start: bool = True):
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "control_plane.db"
@@ -79,10 +80,32 @@ class V2ControlPlane:
         self._event_condition = threading.Condition(self._lock)
         self._threads: dict[str, threading.Thread] = {}
         self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._remote_agent_executor: (
+            Callable[[str, dict[str, Any], str, dict[str, Any]], dict[str, Any]] | None
+        ) = None
+        self._started = False
         self._closed = False
         self._init_db()
         self._ensure_defaults()
         self._backfill_conversations()
+        if auto_start:
+            self.start()
+
+    def bind_remote_agent_executor(
+        self,
+        executor: Callable[[str, dict[str, Any], str, dict[str, Any]], dict[str, Any]],
+    ) -> None:
+        """Bind the Run Manager bridge used by remote-worker execution units."""
+        with self._lock:
+            if self._started:
+                raise RuntimeError("remote agent executor must be bound before start")
+            self._remote_agent_executor = executor
+
+    def start(self) -> None:
+        with self._lock:
+            if self._started or self._closed:
+                return
+            self._started = True
         self._recover_open_tasks()
 
     def close(self) -> None:
@@ -185,13 +208,20 @@ class V2ControlPlane:
             tenant_id = str(payload.get("tenant_id") or "tenant_default")
             title = summarize_goal(goal)
             strategy = self._strategy_for(goal, mode)
+            metadata = dict(payload.get("metadata") or {})
+            requested_unit_id = str(
+                payload.get("execution_unit_id")
+                or metadata.get("execution_unit_id")
+                or ""
+            ).strip() or None
             dispatch = self._dispatch_decision(
                 requested_adapter=requested_adapter,
                 channel=channel,
                 strategy=strategy,
+                requested_unit_id=requested_unit_id,
+                routing_key=idempotency_key or goal,
             )
             adapter = str(dispatch["adapter"])
-            metadata = dict(payload.get("metadata") or {})
             metadata.update(
                 {
                     "source": payload.get("source") or channel,
@@ -723,6 +753,9 @@ class V2ControlPlane:
                     )
                 sequence = int(latest["sequence"]) + 1
                 previous_task = self.get_task(latest["task_id"])
+                previous_dispatch = dict(
+                    previous_task.get("metadata", {}).get("dispatch") or {}
+                )
                 task = self.create_task(
                     {
                         "goal": message,
@@ -735,6 +768,9 @@ class V2ControlPlane:
                             "conversation_id": conversation_id,
                             "execution_sequence": sequence,
                             "continued_from_task_id": latest["task_id"],
+                            "execution_unit_id": previous_dispatch.get(
+                                "execution_unit_id"
+                            ),
                         },
                         "_defer_runner": True,
                     },
@@ -2141,13 +2177,19 @@ class V2ControlPlane:
         requested_adapter: str,
         channel: str,
         strategy: str,
+        requested_unit_id: str | None = None,
+        routing_key: str | None = None,
     ) -> dict[str, Any]:
         adapter = (
             self._configured_auto_adapter()
             if requested_adapter == "auto"
             else requested_adapter
         )
-        unit = self._select_execution_unit(adapter)
+        unit = self._select_execution_unit(
+            adapter,
+            requested_unit_id=requested_unit_id,
+            routing_key=routing_key,
+        )
         channel_config = self._channel_by_platform(channel)
         live_channel = channel_config["status"] == "configured"
         return {
@@ -2193,8 +2235,38 @@ class V2ControlPlane:
         )
         return bool(command_parts and shutil.which(command_parts[0]))
 
-    def _select_execution_unit(self, adapter: str) -> dict[str, Any]:
+    def _select_execution_unit(
+        self,
+        adapter: str,
+        *,
+        requested_unit_id: str | None = None,
+        routing_key: str | None = None,
+    ) -> dict[str, Any]:
         active_units = [unit for unit in self.execution_units() if unit["status"] == "active"]
+        if requested_unit_id:
+            requested = next(
+                (unit for unit in active_units if unit["unit_id"] == requested_unit_id),
+                None,
+            )
+            if requested is None:
+                raise RuntimeError(f"execution unit {requested_unit_id} is not active")
+            if adapter not in requested["adapters"]:
+                raise RuntimeError(
+                    f"execution unit {requested_unit_id} cannot run adapter {adapter}"
+                )
+            return requested
+
+        remote_units = [
+            unit
+            for unit in active_units
+            if adapter in unit["adapters"]
+            and "remote-worker" in unit["features"]
+            and self._remote_agent_executor is not None
+        ]
+        if remote_units:
+            remote_units.sort(key=lambda unit: unit["unit_id"])
+            digest = sha256((routing_key or adapter).encode("utf-8")).digest()
+            return remote_units[int.from_bytes(digest[:8], "big") % len(remote_units)]
         for unit in active_units:
             if adapter in unit["adapters"]:
                 return unit
@@ -2719,6 +2791,29 @@ class V2ControlPlane:
         if adapter == "fake":
             return simulated_adapter_result(adapter, protocol, envelope)
 
+        task_row = self._task_row(task_id)
+        if task_row is None:
+            raise KeyError(task_id)
+        task_goal = str(task_row["goal"])
+        task_metadata = json_loads(task_row["metadata_json"])
+        prompt = self._adapter_prompt(task_id, agent, task_goal)
+        dispatch = dict(task_metadata.get("dispatch") or {})
+        execution_unit_id = str(dispatch.get("execution_unit_id") or "")
+        execution_unit = next(
+            (
+                unit
+                for unit in self.execution_units()
+                if unit["unit_id"] == execution_unit_id
+            ),
+            None,
+        )
+        if (
+            execution_unit is not None
+            and "remote-worker" in execution_unit["features"]
+            and self._remote_agent_executor is not None
+        ):
+            return self._remote_agent_executor(task_id, agent, prompt, execution_unit)
+
         command_env = CLI_ADAPTER_COMMAND_ENV[adapter]
         default_command = CLI_ADAPTER_DEFAULT_COMMAND[adapter]
         configured_command = os.environ.get(command_env)
@@ -2737,13 +2832,7 @@ class V2ControlPlane:
             )
             return result
 
-        task_row = self._task_row(task_id)
-        if task_row is None:
-            raise KeyError(task_id)
-        task_goal = str(task_row["goal"])
-        task_metadata = json_loads(task_row["metadata_json"])
         workspace = self._adapter_workspace(task_metadata)
-        prompt = self._adapter_prompt(task_id, agent, task_goal)
         command = [executable, *command_parts[1:]]
         stdin_value: str | None = json_dumps(envelope)
         if adapter == "qwen":

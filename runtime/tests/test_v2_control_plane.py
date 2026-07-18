@@ -604,6 +604,68 @@ class V2ControlPlaneTest(unittest.TestCase):
             restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
             restore_env("V2_QWEN_CODE_COMMAND", old_command)
 
+    def test_remote_execution_unit_is_selected_and_uses_bound_worker_bridge(self):
+        calls = []
+        control = V2ControlPlane(self.tmp_path(), auto_start=False)
+        control.register_execution_unit(
+            {
+                "unit_id": "ecs-hk",
+                "kind": "ecs",
+                "labels": {"region": "hk"},
+                "adapters": ["qwen"],
+                "features": ["remote-worker", "artifacts"],
+            }
+        )
+
+        def execute_remote(task_id, agent, prompt, unit):
+            calls.append((task_id, agent["agent_task_id"], prompt, unit["unit_id"]))
+            return {
+                "adapter": "qwen",
+                "protocol": "ACP/A2A",
+                "execution_mode": "remote-worker",
+                "exit_code": 0,
+                "success": True,
+                "message": "远端 Qwen 已完成",
+                "summary": "远端 Qwen 已完成",
+                "raw_output": "远端 Qwen 已完成",
+                "stderr": "",
+                "workspace": "/srv/agentflow/workspace",
+                "remote_run_id": "run_remote_1",
+                "worker_id": "worker-hk",
+                "execution_unit_id": unit["unit_id"],
+            }
+
+        control.bind_remote_agent_executor(execute_remote)
+        control.start()
+        task = control.create_task(
+            {
+                "goal": "Run a remote code audit",
+                "adapter": "qwen",
+                "mode": "single",
+                "metadata": {"execution_unit_id": "ecs-hk"},
+            },
+            principal="user_1",
+        )
+        completed = wait_for_status(control, task["task_id"], "completed")
+
+        self.assertEqual(completed["metadata"]["dispatch"]["execution_unit_id"], "ecs-hk")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("Do not create subagents", calls[0][2])
+        self.assertEqual(
+            control.artifacts(task["task_id"])[0]["content"]["adapter"][
+                "execution_mode"
+            ],
+            "remote-worker",
+        )
+        with self.assertRaises(RuntimeError):
+            control._dispatch_decision(
+                requested_adapter="qwen",
+                channel="web",
+                strategy="single-agent-fast-path",
+                requested_unit_id="missing",
+            )
+        control.close()
+
     def test_durable_workflow_artifact_evaluation_retry_and_replay(self):
         control = V2ControlPlane(self.tmp_path())
         task = control.create_task(

@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import patch
 
 from runtime.cloud_agents_runtime.adapters import FakeAdapter, RuntimeAdapter
-from runtime.cloud_agents_runtime.models import RunState
+from runtime.cloud_agents_runtime.models import RunSpec, RunState
 from runtime.cloud_agents_runtime.store import RunStore
 from runtime.cloud_agents_runtime.worker import (
     RemoteWorkerConfig,
@@ -24,6 +24,33 @@ from runtime.tests.test_runtime_server import request_json, running_runtime
 
 
 class RemoteWorkerDaemonTest(unittest.TestCase):
+    def test_remote_worker_maps_control_plane_workspace_to_worker_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            worker_workspace = Path(tmp) / "workspace"
+            daemon = RemoteWorkerDaemon(
+                RemoteWorkerConfig(
+                    control_url="http://127.0.0.1:1",
+                    metadata={"workspace": str(worker_workspace)},
+                )
+            )
+            run = RunState.create(
+                RunSpec(
+                    prompt="inspect",
+                    workspace="/control-plane/workspace/run-1",
+                )
+            )
+
+            daemon._map_remote_workspace(run)
+
+            self.assertEqual(run.spec.workspace, str(worker_workspace.resolve()))
+            self.assertTrue(worker_workspace.is_dir())
+            self.assertEqual(
+                run.spec.metadata["remote_workspace_mapping"][
+                    "control_plane_workspace"
+                ],
+                "/control-plane/workspace/run-1",
+            )
+
     def test_remote_worker_daemon_once_executes_fake_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             control_root = Path(tmp) / "control"

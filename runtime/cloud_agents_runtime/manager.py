@@ -49,7 +49,7 @@ class RunManager:
         heartbeat_enabled: bool = False,
     ):
         self.store = RunStore(artifact_root)
-        self.v2 = V2ControlPlane(artifact_root / "v2")
+        self.v2 = V2ControlPlane(artifact_root / "v2", auto_start=False)
         self.executor_registry = ExecutorRegistry(self.store, ExecutorConfig.from_env())
         self.workspace_allocator = WorkspaceAllocator(artifact_root)
         self.resource_resolver = ResourcePolicyResolver(resource_config)
@@ -105,6 +105,7 @@ class RunManager:
             self.worker_id,
             self.worker_capacity,
             self.lease_ttl_seconds,
+            metadata=self._local_worker_metadata(),
         )
         self.store.recover_expired_leases()
         self.store.prune_stale_workers(self.ops.config.stale_worker_seconds)
@@ -124,6 +125,8 @@ class RunManager:
                 daemon=True,
             )
             self._cleanup_thread.start()
+        self.v2.bind_remote_agent_executor(self._execute_v2_agent_remotely)
+        self.v2.start()
         self._drain_queue()
         self.missions.reconcile()
 
@@ -241,6 +244,95 @@ class RunManager:
         self.store.enqueue_run(run.run_id)
         self._drain_queue()
         return self.store.get_run(run.run_id) or run
+
+    def _execute_v2_agent_remotely(
+        self,
+        task_id: str,
+        agent: dict[str, Any],
+        prompt: str,
+        execution_unit: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute one V2 DAG step through the durable remote-worker queue."""
+        adapter = str(agent["adapter"])
+        unit_id = str(execution_unit["unit_id"])
+        timeout_seconds = max(
+            20,
+            min(int(os.environ.get("V2_CLI_TIMEOUT_SECONDS", "600")), 3600),
+        )
+        run = self.create_run(
+            RunSpec(
+                prompt=prompt,
+                adapter=adapter,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "created_from": "v2_remote_bridge",
+                    "v2_task_id": task_id,
+                    "v2_agent_task_id": agent["agent_task_id"],
+                    "execution_unit_id": unit_id,
+                    "worker_requirements": {
+                        "adapters": [adapter],
+                        "features": ["artifacts"],
+                        "labels": {"execution_unit_id": unit_id},
+                    },
+                },
+            )
+        )
+        deadline = time.monotonic() + timeout_seconds + 15
+        last_sequence = 0
+        while time.monotonic() < deadline and not self._stop.is_set():
+            current = self.store.get_run(run.run_id)
+            if current is None:
+                raise RuntimeError(f"remote run disappeared: {run.run_id}")
+            if self.v2.get_task(task_id)["status"] == "cancelled":
+                self.cancel(run.run_id, "V2 task cancelled")
+            if self.store.is_terminal(run.run_id):
+                break
+            events = self.store.wait_for_events(run.run_id, last_sequence, timeout=1.0)
+            if events:
+                last_sequence = events[-1].sequence
+        else:
+            self.cancel(run.run_id, "V2 remote execution timeout")
+
+        current = self.store.get_run(run.run_id)
+        if current is None:
+            raise RuntimeError(f"remote run disappeared: {run.run_id}")
+        events = self.store.events_since(run.run_id)
+        message = "".join(
+            str(event.data.get("text") or "")
+            for event in events
+            if event.type == "message.delta"
+        ).strip()
+        if not message:
+            message = latest_run_summary(events) or f"remote run {current.status}"
+        job = self.store.get_job(run.run_id)
+        success = current.status == "completed"
+        failure = next(
+            (
+                event_text(event.data)
+                for event in reversed(events)
+                if event.type == "run.failed"
+            ),
+            None,
+        )
+        return {
+            "adapter": adapter,
+            "protocol": "ACP/A2A",
+            "execution_mode": "remote-worker",
+            "exit_code": 0 if success else 1,
+            "success": success,
+            "message": message[:4000],
+            "summary": message[:12000],
+            "raw_output": message[:20000],
+            "stderr": "" if success else str(failure or current.status)[:4000],
+            "workspace": current.spec.workspace,
+            "remote_run_id": run.run_id,
+            "worker_id": job.worker_id if job else None,
+            "execution_unit_id": unit_id,
+            "envelope": {
+                "task_id": task_id,
+                "agent_task_id": agent["agent_task_id"],
+            },
+        }
 
     def list_tasks(
         self,
@@ -1048,10 +1140,16 @@ class RunManager:
                 self.worker_id,
                 self.worker_capacity,
                 self.lease_ttl_seconds,
+                metadata=self._local_worker_metadata(),
             )
             self.store.recover_expired_leases()
             while self.store.active_job_count(self.worker_id) < self.worker_capacity:
-                job = self.store.claim_next_job(self.worker_id, self.lease_ttl_seconds)
+                worker_metadata = self._local_worker_metadata()
+                job = self.store.claim_next_job(
+                    self.worker_id,
+                    self.lease_ttl_seconds,
+                    predicate=lambda run: worker_matches_run(worker_metadata, run),
+                )
                 if job is None:
                     return
                 thread = threading.Thread(
@@ -1063,6 +1161,16 @@ class RunManager:
                 with self._run_threads_lock:
                     self._run_threads.append(thread)
                 thread.start()
+
+    def _local_worker_metadata(self) -> dict[str, Any]:
+        return {
+            "kind": "local",
+            "labels": {"execution_unit_id": "local-dev"},
+            "capabilities": {
+                "adapters": sorted(self.adapters),
+                "features": ["artifacts", "control", "events", "heartbeat", "workspace"],
+            },
+        }
 
     def _start_claimed_run(self, run_id: str) -> None:
         run = self._require_run(run_id)

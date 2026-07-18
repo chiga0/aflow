@@ -308,6 +308,7 @@ class RemoteWorkerDaemon:
         return thread
 
     def _execute_run(self, run: RunState) -> None:
+        self._map_remote_workspace(run)
         store = RemoteWorkerRunStore(
             self.client,
             worker_id=self.config.worker_id,
@@ -356,6 +357,22 @@ class RemoteWorkerDaemon:
         finally:
             heartbeat_stop.set()
             heartbeat.join(timeout=2)
+
+    def _map_remote_workspace(self, run: RunState) -> None:
+        """Replace control-plane-local workspace paths with the worker workspace."""
+        configured = self.config.metadata.get("workspace")
+        if not isinstance(configured, str) or not configured.strip():
+            return
+        workspace = Path(configured).expanduser().resolve()
+        workspace.mkdir(parents=True, exist_ok=True)
+        original = run.spec.workspace
+        run.spec.workspace = str(workspace)
+        metadata = dict(run.spec.metadata)
+        metadata["remote_workspace_mapping"] = {
+            "control_plane_workspace": original,
+            "worker_workspace": str(workspace),
+        }
+        run.spec.metadata = metadata
 
     def _heartbeat_loop(
         self,

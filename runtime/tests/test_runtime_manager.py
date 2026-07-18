@@ -22,6 +22,76 @@ from runtime.cloud_agents_runtime.store import RunStore, utc_now_plus
 
 
 class RunManagerTest(unittest.TestCase):
+    def test_v2_remote_bridge_uses_matching_worker_and_returns_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = RunManager(
+                Path(tmp),
+                adapters={"fake": FakeAdapter(), "qwen": FakeAdapter()},
+                worker_capacity=1,
+            )
+            try:
+                manager.v2.register_execution_unit(
+                    {
+                        "unit_id": "ecs-hk",
+                        "kind": "ecs",
+                        "labels": {"region": "hk"},
+                        "adapters": ["qwen"],
+                        "features": ["remote-worker", "artifacts"],
+                    }
+                )
+                task = manager.v2.create_task(
+                    {
+                        "goal": "Audit the remote workspace",
+                        "adapter": "qwen",
+                        "mode": "single",
+                        "metadata": {"execution_unit_id": "ecs-hk"},
+                    },
+                    principal="user_1",
+                )
+                worker_payload = {
+                    "capacity": 1,
+                    "labels": {"execution_unit_id": "ecs-hk"},
+                    "capabilities": {
+                        "adapters": ["qwen"],
+                        "features": ["artifacts", "claim", "events", "heartbeat"],
+                    },
+                }
+                claim = {"run": None}
+                deadline = time.time() + 3
+                while time.time() < deadline and claim["run"] is None:
+                    claim = manager.claim_remote_run("worker-hk", worker_payload)
+                    if claim["run"] is None:
+                        time.sleep(0.02)
+                self.assertIsNotNone(claim["run"])
+                remote_run_id = claim["run"]["run_id"]
+                self.assertEqual(claim["job"]["worker_id"], "worker-hk")
+                manager.append_remote_worker_event(
+                    "worker-hk",
+                    remote_run_id,
+                    {"type": "message.delta", "data": {"text": "远端审计完成"}},
+                )
+                manager.append_remote_worker_event(
+                    "worker-hk",
+                    remote_run_id,
+                    {"type": "run.completed", "data": {"verified": True}},
+                )
+
+                deadline = time.time() + 3
+                completed = manager.v2.get_task(task["task_id"])
+                while time.time() < deadline and completed["status"] != "completed":
+                    time.sleep(0.02)
+                    completed = manager.v2.get_task(task["task_id"])
+                self.assertEqual(completed["status"], "completed")
+                adapter_result = manager.v2.artifacts(task["task_id"])[0]["content"][
+                    "adapter"
+                ]
+                self.assertEqual(adapter_result["execution_mode"], "remote-worker")
+                self.assertEqual(adapter_result["worker_id"], "worker-hk")
+                self.assertEqual(adapter_result["remote_run_id"], remote_run_id)
+                self.assertEqual(adapter_result["summary"], "远端审计完成")
+            finally:
+                manager.shutdown()
+
     def test_fake_run_completes_and_writes_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manager = RunManager(Path(tmp))

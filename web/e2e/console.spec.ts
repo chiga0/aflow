@@ -68,6 +68,7 @@ test("uses the client and admin control-plane surfaces", async ({
   await page.getByLabel("执行方式").selectOption("multi-agent");
   await page.getByLabel("来源渠道").selectOption("feishu");
   await page.getByLabel("Agent CLI").selectOption("qwen");
+  await page.getByLabel("执行单元").selectOption("local-dev");
   const createRequest = page.waitForRequest(
     (request) =>
       request.method() === "POST" && request.url().endsWith("/conversations"),
@@ -78,6 +79,7 @@ test("uses the client and admin control-plane surfaces", async ({
     adapter: "qwen",
     channel: "feishu",
     mode: "multi-agent",
+    metadata: { execution_unit_id: "local-dev" },
   });
 
   await expect(
@@ -688,6 +690,30 @@ async function mockRuntime(
         resources: { cpu: 2 },
         adapters: ["fake", "qwen"],
         features: ["workspace", "artifacts", "events"],
+        heartbeat_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        unit_id: "ecs-test",
+        kind: "ecs",
+        status: "active",
+        labels: {},
+        resources: { cpu: 2 },
+        adapters: ["qwen"],
+        features: ["remote-worker", "artifacts"],
+        heartbeat_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        unit_id: "ecs-offline",
+        kind: "ecs",
+        status: "offline",
+        labels: { region: "offline" },
+        resources: { cpu: 2 },
+        adapters: ["qwen"],
+        features: ["remote-worker"],
         heartbeat_at: now,
         created_at: now,
         updated_at: now,

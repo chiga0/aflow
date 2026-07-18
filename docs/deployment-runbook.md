@@ -234,6 +234,8 @@ docker compose --env-file .env -f deploy/docker-compose.ha.yml ps
 
 ## 6. 注册执行单元
 
+当控制面仅监听本机、需要把 Qwen 任务下发到公网 ECS 时，先按[本地控制面接入远端 ECS 执行单元](remote-ecs-workers.md)建立反向 SSH 通道、部署 worker，并完成真实远端执行证据验收。
+
 执行单元有两种注册路径：
 
 | 路径 | 用途 | 入口 |
