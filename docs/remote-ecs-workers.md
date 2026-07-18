@@ -33,6 +33,11 @@ chmod 600 .env.worker-tunnel-hk
 
 脚本在 `.runtime/worker-tunnels/` 保存 pid 和日志；SSH 断开后会自动重连。每台 ECS 使用独立配置。不同 ECS 可以复用远端端口 `18765`，因为端口位于不同主机。
 
+macOS 如果把仓库放在 `Documents` 下，不要让 LaunchAgent 直接执行仓库内脚本：
+系统 TCC 会拒绝后台进程读取该目录。需要登录即启动时，应将专用 PEM 安装到
+`~/.ssh`（权限 `0600`），让 LaunchAgent 直接执行 `/usr/bin/ssh -NT -R ...`，
+日志写到 `~/Library/Logs`；安装后主动终止一次 SSH，确认 `KeepAlive` 能换 PID 重连。
+
 ## 2. 创建 worker 专用 token
 
 使用主控 token 调用：

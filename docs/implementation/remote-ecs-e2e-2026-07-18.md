@@ -15,6 +15,8 @@
   worker 的 `NRestarts` 保持 0，每个 Agent 只有一个远端 run，全部事件 ID 唯一，随后其余四类场景继续通过。
 - 浏览器桌面端明确选择 `qwen-code + ecs-hz` 后完成真实任务；移动端 390×844 视口下，会话导航、决策台、最近完成、审批历史和“意图—证据—影响面”详情可用。
 - 两个生成文件已在 ECS 工作区落盘、重新读取且非空，权限归属为 `cloudagents`。
+- 杭州反向通道已安装为 macOS LaunchAgent；主动终止 SSH 后 1.5 秒内换 PID 重连，
+  再次执行真实远端 Qwen 任务通过，因此不依赖本次终端或 Codex 会话存活。
 
 ## 部署过程发现并修复的问题
 
@@ -28,6 +30,9 @@
    V2 bridge 会复用已存在的 durable run。故障注入复测确认 worker 未退出、run 未重复。
 7. 验收器原先只检查 completed 和路由证据，空泛结果也可能假绿。现增加最小结果长度与逐场景语义证据校验，
    并对实际文件执行 ECS 端非空、属主和权限复核。
+8. macOS LaunchAgent 直接读取 `Documents` 内脚本会被 TCC 拒绝并返回 126。当前安装改为
+   LaunchAgent 直接调用系统 SSH，专用 PEM 安装到 `~/.ssh` 且权限为 `0600`，日志写入
+   `~/Library/Logs/AgentFlow`；异常退出由 `KeepAlive` 自动恢复。
 
 ## 安全与资源审计
 
@@ -39,7 +44,7 @@
 
 ## 第二执行单元状态
 
-香港 ECS 的 PEM 已通过本地公钥解析，公网 IP 可达，SSH 端口可以完成 TCP 建连，
+香港执行单元已在控制面登记为 `offline`，不会进入自动调度。其 PEM 已通过本地公钥解析，公网 IP 可达，SSH 端口可以完成 TCP 建连，
 但 `sshd` 在服务端 banner 前持续超时；经杭州 ECS 作为跳板复测结果一致，因此不是密钥、
 本地出口 IP 或单一路径问题。该主机已有受保护的运行服务，本轮未擅自重启。恢复 SSH 后，
 应复用其已有 loopback Qwen daemon，再运行本文相同的两轮验收。
