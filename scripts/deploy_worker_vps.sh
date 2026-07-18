@@ -13,6 +13,7 @@ STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-worker}"
 REPO_URL="${REPO_URL:-https://github.com/chiga0/aflow.git}"
 REPO_REF="${REPO_REF:-main}"
 REPO_UPDATE="${REPO_UPDATE:-1}"
+REPO_BUNDLE_FILE="${REPO_BUNDLE_FILE:-}"
 NODE_PACKAGE="${NODE_PACKAGE:-@qwen-code/qwen-code@0.19.11}"
 NODE_VERSION="${NODE_VERSION:-22.22.1}"
 QWEN_SETTINGS_FILE="${QWEN_SETTINGS_FILE:-}"
@@ -52,6 +53,10 @@ if [[ ! -r "$SSH_KEY" ]]; then
   echo "SSH key is not readable: $SSH_KEY" >&2
   exit 2
 fi
+if [[ -n "$REPO_BUNDLE_FILE" && ! -r "$REPO_BUNDLE_FILE" ]]; then
+  echo "repository bundle is not readable: $REPO_BUNDLE_FILE" >&2
+  exit 2
+fi
 if [[ -n "$QWEN_SETTINGS_FILE" && ! -f "$QWEN_SETTINGS_FILE" ]]; then
   echo "QWEN_SETTINGS_FILE does not exist: $QWEN_SETTINGS_FILE" >&2
   exit 2
@@ -64,6 +69,7 @@ shell_quote() {
 DEPLOY_ID="$(date +%s)-$$-$RANDOM"
 REMOTE_ENV_FILE="/root/.agentflow-worker-env-$DEPLOY_ID"
 REMOTE_QWEN_SETTINGS_FILE="/root/.agentflow-qwen-settings-$DEPLOY_ID.json"
+REMOTE_REPO_BUNDLE_FILE="/root/.agentflow-repository-$DEPLOY_ID.bundle"
 
 REMOTE_ENV=(
   "APP_DIR=$(shell_quote "$APP_DIR")"
@@ -71,6 +77,8 @@ REMOTE_ENV=(
   "REPO_URL=$(shell_quote "$REPO_URL")"
   "REPO_REF=$(shell_quote "$REPO_REF")"
   "REPO_UPDATE=$(shell_quote "$REPO_UPDATE")"
+  "HAS_REPO_BUNDLE=$(shell_quote "$([[ -n "$REPO_BUNDLE_FILE" ]] && echo 1 || echo 0)")"
+  "REPO_BUNDLE_REMOTE_FILE=$(shell_quote "$REMOTE_REPO_BUNDLE_FILE")"
   "NODE_PACKAGE=$(shell_quote "$NODE_PACKAGE")"
   "NODE_VERSION=$(shell_quote "$NODE_VERSION")"
   "HAS_QWEN_SETTINGS=$(shell_quote "$([[ -n "$QWEN_SETTINGS_FILE" ]] && echo 1 || echo 0)")"
@@ -108,7 +116,8 @@ LOCAL_ENV_FILE="$(mktemp)"
 cleanup_local_files() {
   rm -f "$LOCAL_ENV_FILE"
   ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" \
-    "rm -f $(shell_quote "$REMOTE_ENV_FILE") $(shell_quote "$REMOTE_QWEN_SETTINGS_FILE")" \
+    "rm -f $(shell_quote "$REMOTE_ENV_FILE") $(shell_quote "$REMOTE_QWEN_SETTINGS_FILE") \
+      $(shell_quote "$REMOTE_REPO_BUNDLE_FILE")" \
     >/dev/null 2>&1 || true
 }
 trap cleanup_local_files EXIT
@@ -120,6 +129,13 @@ if [[ -n "$QWEN_SETTINGS_FILE" ]]; then
     "${SSH_OPTIONS[@]}" \
     "$QWEN_SETTINGS_FILE" \
     "$SSH_TARGET:$REMOTE_QWEN_SETTINGS_FILE"
+fi
+
+if [[ -n "$REPO_BUNDLE_FILE" ]]; then
+  scp \
+    "${SSH_OPTIONS[@]}" \
+    "$REPO_BUNDLE_FILE" \
+    "$SSH_TARGET:$REMOTE_REPO_BUNDLE_FILE"
 fi
 
 REMOTE_BOOTSTRAP="set -a; source $(shell_quote "$REMOTE_ENV_FILE")"
@@ -301,7 +317,28 @@ if [[ "$REPO_UPDATE" != "0" && "$REPO_UPDATE" != "1" ]]; then
   exit 2
 fi
 
-if [[ ! -d "$APP_DIR/.git" ]] \
+if [[ "$HAS_REPO_BUNDLE" == "1" ]]; then
+  log_step "sync runtime repository from local git bundle"
+  if [[ ! -d "$APP_DIR/.git" ]] \
+    || ! git -C "$APP_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    rm -rf "$APP_DIR"
+    mkdir -p "$(dirname "$APP_DIR")"
+    git clone \
+      --branch "$REPO_REF" \
+      --single-branch \
+      "$REPO_BUNDLE_REMOTE_FILE" \
+      "$APP_DIR"
+  else
+    git -C "$APP_DIR" fetch "$REPO_BUNDLE_REMOTE_FILE" "$REPO_REF"
+    git -C "$APP_DIR" reset --hard FETCH_HEAD
+  fi
+  if git -C "$APP_DIR" remote get-url origin >/dev/null 2>&1; then
+    git -C "$APP_DIR" remote set-url origin "$REPO_URL"
+  else
+    git -C "$APP_DIR" remote add origin "$REPO_URL"
+  fi
+  rm -f "$REPO_BUNDLE_REMOTE_FILE"
+elif [[ ! -d "$APP_DIR/.git" ]] \
   || ! git -C "$APP_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   rm -rf "$APP_DIR"
   mkdir -p "$(dirname "$APP_DIR")"

@@ -84,6 +84,20 @@ REPO_UPDATE=0 \
 
 `REPO_UPDATE=0` 不会切换代码版本；应先用 `git -C /opt/agentflow rev-parse HEAD` 确认该提交正是需要部署的版本。Git 单次尝试默认限制为 120 秒，可通过 `DEPLOY_GIT_TIMEOUT_SECONDS` 调整。
 
+如果 ECS 到 GitHub 的 TLS 长时间不稳定，可以从本地已验收分支生成 Git bundle，
+部署脚本会通过 SCP 传输、校验为 Git 仓库并保留精确提交历史，不依赖 ECS 出网：
+
+```bash
+git bundle create .runtime/agentflow-worker.bundle codex/complete-client-redesign
+
+REPO_BUNDLE_FILE=.runtime/agentflow-worker.bundle \
+REPO_REF=codex/complete-client-redesign \
+  ./scripts/deploy_worker_vps.sh root@203.0.113.10 /absolute/path/worker.pem
+```
+
+bundle 只应从已提交且通过测试的分支创建；脚本会把远端 `origin` 恢复为 canonical
+仓库 URL，并清理 ECS 上的临时 bundle。
+
 如果 ECS 已经有受保护的 Qwen daemon，可复用其环境文件，避免低内存主机启动第二个 daemon：
 
 ```bash

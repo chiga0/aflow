@@ -33,6 +33,9 @@
 8. macOS LaunchAgent 直接读取 `Documents` 内脚本会被 TCC 拒绝并返回 126。当前安装改为
    LaunchAgent 直接调用系统 SSH，专用 PEM 安装到 `~/.ssh` 且权限为 `0600`，日志写入
    `~/Library/Logs/AgentFlow`；异常退出由 `KeepAlive` 自动恢复。
+9. 杭州 ECS 到 canonical GitHub 仓库连续三次出现 TLS 中断，远端 fetch 最终按超时安全退出，
+   未破坏正在运行的服务。worker 部署脚本增加本地 Git bundle 传输模式，在弱网下仍保留
+   精确 commit、分支和远端 origin，临时 bundle 部署后自动清理。
 
 ## 安全与资源审计
 
