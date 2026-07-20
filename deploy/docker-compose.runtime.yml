@@ -3,7 +3,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.runtime
+    user: "${RUNTIME_UID:-1000}:${RUNTIME_GID:-1000}"
     environment:
+      HOME: /data/artifacts/.home
       RUN_MANAGER_TOKEN: ${RUN_MANAGER_TOKEN:?set RUN_MANAGER_TOKEN}
       RUN_MANAGER_BOOTSTRAP_EMAIL: ${RUN_MANAGER_BOOTSTRAP_EMAIL:-owner@example.com}
       RUN_MANAGER_BOOTSTRAP_PASSWORD: ${RUNTIME_BOOTSTRAP_PASSWORD:?missing} # ggignore

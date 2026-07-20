@@ -31,6 +31,8 @@ class LocalStackTest(unittest.TestCase):
             self.assertEqual(env_file.read_text(encoding="utf-8"), original)
             self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
             self.assertEqual(first["RUNTIME_BIND"], "127.0.0.1")
+            self.assertTrue(first["RUNTIME_UID"].isdigit())
+            self.assertTrue(first["RUNTIME_GID"].isdigit())
             self.assertNotIn(first["RUNTIME_BOOTSTRAP_PASSWORD"], "captured console output")
 
     def test_init_rejects_unsafe_or_invalid_bind(self):
@@ -46,6 +48,23 @@ class LocalStackTest(unittest.TestCase):
 
             with self.assertRaisesRegex(local_stack.StackError, "RUNTIME_ARTIFACTS_DIR"):
                 local_stack.init_environment(path, bind="127.0.0.1")
+
+    def test_existing_generated_environment_gains_host_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / ".env.local"
+            with mock.patch.object(local_stack, "DEFAULT_DATA_DIR", Path(directory) / "data"):
+                local_stack.init_environment(env_file, bind="127.0.0.1")
+                lines = [
+                    line
+                    for line in env_file.read_text(encoding="utf-8").splitlines()
+                    if not line.startswith(("RUNTIME_UID=", "RUNTIME_GID="))
+                ]
+                env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                migrated = local_stack.init_environment(env_file, bind="127.0.0.1")
+
+            identity = local_stack.host_runtime_identity()
+            self.assertEqual(migrated["RUNTIME_UID"], identity["RUNTIME_UID"])
+            self.assertEqual(migrated["RUNTIME_GID"], identity["RUNTIME_GID"])
 
     def test_validate_demo_accepts_complete_multi_agent_evidence(self):
         task = {
@@ -136,6 +155,16 @@ class LocalStackTest(unittest.TestCase):
 
             self.assertEqual(local_stack.main(), 0)
             compose.assert_not_called()
+
+    def test_compose_diagnostics_attempts_status_and_logs(self):
+        with mock.patch.object(
+            local_stack,
+            "compose",
+            side_effect=[local_stack.StackError("ps failed"), None],
+        ) as compose:
+            local_stack.compose_diagnostics(Path(".env.local"))
+
+        self.assertEqual(compose.call_count, 2)
 
 
 class LocalExecutionUnitEnvironmentTest(unittest.TestCase):
