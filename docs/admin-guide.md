@@ -123,4 +123,4 @@ Admin 中的 Workflow 页面用于查看当前 profile、task queue、worker 副
 - owner 可以创建 member/operator/auditor。
 - 失败任务可以 retry，历史任务可以 replay。
 - 备份可以生成，恢复路径有文档。
-- CI、部署 workflow、Runtime Monitor 全绿。
+- CI 和部署 workflow 全绿；如配置了外部监控，其 health/深度检查正常。

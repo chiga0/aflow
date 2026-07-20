@@ -439,13 +439,13 @@ HA profile 会启动独立的 `temporal-worker`。Runtime 创建 V2 Task 后把 
 提交到 `TEMPORAL_TASK_QUEUE`，Temporal activity 再通过受保护的内部接口执行任务。
 部署后应确认 `/v2/admin/workflow-engines` 的 active engine 为 `temporal`。
 
-定时真实 CLI smoke 默认验证 qwen 和 Codex：
+需要时可以手工执行真实 CLI 深度 smoke，例如验证 qwen 和 Codex：
 
 ```bash
 python3 scripts/monitor_runtime.py --deep-adapters qwen,codex
 ```
 
-该检查要求 Task 的 `execution_mode` 必须为 `real-cli`，协议模拟不会被视为通过。
+仓库已关闭定时 Runtime Monitor CI，避免周期性模型调用；生产告警应接入独立监控系统。该手工检查要求 Task 的 `execution_mode` 必须为 `real-cli`，协议模拟不会被视为通过。
 Codex 使用 `OPENAI_API_KEY` 或已配置的 Codex 认证；密钥只能通过部署环境或 secret
 manager 注入。
 

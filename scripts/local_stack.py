@@ -165,6 +165,8 @@ def init_environment(path: Path, *, bind: str) -> dict[str, str]:
         "V2_ENABLE_REAL_CLI_ADAPTERS": "0",
         "V2_QWEN_CODE_COMMAND": "qwen",
         "V2_CODEX_CLI_COMMAND": "codex exec --skip-git-repo-check -",
+        "V2_CLAUDE_CODE_COMMAND": "claude -p",
+        "V2_OPENCODE_COMMAND": "opencode run",
         "V2_LOCAL_EXECUTION_UNIT_ID": f"{hostname}-runtime",
         "V2_LOCAL_EXECUTION_UNIT_KIND": "co-located-runtime",
         "V2_LOCAL_EXECUTION_UNIT_LABELS_JSON": json.dumps(
@@ -174,7 +176,7 @@ def init_environment(path: Path, *, bind: str) -> dict[str, str]:
         "V2_LOCAL_EXECUTION_UNIT_RESOURCES_JSON": json.dumps(
             {"cpu": cpu_count, "memory_mb": memory_mb}, separators=(",", ":")
         ),
-        "V2_LOCAL_EXECUTION_UNIT_ADAPTERS": "fake,qwen,codex",
+        "V2_LOCAL_EXECUTION_UNIT_ADAPTERS": "fake,qwen,codex,opencode",
         "V2_LOCAL_EXECUTION_UNIT_FEATURES": "workspace,artifacts,events,cli-adapters",
         "OPENAI_API_KEY": "",
     }

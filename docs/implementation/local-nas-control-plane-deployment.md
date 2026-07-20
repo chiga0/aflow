@@ -382,7 +382,7 @@ Web 验收：
 
 - 每 1 分钟访问 `/health`。
 - 每 5 分钟访问 `/capabilities` 和 `/metrics.json`。
-- 每 15 分钟创建 fake smoke run，校验 SSE 能输出 `run.completed`。
+- 可由独立监控系统每 15 分钟创建 fake smoke run，校验 SSE 能输出 `run.completed`；仓库不再用 GitHub Actions 定时触发该检查。
 - 告警条件：HTTP 超时、worker stale、queue 长时间堆积、pending permission 超时、磁盘使用率超过 80%。
 
 2C2G VPS 上建议安装 node exporter 或轻量脚本，上报：

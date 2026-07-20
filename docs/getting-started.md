@@ -1,6 +1,27 @@
 # 快速开始
 
-这篇文档帮助你从“刚部署好”走到“完成第一个可审计任务”。如果你是普通用户，只需要看 Client 部分；如果你负责部署和运维，继续完成 Admin 和 smoke 验证。
+这篇文档帮助你从零完成第一个可审计任务。当前推荐路径是先在本机或 NAS 跑通整套应用，再按需要增加公网入口或云端执行资源。
+
+## 0. 推荐启动链路
+
+先安装 Git、Docker 和 Docker Compose v2，然后执行：
+
+```bash
+git clone https://github.com/chiga0/aflow.git
+cd aflow
+make local-up
+make local-demo
+```
+
+`make local-up` 会生成私有 `.env.local`、构建 Runtime/Web、注册同机执行单元并跑 smoke；`make local-demo` 会运行多角色复杂案例并验证 Chat/WebShell、DAG、事件、产物、评估和审计。终端会给出访问地址与登录邮箱，随机密码只保存在权限为 `0600` 的 `.env.local`。
+
+通过后再选择下一步：
+
+- 只在本机使用：保持 `RUNTIME_BIND=127.0.0.1`。
+- NAS/局域网使用：绑定 `0.0.0.0`，只通过防火墙或私有 VPN 开放。
+- 单 VPS：使用部署 workflow 或 2C2G profile，并将并发限制为 1。
+- 本机+云端：先把 VPS 用作公网入口；需要真实跨机 V2 执行时，先阅读[场景化部署与验收](deployment-scenarios.md)中的现行边界。
+- 启用真实 Agent：按 [Agent CLI 配置](agent-adapters.md)逐个验证，不要一次打开全部 adapter。
 
 ## 1. 访问入口
 

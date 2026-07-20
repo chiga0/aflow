@@ -90,7 +90,7 @@ python3 scripts/validate_qwen_mission.py \
 
 VPS 卡死时常见现象是：22/80/443 能建立 TCP 连接，但 SSH 不返回 banner，HTTP/HTTPS 建连后无响应。这通常是机器负载或网络栈卡住，不像单纯安全组没开。
 
-## Runtime Monitor 失败
+## 手工 Runtime Monitor 或外部监控失败
 
 Monitor 会检查公网入口、登录、静态资源、健康接口和基础 JSON API。
 
@@ -99,7 +99,9 @@ Monitor 会检查公网入口、登录、静态资源、健康接口和基础 JS
 1. 访问 `https://<domain>/cloud-agents/auth/session`，未登录应返回 `login_required=true`。
 2. 访问 `/cloud-agents/` 是否出现登录页。
 3. 确认 `RUNTIME_PUBLIC_HOST`、`RUNTIME_PUBLIC_DOMAIN` 或 `RUNTIME_PUBLIC_URL` 配置正确。
-4. 确认 monitor 使用的登录邮箱/密码和部署一致。
+4. 确认监控使用的登录邮箱/密码和部署一致。
+
+仓库已关闭定时 Runtime Monitor workflow。若 GitHub Actions 中仍看到旧失败记录，那是历史运行，不会再次按计划触发；生产告警应在外部监控系统配置。
 5. 到 VPS 上检查 `systemctl status cloud-agents-runtime` 和 Nginx。
 
 ## Worker 不认领任务

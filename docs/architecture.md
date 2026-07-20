@@ -142,3 +142,15 @@ aflow 的审计不是附加日志，而是任务事实源的一部分：
 - evaluation、retry、replay。
 
 这套链路保证任务失败后可以定位，成功后可以复盘，争议时可以审计。
+
+## 8. 当前实现边界
+
+架构图中的 Worker 是目标抽象，不应与当前所有代码路径等同。现行 `/v2/tasks` 产品链路已经具备 Execution Unit 注册、选择、事件、WebShell、artifact 和审计，但真实 CLI 子进程由 Runtime 所在环境启动。Remote Worker 的 heartbeat/lease/claim 能力目前主要服务 Runtime Run API。
+
+因此：
+
+- “本机/NAS 一体化”和“单 VPS 一体化”是可完整验收的现行拓扑。
+- “本机控制面 + 云端只做反向代理/隧道”是可完整验收的混合拓扑。
+- “本机控制面 + 云端执行 V2 Task”仍是待生产化链路，不能仅凭 Execution Unit 注册状态宣称完成。
+
+后者需要在 Worker 协议中继续闭环 V2 Task 领取、workspace/secret 传递、实时事件和 artifact 回传、取消、重试及断线恢复。部署选择与证据要求见[场景化部署与验收](deployment-scenarios.md)。

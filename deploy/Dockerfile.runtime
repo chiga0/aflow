@@ -4,6 +4,7 @@ FROM python:3.13-slim
 
 ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.3
 ARG CODEX_NODE_PACKAGE=@openai/codex@0.144.5
+ARG OPENCODE_NODE_PACKAGE=opencode-ai@1.18.3
 
 WORKDIR /app
 
@@ -18,7 +19,7 @@ RUN apt-get update \
     && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node --version \
-    && npm install -g "${QWEN_NODE_PACKAGE}" "${CODEX_NODE_PACKAGE}" \
+    && npm install -g "${QWEN_NODE_PACKAGE}" "${CODEX_NODE_PACKAGE}" "${OPENCODE_NODE_PACKAGE}" \
     && python3 -m pip install --no-cache-dir -r /app/runtime/requirements.txt \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 

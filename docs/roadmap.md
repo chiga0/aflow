@@ -15,13 +15,13 @@
 | Channel 基础链路 | 已支持钉钉、飞书、企微配置、入站、出站和审计 |
 | Admin 多租户基础 | 已支持 tenants、users、RBAC 基础配置 |
 | HA profile | 已有 Postgres/Redis/Temporal/worker 部署 profile |
-| CI/CD | Runtime CI、Deploy Runtime、Deploy MkDocs、Runtime Monitor 已接入 |
-| 执行模式可见性 | Task 列表、详情、事件和 monitor 区分 real-cli、protocol-simulated、fake |
+| CI/CD | Runtime CI、Deploy Runtime、Deploy MkDocs 已接入；定时 Runtime Monitor 已关闭 |
+| 执行模式可见性 | Task 列表、详情和事件区分 real-cli、protocol-simulated、fake |
 | WebShell 实时流 | V2 Agent Chat 使用带断线续传的 SSE，轮询仅作为降级 |
 | 失败摘要与结果页 | failed task 提供原因、影响、下一步；Artifact 支持预览、下载和审计包 |
 | Project membership | 项目成员支持 owner/editor/viewer/member，Task 与 Artifact 统一鉴权 |
 | Temporal workflow | HA profile 包含 Temporal SDK dispatcher、独立 worker 和 activity 回调 |
-| 真实 CLI 定时 smoke | 定时执行 qwen/Codex V2 task，并强制校验 real-cli 和产物 |
+| 真实 CLI 深度 smoke | 保留手工脚本，按需验证 Agent 的 real-cli 模式和产物，不再由定时 CI 触发 |
 
 ## P0：上线可用性
 
