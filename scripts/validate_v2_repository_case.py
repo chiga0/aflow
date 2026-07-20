@@ -86,6 +86,10 @@ def prepare_fixture(work_root: Path) -> tuple[Path, str]:
         "`normalize_slug` lowercases text and replaces spaces with hyphens.\n",
         encoding="utf-8",
     )
+    (repo / ".gitignore").write_text(
+        "__pycache__/\n*.py[cod]\n",
+        encoding="utf-8",
+    )
     subprocess.run(
         ["git", "init", "-b", "main", str(repo)],
         check=True,
@@ -171,6 +175,13 @@ def validate_delivery(
         )
     if len(changed_files) < 2:
         raise RuntimeError("repository delivery changed fewer than two files")
+    generated_files = sorted(
+        path
+        for path in changed_files
+        if "__pycache__" in Path(path).parts or Path(path).suffix == ".pyc"
+    )
+    if generated_files:
+        raise RuntimeError(f"repository delivery included generated files: {generated_files}")
     commit = by_name["git_commit"].get("content") or {}
     commit_hash = str(commit.get("hash") or "")
     branch = str(commit.get("branch") or "")

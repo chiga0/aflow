@@ -417,16 +417,23 @@ jobs:
         env:
           RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
           APP_DIR: ${{ vars.RUNTIME_APP_DIR }}
+          STATE_DIR: ${{ vars.RUNTIME_STATE_DIR }}
           QWEN_REPOSITORY_TIMEOUT: ${{ inputs.qwen_repository_timeout }}
         run: |
           set -euo pipefail
           APP_DIR="${APP_DIR:-/opt/agentflow}"
+          STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
+          REMOTE_ENV=(
+            "APP_DIR='$APP_DIR'"
+            "STATE_DIR='$STATE_DIR'"
+            "QWEN_REPOSITORY_TIMEOUT='$QWEN_REPOSITORY_TIMEOUT'"
+          )
           ssh -i "$RUNNER_TEMP/runtime-deploy/ssh_key" \
             -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
             "$RUNTIME_SSH_TARGET" \
-            "APP_DIR='$APP_DIR' QWEN_REPOSITORY_TIMEOUT='$QWEN_REPOSITORY_TIMEOUT' bash -s" \
+            "${REMOTE_ENV[*]} bash -s" \
             <<'REMOTE'
           set -euo pipefail
           if ! [[ "$QWEN_REPOSITORY_TIMEOUT" =~ ^[0-9]+$ ]] \
@@ -437,11 +444,6 @@ jobs:
           RUN_MANAGER_TOKEN="$(
             awk -F= '$1 == "RUN_MANAGER_TOKEN" {print $2}' /etc/cloud-agents-runtime.env
           )"
-          STATE_DIR="$(
-            awk -F= '$1 == "RUN_MANAGER_ARTIFACT_ROOT" {print $2}' \
-              /etc/cloud-agents-runtime.env
-          )"
-          STATE_DIR="${STATE_DIR%/artifacts}"
           CASE_PARENT="$STATE_DIR/repository-acceptance"
           install -d -m 700 -o cloudagents -g cloudagents "$CASE_PARENT"
           CASE_ROOT="$(mktemp -d "$CASE_PARENT/aflow-v2-repository-acceptance.XXXXXX")"
