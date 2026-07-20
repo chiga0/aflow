@@ -375,9 +375,25 @@ RUN_WORKER_ID=ecs-hk-1
 RUN_WORKER_CAPACITY=1
 RUN_WORKER_ARTIFACT_ROOT=/var/lib/cloud-agents-worker/artifacts
 RUN_WORKER_METADATA_JSON={"region":"hk","labels":{"tier":"sandbox"}}
+V2_WORKSPACE_ROOTS=/var/lib/cloud-agents-worker
+V2_ENABLE_REAL_CLI_ADAPTERS=1
+V2_QWEN_CODE_COMMAND=qwen -y
+V2_CODEX_CLI_COMMAND=codex exec --skip-git-repo-check -
+V2_AGENT_TIMEOUT_SECONDS=3600
 ```
 
 2C2G worker 保持 `RUN_WORKER_CAPACITY=1`，真实 qwen 任务先串行验证。
+
+如果 worker 访问 GitHub 不稳定，可以在控制端先生成 Git bundle，再通过部署脚本传输：
+
+```bash
+git bundle create /tmp/agentflow-worker.bundle main
+SOURCE_BUNDLE_FILE=/tmp/agentflow-worker.bundle \
+SOURCE_BUNDLE_REF=main \
+bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem
+```
+
+这个模式仍会将代码固定到 bundle 中的提交，不依赖 worker 到 GitHub 的网络质量。
 
 ## 7. 接入钉钉、飞书、企业微信机器人
 

@@ -297,7 +297,7 @@ server {
 在 Web 管理台进入 `Units`：
 
 1. 填写 `Unit ID`，例如 `hk-2c2g-a`。
-2. `Worker control URL` 填公网控制面 API，例如 `https://agentflow.example.com`。
+2. `Worker control URL` 填 worker 控制面 API，例如 `https://agentflow.example.com/cloud-agents-worker`。
 3. `Capacity` 填 `1`。
 4. `CPUs` 填 `2`，`Memory GB` 填 `2`。
 5. 生成部署命令。
@@ -306,10 +306,10 @@ server {
 
 ```bash
 RUN_WORKER_ID=hk-2c2g-a \
-RUN_WORKER_CONTROL_URL=https://agentflow.example.com \
+RUN_WORKER_CONTROL_URL=https://agentflow.example.com/cloud-agents-worker \
 RUN_WORKER_TOKEN=replace-with-worker-token \
 RUN_WORKER_CAPACITY=1 \
-RUN_WORKER_LABELS=region=hk,tier=2c2g \
+RUN_WORKER_METADATA_JSON='{"region":"hk","labels":{"tier":"2c2g"}}' \
 bash scripts/deploy_worker_vps.sh root@<worker-ip> /path/to/key.pem
 ```
 

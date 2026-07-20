@@ -131,7 +131,7 @@ registration 会创建一个只具备 worker 权限的 token。这个 token 明�
 
 ### 5.2 systemd worker 配置
 
-`/etc/agentflow-worker.env`：
+`/etc/cloud-agents-worker.env`：
 
 ```bash
 RUN_WORKER_CONTROL_URL=https://agentflow.example.com/cloud-agents-worker
@@ -143,15 +143,17 @@ RUN_WORKER_POLL_INTERVAL_SECONDS=2
 RUN_WORKER_HEARTBEAT_INTERVAL_SECONDS=10
 RUN_WORKER_RUN_WAIT_TIMEOUT_SECONDS=300
 RUN_WORKER_ARTIFACT_ROOT=/var/lib/cloud-agents-worker/artifacts
-V2_WORKER_ADAPTERS=fake,qwen,codex,claude,opencode
+V2_WORKSPACE_ROOTS=/var/lib/cloud-agents-worker
 V2_ENABLE_REAL_CLI_ADAPTERS=1
+V2_QWEN_CODE_COMMAND=qwen -y
 V2_CODEX_CLI_COMMAND=codex exec --skip-git-repo-check -
+V2_AGENT_TIMEOUT_SECONDS=3600
 RUN_WORKER_METADATA_JSON={"region":"hk","labels":{"size":"2c2g","tier":"sandbox"}}
 QWEN_SERVE_URL=http://127.0.0.1:4170
 QWEN_SERVE_TOKEN=
 ```
 
-`/etc/systemd/system/agentflow-worker.service`：
+`/etc/systemd/system/cloud-agents-worker.service`：
 
 ```ini
 [Unit]
@@ -162,7 +164,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/agentflow
-EnvironmentFile=/etc/agentflow-worker.env
+EnvironmentFile=/etc/cloud-agents-worker.env
 Environment=PYTHONPATH=/opt/agentflow/runtime
 ExecStart=/usr/bin/python3 -m cloud_agents_runtime.worker
 Restart=always
