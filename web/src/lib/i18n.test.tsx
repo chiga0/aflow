@@ -45,7 +45,7 @@ describe("i18n provider guard", () => {
     );
 
     expect(screen.getByTestId("locale")).toHaveTextContent("zh");
-    expect(screen.getByTestId("title")).toHaveTextContent("AgentFlow");
+    expect(screen.getByTestId("title")).toHaveTextContent("aflow");
     expect(screen.getByTestId("missing")).toHaveTextContent("missing.key");
     expect(document.documentElement.lang).toBe("zh-CN");
 

@@ -180,6 +180,20 @@ class RuntimeServerTest(unittest.TestCase):
                 f"{base_url}/v2/tasks/{task_id}/artifacts",
                 headers=headers,
             )
+            artifact = request_json(
+                f"{base_url}/v2/tasks/{task_id}/artifacts/"
+                f"{artifacts['artifacts'][0]['artifact_id']}",
+                headers=headers,
+            )
+            audit = request_json(
+                f"{base_url}/v2/tasks/{task_id}/audit.json", headers=headers
+            )
+            executed = request_json(
+                f"{base_url}/v2/internal/tasks/{task_id}/execute",
+                method="POST",
+                payload={},
+                headers=headers,
+            )
             evaluations = request_json(
                 f"{base_url}/v2/tasks/{task_id}/evaluations",
                 headers=headers,
@@ -211,6 +225,22 @@ class RuntimeServerTest(unittest.TestCase):
                 method="POST",
                 payload={"tenant_id": "tenant_http", "name": "HTTP Tenant"},
                 headers=headers,
+            )
+            project = request_json(
+                f"{base_url}/v2/admin/projects",
+                method="POST",
+                payload={"project_id": "project_http", "name": "HTTP Project"},
+                headers=headers,
+            )
+            project_member = request_json(
+                f"{base_url}/v2/admin/projects/project_http/members",
+                method="POST",
+                payload={"user_id": "viewer@example.com", "role": "viewer"},
+                headers=headers,
+            )
+            projects = request_json(f"{base_url}/v2/admin/projects", headers=headers)
+            project_members = request_json(
+                f"{base_url}/v2/admin/projects/project_http/members", headers=headers
             )
             user = request_json(
                 f"{base_url}/v2/admin/tenants/tenant_http/users",
@@ -277,12 +307,19 @@ class RuntimeServerTest(unittest.TestCase):
             self.assertEqual(workflow["run"]["engine"], "local-sqlite-dag")
             self.assertEqual(len(workflow["steps"]), 3)
             self.assertTrue(artifacts["artifacts"])
+            self.assertEqual(artifact["task_id"], task_id)
+            self.assertEqual(audit["task"]["task_id"], task_id)
+            self.assertEqual(executed["status"], "completed")
             self.assertTrue(evaluations["evaluations"])
             self.assertEqual(replay["status"], "created")
             self.assertTrue(replays["replays"])
             self.assertIn(retried["status"], {"queued", "running", "completed"})
             self.assertEqual(unit["unit_id"], "docker-http")
             self.assertEqual(tenant["tenant_id"], "tenant_http")
+            self.assertEqual(project["project_id"], "project_http")
+            self.assertEqual(project_member["role"], "viewer")
+            self.assertIn("project_http", {item["project_id"] for item in projects["projects"]})
+            self.assertEqual(project_members["members"][-1]["user_id"], "viewer@example.com")
             self.assertEqual(user["roles"], ["operator"])
             self.assertEqual(policy["permissions"], ["tasks:*"])
             self.assertEqual(channel["config"]["callback_token"], "<configured>")
@@ -296,6 +333,51 @@ class RuntimeServerTest(unittest.TestCase):
             self.assertIn("engines", engines)
             self.assertIn("units", discovery)
 
+    def test_v2_task_creation_without_auth_uses_api_principal(self) -> None:
+        with running_runtime() as base_url:
+            created = request_json(
+                f"{base_url}/v2/tasks",
+                method="POST",
+                payload={"goal": "Open the chat-first task page", "adapter": "fake"},
+            )
+            self.assertEqual(created["created_by"], "api-token")
+
+    def test_v2_webshell_events_stream_as_sse_and_resume(self) -> None:
+        with running_runtime(token="secret") as base_url:
+            headers = {"authorization": "Bearer secret"}
+            created = request_json(
+                f"{base_url}/v2/tasks",
+                method="POST",
+                payload={"goal": "Stream V2 agent chat", "adapter": "fake"},
+                headers=headers,
+            )
+            stream_url = (
+                f"{base_url}/v2/tasks/{created['task_id']}/webshell/events"
+            )
+            streamed = read_sse(stream_url, headers=headers)
+
+            self.assertTrue(streamed)
+            self.assertEqual({event["event"] for event in streamed}, {"message"})
+            event_types = {
+                event["data"]["_meta"]["runtimeEventType"] for event in streamed
+            }
+            self.assertIn("agent.message", event_types)
+            self.assertIn("task.completed", event_types)
+
+            resumed = read_sse(
+                stream_url,
+                headers={**headers, "Last-Event-ID": "2"},
+            )
+            self.assertTrue(resumed)
+            self.assertTrue(all(int(event["data"]["id"]) > 2 for event in resumed))
+
+            with self.assertRaises(urllib.error.HTTPError) as missing:
+                read_sse(
+                    f"{base_url}/v2/tasks/missing/webshell/events",
+                    headers=headers,
+                )
+            self.assertEqual(missing.exception.code, HTTPStatus.NOT_FOUND)
+
     def test_console_login_session_cookie_authorizes_api(self) -> None:
         with running_runtime(
             token="secret",
@@ -306,7 +388,7 @@ class RuntimeServerTest(unittest.TestCase):
             session = request_json(f"{base_url}/auth/session")
             self.assertFalse(session["authenticated"])
             html = request_text(f"{base_url}/")
-            self.assertIn("AgentFlow Console", html)
+            self.assertIn("aflow Console", html)
             with self.assertRaises(urllib.error.HTTPError) as unauthorized:
                 request_json(f"{base_url}/capabilities")
             self.assertEqual(unauthorized.exception.code, HTTPStatus.UNAUTHORIZED)
@@ -732,13 +814,13 @@ class RuntimeServerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with running_runtime(artifact_root=Path(tmp)) as base_url:
                 html = request_text(f"{base_url}/")
-                self.assertIn("AgentFlow Console", html)
+                self.assertIn("aflow Console", html)
                 self.assertIn('id="root"', html)
                 self.assertIn("./assets/", html)
                 asset_match = re.search(r'src="\.(/assets/[^"]+)"', html)
                 self.assertIsNotNone(asset_match)
                 asset_body = request_text(f"{base_url}{asset_match.group(1)}")
-                self.assertIn("AgentFlow", asset_body)
+                self.assertIn("aflow", asset_body)
                 run = request_json(
                     f"{base_url}/runs",
                     method="POST",

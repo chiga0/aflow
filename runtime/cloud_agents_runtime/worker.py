@@ -582,11 +582,11 @@ def positive_float(value: float | None, default: float) -> float:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="AgentFlow remote worker")
+    parser = argparse.ArgumentParser(description="aflow remote worker")
     parser.add_argument(
         "--control-url",
         default=os.environ.get("RUN_WORKER_CONTROL_URL"),
-        help="AgentFlow Runtime control-plane base URL",
+        help="aflow Runtime control-plane base URL",
     )
     parser.add_argument(
         "--token",

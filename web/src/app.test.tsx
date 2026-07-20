@@ -144,6 +144,7 @@ const v2Task = {
   priority: "normal",
   channel: "web",
   adapter: "fake",
+  execution_mode: "fake",
   metadata: {
     dispatch: {
       adapter: "fake",
@@ -513,6 +514,8 @@ const daemonEvents = [
       runtimeRunId: "run_1",
       runtimeSequence: 3,
       runtimeEventType: "message.delta",
+      agentTaskId: "at_brain",
+      agentRole: "brain",
     },
   },
   {
@@ -686,6 +689,31 @@ const fixtures: Record<string, unknown> = {
   "v2/tasks/task_v2_1/evaluations": v2Evaluations,
   "v2/tasks/task_v2_1/replays": { replays: [v2Replay] },
   "v2/admin/overview": v2Overview,
+  "v2/admin/projects": {
+    projects: [
+      {
+        project_id: "project_default",
+        tenant_id: "tenant_default",
+        name: "Default Project",
+        status: "active",
+        created_by: "owner@example.com",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
+  "v2/admin/projects/project_default/members": {
+    members: [
+      {
+        project_id: "project_default",
+        user_id: "owner@example.com",
+        role: "owner",
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  },
   "v2/admin/execution-units": { units: v2Overview.execution_units },
   "v2/admin/channels": { channels: v2Overview.channels },
   "v2/admin/channel-messages": {
@@ -747,7 +775,7 @@ const fixtures: Record<string, unknown> = {
     status: "queued",
     external_message_id: "",
     sender: { system: "agentflow" },
-    content: { msg_type: "text", content: { text: "AgentFlow channel test" } },
+    content: { msg_type: "text", content: { text: "aflow channel test" } },
     raw: {},
     task_id: null,
     error: "webhook_url is not configured",
@@ -972,7 +1000,7 @@ const fixtures: Record<string, unknown> = {
   },
 };
 
-describe("AgentFlow console", () => {
+describe("aflow console", () => {
   beforeEach(async () => {
     queryClient.clear();
     authSessionAuthenticated = true;
@@ -999,7 +1027,7 @@ describe("AgentFlow console", () => {
       await screen.findByRole("heading", { name: "Client Workspace" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Channel Ready")).toBeInTheDocument();
-    expect(screen.getByText("Task Track")).toBeInTheDocument();
+    expect(screen.getByText("Live Agent Chats")).toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "管理后台" }));
     expect(
@@ -1070,12 +1098,35 @@ describe("AgentFlow console", () => {
       await screen.findByRole("heading", { name: "Ship the control plane" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Plan DAG")).toBeInTheDocument();
+    expect(screen.getByText("Agent Chat")).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent switcher")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /All output/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /brain/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /builder/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reviewer/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /brain/ }));
+    expect(screen.getByText("brain output")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Real-time Agent output")).getByText(
+        "Inspecting live runner state.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /builder/ }));
+    expect(screen.getByText("Waiting for builder to emit output.")).toBeInTheDocument();
+    expect(screen.getByText("Stream complete")).toBeInTheDocument();
+    expect(screen.getByText("Execution")).toBeInTheDocument();
     expect(screen.getByText("Durable Workflow")).toBeInTheDocument();
     expect(screen.getByText("Artifacts")).toBeInTheDocument();
     expect(screen.getByText("Evaluations")).toBeInTheDocument();
     expect(screen.getByText("Replay Snapshots")).toBeInTheDocument();
     expect(screen.getByText("Canonical Events")).toBeInTheDocument();
     expect(screen.getByText("Agent Contracts")).toBeInTheDocument();
+    expect(screen.getByText("Download audit bundle")).toHaveAttribute(
+      "href",
+      "/v2/tasks/task_v2_1/audit.json",
+    );
+    expect(screen.getAllByText("Preview").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Download artifact").length).toBeGreaterThan(0);
     expect(screen.getByText("orchestrator-workers")).toBeInTheDocument();
     expect(screen.getByText("task.created")).toBeInTheDocument();
 
@@ -2648,7 +2699,7 @@ describe("AgentFlow console", () => {
         metadata: {},
         deploy_command: "local-source-command",
       }),
-    ).toContain("raw.githubusercontent.com/chiga0/agent-flow");
+    ).toContain("raw.githubusercontent.com/chiga0/aflow");
     expect(
       __testUtils.workerBadges({
         worker_id: "worker",

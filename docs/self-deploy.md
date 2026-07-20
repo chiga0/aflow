@@ -1,6 +1,6 @@
 # 自我部署
 
-AgentFlow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署，一台 VPS 运行 runtime + Nginx + qwen foundation。资源紧张时，再把控制面和 worker 拆开。
+aflow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署，一台 VPS 运行 runtime + Nginx + qwen foundation。资源紧张时，再把控制面和 worker 拆开。
 
 ## 部署形态选择
 
@@ -28,7 +28,7 @@ AgentFlow 当前最推荐的部署形态是：GitHub Actions 负责 CI 和部署
 - 控制面 + qwen executor + 多 worker 并发。
 - 长时间大仓库构建、Docker image build 和 qwen deep acceptance 同时运行。
 
-CI 应继续跑在 GitHub-hosted runner 或本机/NAS/更大构建机上。2C2G 部署后只跑 smoke、health、monitor 和可选 qwen acceptance。当前 CI 已包含 V2 control-plane smoke；部署 workflow 也会在 VPS 本地补跑 V2 smoke。
+CI 应继续跑在 GitHub-hosted runner 或本机/NAS/更大构建机上。2C2G 部署后只跑 smoke、health、monitor 和可选 qwen acceptance。当前 CI 已包含 control-plane smoke；部署 workflow 也会在 VPS 本地补跑同一套 smoke。
 
 推荐资源策略：
 
@@ -54,7 +54,7 @@ CI 应继续跑在 GitHub-hosted runner 或本机/NAS/更大构建机上。2C2G 
 | `RUNTIME_AUTH_EMAIL` | 是 | Web 管理台 owner 账户邮箱 |
 | `RUNTIME_AUTH_PASSWORD` | 建议 | Web 管理台 owner 账户密码 |
 | `RUNTIME_BASIC_AUTH_PASSWORD` | 兼容 | 如果没配 `RUNTIME_AUTH_PASSWORD`，会作为登录密码 fallback |
-| `RUNTIME_BASIC_AUTH_USER` | 兼容 | 旧 Basic Auth 用户名；新部署不推荐依赖 |
+| `RUNTIME_BASIC_AUTH_USER` | 兼容 | 兼容 Basic Auth 用户名；新部署不推荐依赖 |
 | `QWEN_SETTINGS_JSON` | qwen 需要 | qwen CLI settings JSON 内容 |
 
 `RUNTIME_SSH_KEY` 要填私钥内容，例如：
@@ -101,11 +101,11 @@ http://<RUNTIME_PUBLIC_HOST>/cloud-agents/
 
 1. 校验必填 secrets。
 2. 跑 runtime 编译、测试和覆盖率门禁。
-3. 跑 V2 control-plane smoke。
+3. 跑 control-plane smoke。
 4. 跑 web lint、单测、构建和 E2E。
 5. 写入临时 SSH key 和 qwen settings。
 6. 执行 `scripts/deploy_runtime_vps.sh` 部署 VPS。
-7. 在 VPS 本地跑 fake run smoke 和 V2 smoke。
+7. 在 VPS 本地跑 fake task smoke 和 control-plane smoke。
 8. 校验 VPS 上 git revision 等于当前 commit。
 9. 通过公网入口登录并检查 `/health`。
 
@@ -115,10 +115,12 @@ http://<RUNTIME_PUBLIC_HOST>/cloud-agents/
 
 当 VPS 资源紧张时，推荐拆成：
 
-- 本地电脑/NAS/大 VPS：AgentFlow Runtime + Web + SQLite/artifact。
+- 本地电脑/NAS/大 VPS：aflow Runtime + Web + SQLite/artifact。
 - 小 VPS：worker 或公网 Nginx 边缘。
 
-完整教程见：[本地电脑或 NAS 作为 AgentFlow 主控的部署教程](implementation/local-nas-control-plane-deployment.md)。
+完整教程见：[本地电脑或 NAS 作为 aflow 主控的部署教程](implementation/local-nas-control-plane-deployment.md)。
+
+如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[aflow 从部署到可用产品的完整教程](deployment-runbook.md)。
 
 如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[AgentFlow 从部署到可用产品的完整教程](deployment-runbook.md)。
 
@@ -162,7 +164,7 @@ python3 -m unittest discover -s runtime/tests
 cd web && npm run test
 ```
 
-V2 smoke：
+Control-plane smoke：
 
 ```bash
 PYTHONPATH=runtime python3 scripts/smoke_v2_control_plane.py --timeout 10

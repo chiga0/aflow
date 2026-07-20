@@ -8,10 +8,12 @@ fi
 
 SSH_TARGET="$1"
 SSH_KEY="$2"
-APP_DIR="${APP_DIR:-/opt/agent-research}"
+APP_DIR="${APP_DIR:-/opt/agentflow}"
 STATE_DIR="${STATE_DIR:-/var/lib/cloud-agents-runtime}"
-REPO_URL="${REPO_URL:-https://github.com/chiga0/agent-research.git}"
+REPO_URL="${REPO_URL:-https://github.com/chiga0/aflow.git}"
 NODE_PACKAGE="${NODE_PACKAGE:-@qwen-code/qwen-code@0.19.3}"
+CODEX_NODE_PACKAGE="${CODEX_NODE_PACKAGE:-@openai/codex@0.144.5}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 QWEN_SETTINGS_FILE="${QWEN_SETTINGS_FILE:-}"
 PUBLIC_HOST="${PUBLIC_HOST:-_}"
 PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-}"
@@ -161,6 +163,8 @@ REMOTE_ENV=(
   "STATE_DIR=$(shell_quote "$STATE_DIR")"
   "REPO_URL=$(shell_quote "$REPO_URL")"
   "NODE_PACKAGE=$(shell_quote "$NODE_PACKAGE")"
+  "CODEX_NODE_PACKAGE=$(shell_quote "$CODEX_NODE_PACKAGE")"
+  "OPENAI_API_KEY=$(shell_quote "$OPENAI_API_KEY")"
   "HAS_QWEN_SETTINGS=$(shell_quote "$([[ -n "$QWEN_SETTINGS_FILE" ]] && echo 1 || echo 0)")"
   "PUBLIC_HOST=$(shell_quote "$PUBLIC_HOST")"
   "PUBLIC_DOMAIN=$(shell_quote "$PUBLIC_DOMAIN")"
@@ -301,9 +305,15 @@ if ! command -v git >/dev/null \
 fi
 
 install_node_package "$NODE_PACKAGE"
+install_node_package "$CODEX_NODE_PACKAGE"
 QWEN_BIN="$(command -v qwen || true)"
 if [[ -z "$QWEN_BIN" ]]; then
   echo "qwen executable was not found after installing $NODE_PACKAGE" >&2
+  exit 1
+fi
+CODEX_BIN="$(command -v codex || true)"
+if [[ -z "$CODEX_BIN" ]]; then
+  echo "codex executable was not found after installing $CODEX_NODE_PACKAGE" >&2
   exit 1
 fi
 
@@ -455,6 +465,10 @@ QWEN_CONTAINER_EXTRA_ARGS=$QWEN_CONTAINER_EXTRA_ARGS
 QWEN_CONTAINER_BUILD=$QWEN_CONTAINER_BUILD
 QWEN_CONTAINER_BASE_IMAGE=$QWEN_CONTAINER_BASE_IMAGE
 QWEN_CONTAINER_NODE_PACKAGE=$QWEN_CONTAINER_NODE_PACKAGE
+V2_ENABLE_REAL_CLI_ADAPTERS=1
+V2_QWEN_CODE_COMMAND=qwen
+V2_CODEX_CLI_COMMAND=codex exec -
+OPENAI_API_KEY=$OPENAI_API_KEY
 EOF
 
 cp "$APP_DIR/deploy/systemd/cloud-agents-runtime.service" /etc/systemd/system/

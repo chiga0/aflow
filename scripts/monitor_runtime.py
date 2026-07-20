@@ -16,12 +16,12 @@ from typing import Any
 
 
 ASSET_RE = re.compile(r'(?:src|href)="\.(/assets/[^"]+)"')
-USER_AGENT = "agentflow-runtime-monitor/0.1 (+https://github.com/chiga0/agent-research)"
+USER_AGENT = "agentflow-runtime-monitor/0.1 (+https://github.com/chiga0/aflow)"
 TERMINAL_RUN_EVENTS = {"run.completed", "run.failed", "run.cancelled"}
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Monitor public AgentFlow Runtime")
+    parser = argparse.ArgumentParser(description="Monitor public aflow Runtime")
     parser.add_argument("--base-url", default=default_base_url())
     parser.add_argument("--auth-email", default=os.environ.get("RUNTIME_AUTH_EMAIL"))
     parser.add_argument("--auth-password", default=os.environ.get("RUNTIME_AUTH_PASSWORD"))
@@ -29,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--basic-password", default=os.environ.get("RUNTIME_BASIC_AUTH_PASSWORD"))
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--deep-run", action="store_true")
+    parser.add_argument(
+        "--deep-adapters",
+        default=os.environ.get("MONITOR_DEEP_ADAPTERS") or "",
+        help="comma-separated real V2 adapters to execute, for example qwen,codex",
+    )
     parser.add_argument("--json", action="store_true", dest="emit_json")
     args = parser.parse_args(argv)
 
@@ -53,7 +58,10 @@ def main(argv: list[str] | None = None) -> int:
         auth_password,
         args.timeout,
     )
-    results = monitor.run(args.deep_run)
+    deep_adapters = [
+        item.strip() for item in args.deep_adapters.split(",") if item.strip()
+    ]
+    results = monitor.run(args.deep_run, deep_adapters)
     for result in results:
         print(result.render())
     if args.emit_json:
@@ -61,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     failures = [result for result in results if not result.ok]
     if failures:
         message = "; ".join(f"{result.name}: {result.detail}" for result in failures)
-        print(f"::error title=AgentFlow monitor::{message}")
+        print(f"::error title=aflow monitor::{message}")
         return 1
     return 0
 
@@ -131,7 +139,11 @@ class PublicRuntimeMonitor:
         )
         self.authenticated = False
 
-    def run(self, deep_run: bool = False) -> list[CheckResult]:
+    def run(
+        self,
+        deep_run: bool = False,
+        deep_adapters: list[str] | None = None,
+    ) -> list[CheckResult]:
         results = [self.check("edge-auth", self.edge_auth)]
         if not self.authenticated:
             results.append(self.check("session-login", self.login))
@@ -147,6 +159,13 @@ class PublicRuntimeMonitor:
         )
         if deep_run:
             results.append(self.check("fake-run", self.fake_run))
+        for adapter in deep_adapters or []:
+            results.append(
+                self.check(
+                    f"real-{adapter}-task",
+                    lambda adapter=adapter: self.real_agent_task(adapter),
+                )
+            )
         return results
 
     def check(self, name: str, fn: Any) -> CheckResult:
@@ -259,6 +278,44 @@ class PublicRuntimeMonitor:
         if state.get("status") != "completed":
             raise RuntimeError(f"run state is {state.get('status')}")
         return f"run={run_id} events={len(event_names)}"
+
+    def real_agent_task(self, adapter: str) -> str:
+        task = self.json_request(
+            "POST",
+            "/v2/tasks",
+            {
+                "goal": f"Production monitor smoke for the {adapter} CLI. Reply with OK.",
+                "mode": "single",
+                "adapter": adapter,
+                "channel": "web",
+                "metadata": {"monitor": True, "requires_real_cli": True},
+            },
+        )
+        task_id = str(task["task_id"])
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            task = self.json_get(f"/v2/tasks/{task_id}")
+            if task.get("status") in {"completed", "failed", "cancelled"}:
+                break
+            time.sleep(1)
+        if task.get("status") != "completed":
+            raise RuntimeError(
+                f"task {task_id} ended as {task.get('status')}: {task.get('result')}"
+            )
+        if task.get("execution_mode") != "real-cli":
+            raise RuntimeError(
+                f"task {task_id} used {task.get('execution_mode')}, expected real-cli"
+            )
+        artifacts = self.json_get(f"/v2/tasks/{task_id}/artifacts").get("artifacts") or []
+        if not artifacts:
+            raise RuntimeError(f"task {task_id} produced no artifacts")
+        audit = self.json_get(f"/v2/tasks/{task_id}/audit.json")
+        if audit.get("schema") != "agentflow-v2-task-audit/v1":
+            raise RuntimeError(f"task {task_id} audit bundle is invalid")
+        return (
+            f"task={task_id} adapter={adapter} mode=real-cli "
+            f"artifacts={len(artifacts)}"
+        )
 
     def json_get(self, path: str) -> dict[str, Any]:
         return self.json_request("GET", path)

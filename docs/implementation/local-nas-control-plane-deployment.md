@@ -1,6 +1,6 @@
-# 本地电脑或 NAS 作为 AgentFlow 主控的部署教程
+# 本地电脑或 NAS 作为 aflow 主控的部署教程
 
-> 目标：把 AgentFlow 控制面放到资源更稳定的本地电脑、工作站或 NAS 上，把 2C2G VPS 作为公网入口或远程 worker。这样可以降低小 VPS 被 qwen、构建和长任务打满导致的白屏、SSH 断连和任务卡住风险。
+> 目标：把 aflow 控制面放到资源更稳定的本地电脑、工作站或 NAS 上，把 2C2G VPS 作为公网入口或远程 worker。这样可以降低小 VPS 被 qwen、构建和长任务打满导致的白屏、SSH 断连和任务卡住风险。
 
 ## 1. 推荐拓扑
 
@@ -10,9 +10,9 @@
 flowchart LR
   User["浏览器"] --> Domain["https://agentflow.example.com"]
   Domain --> Tunnel["Cloudflare Tunnel / Tailscale Funnel / FRP"]
-  Tunnel --> Control["本地电脑或 NAS<br/>AgentFlow Runtime + Web"]
-  WorkerHK["香港 2C2G VPS<br/>AgentFlow Worker capacity=1"] --> Control
-  WorkerOther["其他 2C2G VPS<br/>AgentFlow Worker capacity=1"] --> Control
+  Tunnel --> Control["本地电脑或 NAS<br/>aflow Runtime + Web"]
+  WorkerHK["香港 2C2G VPS<br/>aflow Worker capacity=1"] --> Control
+  WorkerOther["其他 2C2G VPS<br/>aflow Worker capacity=1"] --> Control
 ```
 
 适合你当前诉求：主 Agent 和管理台在更稳定的机器上长期运行，VPS 作为独立稳定执行单元，主动连回控制面领任务。
@@ -23,7 +23,7 @@ flowchart LR
 flowchart LR
   User["浏览器"] --> VpsNginx["公网 VPS Nginx + TLS"]
   VpsNginx --> VPN["WireGuard / Tailscale"]
-  VPN --> Control["本地电脑或 NAS AgentFlow"]
+  VPN --> Control["本地电脑或 NAS aflow"]
   Worker1["Worker VPS A"] --> Control
   Worker2["Worker VPS B"] --> Control
 ```
@@ -43,7 +43,7 @@ flowchart LR
 
 ### 2C2G 结论
 
-当前 V2 可用切片在 2C2G 上可以跑 control plane + fake smoke，但余量很小。推荐只把 2C2G 用作：
+当前可用切片在 2C2G 上可以跑 control plane + fake smoke，但余量很小。推荐只把 2C2G 用作：
 
 - 公网入口。
 - `capacity=1` 的远程 worker。
@@ -57,7 +57,7 @@ flowchart LR
 - Docker image build。
 - 长任务 workspace + qwen + Web 控制台同时运行。
 
-如果只有 2C2G，使用 `deploy/runtime.2c2g.env.example`，并保持 `RUN_MANAGER_WORKER_CAPACITY=1`、`RUNTIME_MEMORY_LIMIT=768m`、`QWEN_CONTAINER_MEMORY_MB=768`。如果有本机/NAS，优先把 V2 control plane 放在本机/NAS，2C2G 只做 worker 或边缘。
+如果只有 2C2G，使用 `deploy/runtime.2c2g.env.example`，并保持 `RUN_MANAGER_WORKER_CAPACITY=1`、`RUNTIME_MEMORY_LIMIT=768m`、`QWEN_CONTAINER_MEMORY_MB=768`。如果有本机/NAS，优先把 control plane 放在本机/NAS，2C2G 只做 worker 或边缘。
 
 ## 3. 控制面部署
 
@@ -82,7 +82,7 @@ qwen --version
 ```bash
 sudo mkdir -p /opt/agentflow
 sudo chown "$USER":"$USER" /opt/agentflow
-git clone https://github.com/chiga0/agent-flow.git /opt/agentflow
+git clone https://github.com/chiga0/aflow.git /opt/agentflow
 cd /opt/agentflow
 ```
 
@@ -135,7 +135,7 @@ EOF
 ```bash
 sudo tee /etc/systemd/system/agentflow-runtime.service >/dev/null <<'EOF'
 [Unit]
-Description=AgentFlow Runtime
+Description=aflow Runtime
 After=network-online.target
 Wants=network-online.target
 
@@ -181,9 +181,9 @@ http://127.0.0.1:8765/
 
 使用 `RUN_MANAGER_BOOTSTRAP_EMAIL` 和 `RUN_MANAGER_BOOTSTRAP_PASSWORD` 登录。
 
-### V2 smoke 验证
+### Control-plane smoke 验证
 
-服务启动后先验证 V2 的任务、计划、事件和结果闭环：
+服务启动后先验证任务、计划、事件和结果闭环：
 
 ```bash
 cd /opt/agentflow
@@ -401,7 +401,7 @@ Web 验收：
 2. `journalctl -u agentflow-runtime -n 200 --no-pager`。
 3. 检查 `/var/lib/agentflow-runtime/runtime.db` 和 artifact 目录。
 4. 从 `Operations` 创建或下载 backup。
-5. 如果 worker 仍持有旧 lease，先在 `Units` 执行 Retry，再恢复接单。
+5. 如果 worker 仍持有历史 lease，先在 `Units` 执行 Retry，再恢复接单。
 
 worker 恢复顺序：
 

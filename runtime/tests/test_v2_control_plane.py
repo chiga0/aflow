@@ -10,6 +10,7 @@ from unittest import mock
 from runtime.cloud_agents_runtime.v2_control_plane import (
     V2ControlPlane,
     extract_feishu_text,
+    failure_summary,
     json_loads,
     nested_text,
     normalize_inbound_channel_payload,
@@ -196,8 +197,22 @@ class V2ControlPlaneTest(unittest.TestCase):
             result = control._execute_agent_adapter(task["task_id"], agent)
             self.assertEqual(result["execution_mode"], "real-cli")
             self.assertIn("agentflow-v2-acp-a2a", result["summary"])
+            streamed = [
+                event
+                for event in control.events(task["task_id"])
+                if event["type"] == "agent.message"
+                and event["payload"].get("agent_task_id") == "at_test"
+            ]
+            self.assertTrue(streamed)
+            self.assertTrue(streamed[-1]["payload"]["partial"])
+            script.write_text(
+                "#!/bin/sh\ncat >/dev/null\nprintf '\\nfailed output\\n'\nexit 2\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "exited with code 2"):
+                control._execute_agent_adapter(task["task_id"], agent)
             with mock.patch(
-                "runtime.cloud_agents_runtime.v2_control_plane.subprocess.run",
+                "runtime.cloud_agents_runtime.v2_control_plane.subprocess.Popen",
                 side_effect=OSError("boom"),
             ):
                 failed = control._execute_agent_adapter(task["task_id"], agent)
@@ -290,7 +305,7 @@ class V2ControlPlaneTest(unittest.TestCase):
                 "feishu",
                 {
                     "task_id": inbound["task"]["task_id"],
-                    "message": "Accepted by AgentFlow",
+                    "message": "Accepted by aflow",
                 },
             )
             messages = control.channel_messages("feishu")
@@ -301,7 +316,7 @@ class V2ControlPlaneTest(unittest.TestCase):
             self.assertEqual(len(sink["posts"]), 1)
             self.assertEqual(
                 sink["posts"][0]["body"]["content"]["text"],
-                "Accepted by AgentFlow",
+                "Accepted by aflow",
             )
             self.assertEqual(
                 {message["direction"] for message in messages},
@@ -373,6 +388,16 @@ class V2ControlPlaneTest(unittest.TestCase):
         self.assertTrue(events)
         self.assertEqual(events[0]["type"], "session_update")
         self.assertEqual(events[0]["_meta"]["source"], "agentflow-v2-webshell")
+        agent_event = next(
+            event
+            for event in events
+            if event["_meta"]["runtimeEventType"] == "agent.message"
+        )
+        self.assertTrue(agent_event["_meta"]["agentTaskId"])
+        self.assertIn(
+            agent_event["_meta"]["agentRole"],
+            {"agent", "brain", "builder", "reviewer"},
+        )
         with self.assertRaises(KeyError):
             control.webshell_events("missing")
 
@@ -532,6 +557,8 @@ class V2ControlPlaneTest(unittest.TestCase):
 
         failed = control.get_task(completed["task_id"])
         self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["result"]["failure"]["category"], "adapter")
+        self.assertIn("next_action", failed["result"]["failure"])
         self.assertIn(
             "task.failed",
             [event["type"] for event in control.events(completed["task_id"])],
@@ -544,11 +571,133 @@ class V2ControlPlaneTest(unittest.TestCase):
         control._threads["already-running"] = AliveThread()
         control._ensure_runner("already-running")
 
+    def test_project_membership_artifact_access_and_audit_bundle(self):
+        control = V2ControlPlane(self.tmp_path())
+        project = control.upsert_project(
+            {"project_id": "project_team", "name": "Team"},
+            principal="owner@example.com",
+        )
+        member = control.upsert_project_member(
+            project["project_id"],
+            {"email": "viewer@example.com", "role": "viewer"},
+        )
+        task = control.create_task(
+            {"goal": "Shared project task", "project_id": project["project_id"]},
+            principal="owner@example.com",
+        )
+        completed = wait_for_status(control, task["task_id"], "completed")
+
+        self.assertEqual(member["role"], "viewer")
+        self.assertTrue(
+            control.can_access_task(task["task_id"], "viewer@example.com", ["member"])
+        )
+        self.assertFalse(
+            control.can_access_task(
+                task["task_id"], "viewer@example.com", ["member"], write=True
+            )
+        )
+        self.assertFalse(
+            control.can_access_task(task["task_id"], "stranger@example.com", ["member"])
+        )
+        self.assertEqual(
+            [item["task_id"] for item in control.list_tasks(
+                principal="viewer@example.com", roles=["member"]
+            )],
+            [task["task_id"]],
+        )
+        artifact = control.artifacts(task["task_id"])[0]
+        self.assertEqual(
+            control.artifact(task["task_id"], artifact["artifact_id"])["artifact_id"],
+            artifact["artifact_id"],
+        )
+        audit = control.audit_bundle(task["task_id"])
+        self.assertEqual(audit["schema"], "agentflow-v2-task-audit/v1")
+        self.assertEqual(completed["execution_mode"], "fake")
+
+    def test_temporal_dispatch_records_external_workflow(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task({"goal": "Temporal dispatch"}, principal="user_1")
+        completed = wait_for_status(control, task["task_id"], "completed")
+        with mock.patch(
+            "runtime.cloud_agents_runtime.temporal_bridge.start_task_workflow",
+            new=mock.AsyncMock(return_value=f"agentflow-v2-{completed['task_id']}"),
+        ):
+            control._dispatch_temporal_task(completed["task_id"])
+        dispatched = [
+            event
+            for event in control.events(completed["task_id"])
+            if event["type"] == "workflow.temporal_dispatched"
+        ]
+        self.assertEqual(len(dispatched), 1)
+        self.assertEqual(
+            dispatched[0]["payload"]["workflow_id"],
+            f"agentflow-v2-{completed['task_id']}",
+        )
+
+    def test_temporal_dispatch_failure_and_execute_now_boundaries(self):
+        control = V2ControlPlane(self.tmp_path())
+        task = control.create_task({"goal": "Temporal failure"}, principal="user_1")
+        completed = wait_for_status(control, task["task_id"], "completed")
+        with mock.patch(
+            "runtime.cloud_agents_runtime.temporal_bridge.start_task_workflow",
+            new=mock.AsyncMock(side_effect=RuntimeError("Temporal timeout")),
+        ):
+            control._dispatch_temporal_task(completed["task_id"])
+        self.assertEqual(control.get_task(completed["task_id"])["status"], "failed")
+        self.assertEqual(
+            control.events(completed["task_id"])[-2]["type"],
+            "workflow.temporal_dispatch_failed",
+        )
+        with self.assertRaises(KeyError):
+            control.execute_task_now("missing")
+
+    def test_project_access_and_failure_summary_boundaries(self):
+        control = V2ControlPlane(self.tmp_path())
+        with self.assertRaises(ValueError):
+            control.upsert_project(
+                {"project_id": " ", "tenant_id": "tenant_default"},
+                principal="owner@example.com",
+            )
+        with self.assertRaises(ValueError):
+            control.upsert_project_member(
+                "project_default", {"user_id": "user@example.com", "role": "invalid"}
+            )
+        with self.assertRaises(KeyError):
+            control.upsert_project_member(
+                "missing", {"user_id": "user@example.com", "role": "viewer"}
+            )
+        with self.assertRaises(KeyError):
+            control.can_access_project("missing", "user@example.com", ["member"])
+        self.assertTrue(
+            control.can_access_project(
+                "project_default", "new@example.com", ["member"], write=True
+            )
+        )
+        member = control.upsert_project_member(
+            "project_default",
+            {"user_id": "off@example.com", "role": "viewer", "status": "disabled"},
+        )
+        self.assertEqual(member["status"], "disabled")
+        self.assertFalse(
+            control.can_access_project(
+                "project_default", "off@example.com", ["member"], write=False
+            )
+        )
+        self.assertEqual(failure_summary(TimeoutError("timeout"))["category"], "timeout")
+        self.assertEqual(
+            failure_summary(PermissionError("permission denied"))["category"],
+            "permission",
+        )
+        self.assertEqual(failure_summary(RuntimeError())["category"], "runtime")
+
     def test_plan_optional_path(self):
         control = V2ControlPlane(self.tmp_path())
         task = control.create_task({"goal": "Delete plan for fallback"}, principal="user_1")
-        control._db.execute("DELETE FROM v2_plans WHERE task_id = ?", (task["task_id"],))
-        control._db.commit()
+        with control._lock:
+            control._db.execute(
+                "DELETE FROM v2_plans WHERE task_id = ?", (task["task_id"],)
+            )
+            control._db.commit()
 
         self.assertIsNone(control.get_task(task["task_id"])["plan"])
 

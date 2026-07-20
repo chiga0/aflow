@@ -1,4 +1,4 @@
-# AgentFlow 从部署到可用产品的完整教程
+# aflow 从部署到可用产品的完整教程
 
 这篇文档按真实使用顺序组织：先选部署拓扑，再启动控制面，注册执行单元，接入 IM 机器人，最后创建第一个任务并做运维检查。第一次部署建议完整走一遍，不要只看单个命令片段。
 
@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-  Browser["用户浏览器 / 移动端 Web"] --> Runtime["AgentFlow Runtime + Web"]
+  Browser["用户浏览器 / 移动端 Web"] --> Runtime["aflow Runtime + Web"]
   IM["钉钉 / 飞书 / 企微"] --> Edge["公网入口 / 签名校验代理"]
   Edge --> Runtime
   Runtime --> State["SQLite 或 Postgres<br/>事件 / 配置 / 审计"]
@@ -60,13 +60,13 @@ qwen --version
 ```bash
 sudo mkdir -p /opt/agentflow
 sudo chown "$USER":"$USER" /opt/agentflow
-git clone https://github.com/chiga0/agent-flow.git /opt/agentflow
+git clone https://github.com/chiga0/aflow.git /opt/agentflow
 cd /opt/agentflow/web
 npm ci
 npm run build
 ```
 
-如果你的远端仓库仍使用旧仓库名，请把 clone URL 换成当前 PR 所在仓库地址。运行目录建议固定为 `/opt/agentflow`，后续 systemd、worker 和部署脚本都更好维护。
+运行目录建议固定为 `/opt/agentflow`，后续 systemd、worker 和部署脚本都更好维护。
 
 ### 3.3 创建运行目录和密钥
 
@@ -107,7 +107,7 @@ EOF
 ```bash
 sudo tee /etc/systemd/system/agentflow-runtime.service >/dev/null <<'EOF'
 [Unit]
-Description=AgentFlow Runtime
+Description=aflow Runtime
 After=network-online.target
 Wants=network-online.target
 
@@ -221,6 +221,8 @@ V2_BACKUP_ENABLED=1
 V2_BACKUP_TARGET=/data/backups
 ```
 
+`V2_` 前缀是当前实现的环境变量兼容命名，不代表部署时还需要选择产品版本。
+
 启动：
 
 ```bash
@@ -236,7 +238,7 @@ docker compose --env-file .env -f deploy/docker-compose.ha.yml ps
 
 | 路径 | 用途 | 入口 |
 | --- | --- | --- |
-| V2 Execution Unit Registry | 描述 Docker、ECS、NAS、本机 workspace 等能力，供 V2 编排和调度选择 | Admin -> Execution Units |
+| Execution Unit Registry | 描述 Docker、ECS、NAS、本机 workspace 等能力，供编排和调度选择 | Admin -> Execution Units |
 | Remote Worker Registration | 生成 worker 专用 token 和部署命令，让一台机器主动连回控制面领任务 | Admin -> Units |
 
 ### 6.1 用环境变量发现执行单元
@@ -265,6 +267,8 @@ V2_EXECUTION_UNITS_JSON='[
   }
 ]'
 ```
+
+`V2_EXECUTION_UNITS_JSON` 是当前实现沿用的变量名。文档和产品视角统一称为 Execution Unit Registry。
 
 重启 runtime 后，在 Admin -> Execution Units 点击 Discover，或者调用：
 
@@ -317,9 +321,9 @@ RUN_WORKER_METADATA_JSON={"region":"hk","labels":{"tier":"sandbox"}}
 详细步骤见 [钉钉、飞书、企业微信机器人接入](channel-integrations.md)。第一次接入按这个顺序：
 
 1. 在平台群里创建自定义机器人，复制 webhook URL。
-2. 在 AgentFlow Admin -> Channels 选择平台，填入 `webhook_url` 和 `callback_token`。
-3. 发送测试消息，确认群里能收到 AgentFlow 通知。
-4. 如果要让群消息创建 AgentFlow 任务，把平台回调先接到边缘签名校验代理，再由代理转发到 `/v2/channels/{platform}/webhook`。
+2. 在 aflow Admin -> Channels 选择平台，填入 `webhook_url` 和 `callback_token`。
+3. 发送测试消息，确认群里能收到 aflow 通知。
+4. 如果要让群消息创建 aflow 任务，把平台回调先接到边缘签名校验代理，再由代理转发到 `/v2/channels/{platform}/webhook`。
 5. 在 Channel Messages 查看入站、出站消息留痕。
 
 当前 Runtime 已真实支持通用入站和出站协议；平台原生 HMAC/加签校验建议放在边缘代理中完成，再转成 `x-agentflow-channel-token` 传给 Runtime。
@@ -376,10 +380,24 @@ HA profile 需要备份：
 3. 恢复数据库和 artifact 目录。
 4. 启动 runtime。
 5. 启动 worker。
-6. 跑 health 和 V2 smoke。
+6. 跑 health 和 control-plane smoke。
 7. 用一条 fake task 验证 Client、Admin、artifact 和 audit。
 
 ## 11. 最小验收清单
+
+HA profile 会启动独立的 `temporal-worker`。Runtime 创建 V2 Task 后把 workflow
+提交到 `TEMPORAL_TASK_QUEUE`，Temporal activity 再通过受保护的内部接口执行任务。
+部署后应确认 `/v2/admin/workflow-engines` 的 active engine 为 `temporal`。
+
+定时真实 CLI smoke 默认验证 qwen 和 Codex：
+
+```bash
+python3 scripts/monitor_runtime.py --deep-adapters qwen,codex
+```
+
+该检查要求 Task 的 `execution_mode` 必须为 `real-cli`，协议模拟不会被视为通过。
+Codex 使用 `OPENAI_API_KEY` 或已配置的 Codex 认证；密钥只能通过部署环境或 secret
+manager 注入。
 
 部署完成后至少确认：
 
@@ -387,7 +405,7 @@ HA profile 需要备份：
 | --- | --- |
 | 登录 | owner 邮箱密码可以进入 Client 和 Admin |
 | Health | `/health` 返回正常 |
-| V2 smoke | `scripts/smoke_v2_control_plane.py` 完成 |
+| Control-plane smoke | `scripts/smoke_v2_control_plane.py` 完成 |
 | fake task | Client 创建任务后能完成并产生事件 |
 | 执行单元 | Admin 能看到至少 1 个 active unit 或 worker |
 | IM 出站 | 目标群能收到测试消息 |

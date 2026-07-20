@@ -1,6 +1,6 @@
-# AgentFlow Runtime
+# aflow Runtime
 
-This directory contains the AgentFlow runtime implementation: a single SAEU Run
+This directory contains the aflow runtime implementation: a single SAEU Run
 Manager with a pluggable runtime adapter boundary, durable event storage, audit
 artifacts, permission resolution, run queue leases, worker heartbeat, resource
 policy, cleanup policy, profile registry, mission/task orchestration, replay

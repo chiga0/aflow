@@ -62,15 +62,17 @@ services:
       V2_WORKFLOW_ENGINE: temporal
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-agentflow-v2}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       V2_WORKER_CONCURRENCY: ${V2_WORKER_CONCURRENCY:-2}
       V2_BACKUP_ENABLED: ${V2_BACKUP_ENABLED:-1}
       V2_BACKUP_TARGET: ${V2_BACKUP_TARGET:-/data/backups}
       V2_EXECUTION_UNITS_JSON: ${V2_EXECUTION_UNITS_JSON:-[]}
-      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-0}
+      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-1}
       V2_QWEN_CODE_COMMAND: ${V2_QWEN_CODE_COMMAND:-qwen}
       V2_CODEX_CLI_COMMAND: ${V2_CODEX_CLI_COMMAND:-codex}
       V2_CLAUDE_CODE_COMMAND: ${V2_CLAUDE_CODE_COMMAND:-claude}
       V2_OPENCODE_COMMAND: ${V2_OPENCODE_COMMAND:-opencode}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "${RUNTIME_BIND:-127.0.0.1}:8765:8765"
     volumes:
@@ -93,6 +95,24 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  temporal-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.runtime
+    depends_on:
+      runtime:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    environment:
+      RUN_MANAGER_TOKEN: ${RUN_MANAGER_TOKEN:?set RUN_MANAGER_TOKEN}
+      V2_RUNTIME_INTERNAL_URL: http://runtime:8765
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-agentflow-v2}
+    command: ["python3", "-m", "runtime.cloud_agents_runtime.temporal_worker"]
+    restart: unless-stopped
+
   worker:
     build:
       context: ..
@@ -113,8 +133,10 @@ services:
       V2_WORKFLOW_ENGINE: temporal
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-agentflow-v2}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       V2_WORKER_CONCURRENCY: ${V2_WORKER_CONCURRENCY:-2}
-      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-0}
+      V2_ENABLE_REAL_CLI_ADAPTERS: ${V2_ENABLE_REAL_CLI_ADAPTERS:-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     command: ["python3", "-m", "cloud_agents_runtime.worker"]
     deploy:
       replicas: ${V2_WORKER_REPLICAS:-2}
