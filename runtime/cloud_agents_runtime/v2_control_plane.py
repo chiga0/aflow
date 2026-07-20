@@ -24,6 +24,29 @@ SUPPORTED_CHANNELS = {"web", "mobile", "dingtalk", "feishu", "wecom"}
 SUPPORTED_ADAPTERS = {"auto", "fake", "qwen", "codex", "claude", "opencode"}
 
 
+def local_execution_unit_json(name: str, default: dict[str, Any]) -> dict[str, Any]:
+    raw = os.environ.get(name)
+    if not raw:
+        return dict(default)
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} must contain a JSON object") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must contain a JSON object")
+    return value
+
+
+def comma_list_env(name: str, default: list[str]) -> list[str]:
+    raw = os.environ.get(name)
+    if raw is None:
+        return list(default)
+    values = list(dict.fromkeys(item.strip() for item in raw.split(",") if item.strip()))
+    if not values:
+        raise ValueError(f"{name} must contain at least one value")
+    return values
+
+
 class V2ControlPlane:
     """V2 modular-monolith control plane slice.
 
@@ -624,26 +647,29 @@ class V2ControlPlane:
         *,
         write: bool = False,
     ) -> bool:
-        row = self._task_row(task_id)
-        if row is None:
-            raise KeyError(task_id)
-        role_set = set(roles or [])
-        if principal in {None, "api-token"} or role_set.intersection({"owner", "operator"}):
-            return True
-        if principal == row["created_by"]:
-            return True
-        member = self._db.execute(
-            """
-            SELECT role, status FROM v2_project_members
-            WHERE project_id = ? AND user_id = ?
-            """,
-            (row["project_id"], principal),
-        ).fetchone()
-        if member is None or member["status"] != "active":
-            return False
-        if not write:
-            return True
-        return member["role"] in {"owner", "editor", "member"}
+        with self._lock:
+            row = self._task_row(task_id)
+            if row is None:
+                raise KeyError(task_id)
+            role_set = set(roles or [])
+            if principal in {None, "api-token"} or role_set.intersection(
+                {"owner", "operator"}
+            ):
+                return True
+            if principal == row["created_by"]:
+                return True
+            member = self._db.execute(
+                """
+                SELECT role, status FROM v2_project_members
+                WHERE project_id = ? AND user_id = ?
+                """,
+                (row["project_id"], principal),
+            ).fetchone()
+            if member is None or member["status"] != "active":
+                return False
+            if not write:
+                return True
+            return member["role"] in {"owner", "editor", "member"}
 
     def can_access_project(
         self,
@@ -653,27 +679,33 @@ class V2ControlPlane:
         *,
         write: bool = False,
     ) -> bool:
-        project = self._db.execute(
-            "SELECT project_id FROM v2_projects WHERE project_id = ? AND status = 'active'",
-            (project_id,),
-        ).fetchone()
-        if project is None:
-            raise KeyError(project_id)
-        role_set = set(roles or [])
-        if principal in {None, "api-token"} or role_set.intersection({"owner", "operator"}):
-            return True
-        member = self._db.execute(
-            """
-            SELECT role, status FROM v2_project_members
-            WHERE project_id = ? AND user_id = ?
-            """,
-            (project_id, principal),
-        ).fetchone()
-        if member is None:
-            return project_id == "project_default" and write
-        if member["status"] != "active":
-            return False
-        return not write or member["role"] in {"owner", "editor", "member"}
+        with self._lock:
+            project = self._db.execute(
+                """
+                SELECT project_id FROM v2_projects
+                WHERE project_id = ? AND status = 'active'
+                """,
+                (project_id,),
+            ).fetchone()
+            if project is None:
+                raise KeyError(project_id)
+            role_set = set(roles or [])
+            if principal in {None, "api-token"} or role_set.intersection(
+                {"owner", "operator"}
+            ):
+                return True
+            member = self._db.execute(
+                """
+                SELECT role, status FROM v2_project_members
+                WHERE project_id = ? AND user_id = ?
+                """,
+                (project_id, principal),
+            ).fetchone()
+            if member is None:
+                return project_id == "project_default" and write
+            if member["status"] != "active":
+                return False
+            return not write or member["role"] in {"owner", "editor", "member"}
 
     def upsert_tenant(self, payload: dict[str, Any], *, principal: str) -> dict[str, Any]:
         now = utc_now()
@@ -2074,6 +2106,33 @@ class V2ControlPlane:
         bootstrap_user = os.environ.get(
             "RUN_MANAGER_BOOTSTRAP_EMAIL", "owner@example.com"
         )
+        unit_id = os.environ.get("V2_LOCAL_EXECUTION_UNIT_ID", "local-dev").strip()
+        unit_kind = os.environ.get(
+            "V2_LOCAL_EXECUTION_UNIT_KIND", "local-workspace"
+        ).strip()
+        if not unit_id or not unit_kind:
+            raise ValueError("local execution unit id and kind must not be empty")
+        unit_labels = local_execution_unit_json(
+            "V2_LOCAL_EXECUTION_UNIT_LABELS_JSON",
+            {"region": "local", "tier": "dev"},
+        )
+        unit_labels.setdefault("execution_location", "co-located-runtime")
+        unit_resources = local_execution_unit_json(
+            "V2_LOCAL_EXECUTION_UNIT_RESOURCES_JSON",
+            {"cpu": 2, "memory_mb": 2048},
+        )
+        unit_adapters = comma_list_env(
+            "V2_LOCAL_EXECUTION_UNIT_ADAPTERS",
+            ["fake", "qwen", "codex", "claude", "opencode"],
+        )
+        unsupported_adapters = set(unit_adapters) - (SUPPORTED_ADAPTERS - {"auto"})
+        if unsupported_adapters:
+            names = ", ".join(sorted(unsupported_adapters))
+            raise ValueError(f"unsupported local execution unit adapters: {names}")
+        unit_features = comma_list_env(
+            "V2_LOCAL_EXECUTION_UNIT_FEATURES",
+            ["workspace", "artifacts", "events", "cli-adapters"],
+        )
         with self._lock:
             self._db.execute(
                 """
@@ -2150,6 +2209,20 @@ class V2ControlPlane:
                     now,
                 ),
             )
+            if unit_id != "local-dev":
+                self._db.execute(
+                    """
+                    DELETE FROM v2_execution_units
+                    WHERE unit_id = ? AND kind = ? AND labels_json = ?
+                        AND resources_json = ?
+                    """,
+                    (
+                        "local-dev",
+                        "local-workspace",
+                        json_dumps({"region": "local", "tier": "dev"}),
+                        json_dumps({"cpu": 2, "memory_mb": 2048}),
+                    ),
+                )
             self._db.execute(
                 """
                 INSERT INTO v2_execution_units (
@@ -2158,18 +2231,23 @@ class V2ControlPlane:
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(unit_id) DO UPDATE SET
+                    kind = excluded.kind,
+                    status = excluded.status,
+                    labels_json = excluded.labels_json,
+                    resources_json = excluded.resources_json,
                     adapters_json = excluded.adapters_json,
                     features_json = excluded.features_json,
+                    heartbeat_at = excluded.heartbeat_at,
                     updated_at = excluded.updated_at
                 """,
                 (
-                    "local-dev",
-                    "local-workspace",
+                    unit_id,
+                    unit_kind,
                     "active",
-                    json_dumps({"region": "local", "tier": "dev"}),
-                    json_dumps({"cpu": 2, "memory_mb": 2048}),
-                    json_dumps(["fake", "qwen", "codex", "claude", "opencode"]),
-                    json_dumps(["workspace", "artifacts", "events", "cli-adapters"]),
+                    json_dumps(unit_labels),
+                    json_dumps(unit_resources),
+                    json_dumps(unit_adapters),
+                    json_dumps(unit_features),
                     now,
                     now,
                     now,

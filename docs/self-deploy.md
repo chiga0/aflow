@@ -122,6 +122,8 @@ http://<RUNTIME_PUBLIC_HOST>/cloud-agents/
 
 如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[aflow 从部署到可用产品的完整教程](deployment-runbook.md)。
 
+如果你需要从 0 部署到可用产品，包括执行单元注册、IM 机器人接入、首个任务验收和备份恢复，请优先看：[AgentFlow 从部署到可用产品的完整教程](deployment-runbook.md)。
+
 关键原则：
 
 - 控制面负责状态、审计、Web、队列。
