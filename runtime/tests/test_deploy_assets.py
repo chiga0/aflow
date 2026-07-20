@@ -20,6 +20,8 @@ class DeployAssetsTest(unittest.TestCase):
             'V2_ENABLE_REAL_CLI_ADAPTERS="${V2_ENABLE_REAL_CLI_ADAPTERS:-1}"',
             'V2_QWEN_CODE_COMMAND="${V2_QWEN_CODE_COMMAND:-qwen -y}"',
             'SOURCE_BUNDLE_FILE="${SOURCE_BUNDLE_FILE:-}"',
+            "REMOTE_STAGE_DIR=/root/.agentflow-deploy",
+            "trap cleanup_deploy_stage EXIT",
             'git clone --branch "$SOURCE_BUNDLE_REF"',
             'node package already installed: $package',
             "remove legacy worker path override",

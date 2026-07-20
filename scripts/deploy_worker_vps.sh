@@ -86,25 +86,44 @@ SSH_OPTIONS=(
   -o ConnectionAttempts=1
 )
 
+REMOTE_STAGE_DIR=/root/.agentflow-deploy
+if [[ -n "$QWEN_SETTINGS_FILE" || -n "$SOURCE_BUNDLE_FILE" ]]; then
+  ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" \
+    "install -d -m 700 $REMOTE_STAGE_DIR"
+fi
+
 if [[ -n "$QWEN_SETTINGS_FILE" ]]; then
   if [[ ! -f "$QWEN_SETTINGS_FILE" ]]; then
     echo "QWEN_SETTINGS_FILE does not exist: $QWEN_SETTINGS_FILE" >&2
     exit 2
   fi
-  scp "${SSH_OPTIONS[@]}" "$QWEN_SETTINGS_FILE" "$SSH_TARGET:/tmp/qwen-settings.json"
+  scp "${SSH_OPTIONS[@]}" \
+    "$QWEN_SETTINGS_FILE" \
+    "$SSH_TARGET:$REMOTE_STAGE_DIR/qwen-settings.json"
 fi
 if [[ -n "$SOURCE_BUNDLE_FILE" ]]; then
   if [[ ! -f "$SOURCE_BUNDLE_FILE" ]]; then
     echo "SOURCE_BUNDLE_FILE does not exist: $SOURCE_BUNDLE_FILE" >&2
     exit 2
   fi
-  scp "${SSH_OPTIONS[@]}" "$SOURCE_BUNDLE_FILE" "$SSH_TARGET:/tmp/agentflow-source.bundle"
+  scp "${SSH_OPTIONS[@]}" \
+    "$SOURCE_BUNDLE_FILE" \
+    "$SSH_TARGET:$REMOTE_STAGE_DIR/agentflow-source.bundle"
 fi
 
 ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" "${REMOTE_ENV[*]} bash -s" <<'REMOTE'
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+DEPLOY_STAGE_DIR=/root/.agentflow-deploy
+
+cleanup_deploy_stage() {
+  rm -f \
+    "$DEPLOY_STAGE_DIR/qwen-settings.json" \
+    "$DEPLOY_STAGE_DIR/agentflow-source.bundle"
+  rmdir "$DEPLOY_STAGE_DIR" 2>/dev/null || true
+}
+trap cleanup_deploy_stage EXIT
 
 log_step() {
   printf '[worker-deploy] %s\n' "$*"
@@ -173,9 +192,8 @@ chown -R cloudagents:cloudagents "$STATE_DIR"
 install -d -m 700 -o cloudagents -g cloudagents /home/cloudagents/.qwen
 if [[ "$HAS_QWEN_SETTINGS" == "1" ]]; then
   install -m 600 -o cloudagents -g cloudagents \
-    /tmp/qwen-settings.json \
+    "$DEPLOY_STAGE_DIR/qwen-settings.json" \
     /home/cloudagents/.qwen/settings.json
-  rm -f /tmp/qwen-settings.json
 fi
 
 if [[ "$HAS_SOURCE_BUNDLE" == "1" ]]; then
@@ -184,7 +202,7 @@ if [[ "$HAS_SOURCE_BUNDLE" == "1" ]]; then
       "clone runtime source bundle" \
       "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
       git clone --branch "$SOURCE_BUNDLE_REF" \
-        /tmp/agentflow-source.bundle "$APP_DIR"
+        "$DEPLOY_STAGE_DIR/agentflow-source.bundle" "$APP_DIR"
     git -C "$APP_DIR" branch -M main
     git -C "$APP_DIR" update-ref refs/remotes/origin/main HEAD
     git -C "$APP_DIR" branch --set-upstream-to=origin/main main
@@ -193,12 +211,11 @@ if [[ "$HAS_SOURCE_BUNDLE" == "1" ]]; then
       "fetch runtime source bundle" \
       "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
       git -C "$APP_DIR" fetch \
-        /tmp/agentflow-source.bundle \
+        "$DEPLOY_STAGE_DIR/agentflow-source.bundle" \
         "$SOURCE_BUNDLE_REF:refs/remotes/origin/main"
   fi
   git -C "$APP_DIR" remote set-url origin "$REPO_URL"
   git -C "$APP_DIR" reset --hard origin/main
-  rm -f /tmp/agentflow-source.bundle
 elif [[ ! -d "$APP_DIR/.git" ]]; then
   run_retry \
     "clone runtime repository" \
