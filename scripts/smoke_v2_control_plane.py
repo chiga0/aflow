@@ -54,7 +54,7 @@ def smoke_direct(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def smoke_http(args: argparse.Namespace) -> dict[str, Any]:
-    client = HttpClient(args.base_url.rstrip("/"))
+    client = HttpClient(args.base_url.rstrip("/"), token=args.token)
     if args.email and args.password:
         client.login(args.email, args.password)
     task = client.post(
@@ -107,8 +107,9 @@ def assert_task_completed(task: dict[str, Any]) -> None:
 
 
 class HttpClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, token: str | None = None):
         self.base_url = base_url
+        self.token = token
         self.cookies = CookieJar()
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self.cookies)
@@ -120,7 +121,7 @@ class HttpClient:
             raise RuntimeError("login did not authenticate")
 
     def get(self, path: str) -> dict[str, Any]:
-        request = urllib.request.Request(self.base_url + path)
+        request = urllib.request.Request(self.base_url + path, headers=self.headers())
         return self._json(request)
 
     def post(
@@ -137,10 +138,16 @@ class HttpClient:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                **self.headers(),
                 **(headers or {}),
             },
         )
         return self._json(request)
+
+    def headers(self) -> dict[str, str]:
+        if not self.token:
+            return {}
+        return {"Authorization": f"Bearer {self.token}"}
 
     def _json(self, request: urllib.request.Request) -> dict[str, Any]:
         try:
@@ -156,6 +163,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", help="runtime base URL; omit for direct mode")
     parser.add_argument("--email", help="login email for HTTP mode")
     parser.add_argument("--password", help="login password for HTTP mode")
+    parser.add_argument("--token", help="bearer token for HTTP mode")
     parser.add_argument("--artifact-root", help="direct mode artifact root")
     parser.add_argument(
         "--goal",

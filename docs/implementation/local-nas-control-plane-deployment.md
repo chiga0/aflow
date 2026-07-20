@@ -215,18 +215,19 @@ http://127.0.0.1:8765/#/admin
 
 ### Docker Compose 部署
 
-不使用 systemd 直接跑 Python 时，可以用 compose：
+推荐使用仓库的一键入口。它会生成随机密钥、私有状态目录，自动注册本机执行单元，
+并在启动后运行 HTTP smoke：
 
 ```bash
-cp deploy/runtime.local-nas.env.example .env
-python3 - <<'PY' >> .env
-import secrets
-print("RUN_MANAGER_TOKEN=" + secrets.token_urlsafe(32))
-print("RUNTIME_BOOTSTRAP_PASSWORD=" + secrets.token_urlsafe(18))
-print("RUN_MANAGER_SESSION_SECRET=" + secrets.token_urlsafe(32))
-PY
-docker compose -f deploy/docker-compose.runtime.yml up -d --build
+make local-up
+make local-demo
 ```
+
+默认只监听本机。可信局域网内的 NAS 首次启动使用
+`python3 scripts/local_stack.py up --bind 0.0.0.0`，同时必须配置防火墙或私有 VPN。
+
+如需手工管理环境变量，可复制 `deploy/runtime.local-nas.env.example`，替换所有
+`replace-with-*` 值，再显式传给 Compose。
 
 2C2G VPS 使用：
 

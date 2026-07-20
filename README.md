@@ -36,3 +36,22 @@ artifact/audit APIs over a pluggable SAEU adapter boundary.
 python3 -m runtime.cloud_agents_runtime --host 127.0.0.1 --port 8765
 python3 -m unittest discover -s runtime/tests
 ```
+
+## Local/NAS quick start
+
+Docker with Compose v2 is the only prerequisite. The helper generates private
+credentials, builds the complete Runtime and Web image, registers the co-located
+execution unit, waits for health, and runs an HTTP smoke test.
+
+```bash
+make local-up
+make local-demo
+```
+
+Open `http://127.0.0.1:8765`. The login email is printed after startup; the generated
+password stays in `.env.local`, which is mode `0600` and ignored by Git.
+
+The default demo uses the deterministic adapter so first startup does not depend on
+third-party credentials. See the
+[deployment runbook](docs/deployment-runbook.md#3-快速路径-a本机或-nas-作为控制面)
+for LAN exposure, real CLI adapters, diagnostics, and shutdown.

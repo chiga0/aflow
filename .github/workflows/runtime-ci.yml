@@ -29,6 +29,11 @@ jobs:
       - name: Check style
         run: python3 scripts/check_style.py
 
+      - name: Validate local/NAS Compose profile
+        run: >-
+          docker compose --env-file deploy/runtime.local-nas.env.example
+          -f deploy/docker-compose.runtime.yml config --quiet
+
       - name: Compile runtime
         run: python3 -m compileall -q runtime scripts
 

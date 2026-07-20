@@ -41,7 +41,57 @@ flowchart LR
 
 ## 3. 快速路径 A：本机或 NAS 作为控制面
 
-### 3.1 安装依赖
+### 3.1 两条命令跑通整套应用
+
+机器只需安装 Git、Docker 和 Compose v2：
+
+```bash
+git clone https://github.com/chiga0/aflow.git
+cd aflow
+make local-up
+make local-demo
+```
+
+`make local-up` 会自动生成不进入 Git 的 `.env.local`，构建并启动 Runtime 与 Web，
+注册与 Runtime 同容器的执行单元，等待健康检查，再执行控制面 smoke。
+`make local-demo` 会运行一个 brain、builder、reviewer 三角色复杂任务，并验证实时事件、
+WebShell 角色投影、artifact、evaluation 和 audit bundle。
+
+启动后访问 `http://127.0.0.1:8765`。登录邮箱会输出到终端，随机密码只保存在权限为
+`0600` 的 `.env.local` 中，不会输出到日志。常用命令：
+
+```bash
+make local-status
+make local-logs
+make local-smoke
+make local-down
+```
+
+默认只监听 `127.0.0.1`。需要在可信局域网访问 NAS 时，首次启动可执行：
+
+```bash
+python3 scripts/local_stack.py up --bind 0.0.0.0
+```
+
+开放到 `0.0.0.0` 前必须用主机防火墙限制 8765 端口，或只通过 Tailscale、
+WireGuard 等私有网络访问。不要把该端口裸露到公网。
+
+首次验收默认使用 deterministic fake adapter，避免 API Key 或 CLI 登录状态阻断部署。
+需要验证真实 Codex CLI 时，在 `.env.local` 中设置
+`V2_ENABLE_REAL_CLI_ADAPTERS=1` 和所需凭证，重启后执行：
+
+```bash
+python3 scripts/local_stack.py demo --adapter codex --require-real-cli
+```
+
+当前轻量 profile 中的执行单元是 Runtime 容器自身，任务也确实在该容器内执行。
+它不是远程 worker 的伪装；跨机器 V2 worker 协议仍应作为后续独立生产化工作。
+
+### 3.2 手工 systemd 部署
+
+以下步骤面向需要自定义 systemd、反向代理或目录布局的管理员。一键路径无需执行。
+
+#### 安装依赖
 
 ```bash
 sudo apt-get update
@@ -55,7 +105,7 @@ npm install -g @qwen-code/qwen-code
 qwen --version
 ```
 
-### 3.2 拉取代码并构建 Web
+#### 拉取代码并构建 Web
 
 ```bash
 sudo mkdir -p /opt/agentflow
@@ -68,7 +118,7 @@ npm run build
 
 运行目录建议固定为 `/opt/agentflow`，后续 systemd、worker 和部署脚本都更好维护。
 
-### 3.3 创建运行目录和密钥
+#### 创建运行目录和密钥
 
 ```bash
 sudo mkdir -p /var/lib/agentflow-runtime
@@ -102,7 +152,7 @@ EOF
 
 `RUN_MANAGER_WORKER_CAPACITY=0` 表示控制面先不抢任务，只负责调度。等远程 worker 接通后再决定是否让本机也执行任务。
 
-### 3.4 创建 systemd 服务
+#### 创建 systemd 服务
 
 ```bash
 sudo tee /etc/systemd/system/agentflow-runtime.service >/dev/null <<'EOF'
@@ -137,7 +187,7 @@ sudo systemctl enable --now agentflow-runtime
 sudo systemctl status agentflow-runtime --no-pager
 ```
 
-### 3.5 验证控制面
+#### 验证控制面
 
 ```bash
 curl -s http://127.0.0.1:8765/health
