@@ -213,9 +213,10 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.getByLabel("Initial password").fill("secret-12345");
   await page.getByRole("button", { name: "Create" }).first().click();
   await expect(page.getByText("teammate@example.com").first()).toBeVisible();
-  await page.getByLabel("New password").first().fill("secret-67890");
-  await page.getByRole("button", { name: "Reset password" }).first().click();
-  await page.getByRole("button", { name: "Disable" }).first().click();
+  const teammate = page.getByRole("group", { name: "teammate@example.com" });
+  await teammate.getByLabel("New password").fill("secret-67890");
+  await teammate.getByRole("button", { name: "Reset password" }).click();
+  await teammate.getByRole("button", { name: "Disable" }).click();
 
   await navigate(page, /Units/);
   await expect(

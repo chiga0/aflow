@@ -2890,7 +2890,9 @@ function AccessUserList({
       {users.map((user) => (
         <div
           key={user.email}
+          aria-label={user.email}
           className="grid gap-3 rounded-md border border-border p-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]"
+          role="group"
         >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
