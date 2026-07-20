@@ -1,7 +1,7 @@
 ARG BASE_IMAGE=node:22-bookworm-slim
 FROM ${BASE_IMAGE}
 
-ARG NODE_PACKAGE=@qwen-code/qwen-code@0.19.3
+ARG NODE_PACKAGE=@qwen-code/qwen-code@0.19.11
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates git \

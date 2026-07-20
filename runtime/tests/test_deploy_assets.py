@@ -75,10 +75,26 @@ class DeployAssetsTest(unittest.TestCase):
             dockerfile.index("npm install -g"),
         )
         self.assertIn("Acquire::Retries=5", dockerfile)
+        self.assertIn(
+            "ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.11",
+            dockerfile,
+        )
         self.assertIn("NODE_BASE_IMAGE: ${NODE_IMAGE:-", compose)
         self.assertIn("PYTHON_BASE_IMAGE: ${PYTHON_IMAGE:-", compose)
         self.assertIn(".env.*", dockerignore)
         self.assertIn(".runtime", dockerignore)
+
+        versioned_deploy_assets = (
+            ROOT / "deploy" / "Dockerfile.qwen-executor",
+            ROOT / "deploy" / "Dockerfile.runtime",
+            ROOT / "deploy" / "docker-compose.runtime.yml",
+            ROOT / "deploy" / "runtime.local-nas.env.example",
+            ROOT / "deploy" / "systemd" / "cloud-agents-runtime.env.example",
+            ROOT / "scripts" / "deploy_runtime_vps.sh",
+            ROOT / "scripts" / "deploy_worker_vps.sh",
+        )
+        for path in versioned_deploy_assets:
+            self.assertNotIn("@qwen-code/qwen-code@0.19.3", path.read_text())
 
 
 if __name__ == "__main__":

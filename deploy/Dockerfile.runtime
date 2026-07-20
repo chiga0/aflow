@@ -5,7 +5,7 @@ FROM ${NODE_BASE_IMAGE} AS node-runtime
 
 FROM ${PYTHON_BASE_IMAGE}
 
-ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.3
+ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.11
 ARG CODEX_NODE_PACKAGE=@openai/codex@0.144.5
 ARG OPENCODE_NODE_PACKAGE=opencode-ai@1.18.3
 
