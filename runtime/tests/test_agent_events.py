@@ -100,6 +100,108 @@ class AgentEventContractTest(unittest.TestCase):
         self.assertEqual(opencode[0]["type"], "tool.updated")
         self.assertEqual(opencode[0]["payload"]["kind"], "mcp")
 
+    def test_adapter_variants_cover_status_results_and_failures(self) -> None:
+        qwen_thought = translate_adapter_record(
+            "qwen",
+            json.dumps(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "delta": {"type": "thinking_delta", "thinking": "checking"}
+                    },
+                }
+            ),
+        )
+        self.assertEqual(qwen_thought[0]["type"], "agent.thought")
+        qwen_tools = translate_adapter_record(
+            "qwen",
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "ok-1",
+                                "content": "done",
+                            },
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "bad-1",
+                                "content": "failed",
+                                "is_error": True,
+                            },
+                        ]
+                    },
+                }
+            ),
+        )
+        self.assertEqual(
+            [event["type"] for event in qwen_tools],
+            ["tool.completed", "tool.failed"],
+        )
+        qwen_result = translate_adapter_record(
+            "qwen", json.dumps({"type": "result", "result": "done", "usage": {}})
+        )
+        qwen_system = translate_adapter_record(
+            "qwen", json.dumps({"type": "system", "subtype": "init"})
+        )
+        self.assertEqual(qwen_result[0]["payload"]["status"], "done")
+        self.assertEqual(qwen_system[0]["payload"]["status"], "init")
+
+        variants = [
+            (
+                "codex",
+                {"type": "item.completed", "item": {"type": "reasoning", "text": "why"}},
+                "agent.thought",
+            ),
+            ("codex", {"type": "turn.completed", "usage": {"input": 1}}, "agent.status"),
+            ("codex", {"type": "error", "message": "bad"}, "agent.status"),
+            ("opencode", {"type": "text", "part": {"text": "answer"}}, "agent.message"),
+            (
+                "opencode",
+                {"type": "reasoning", "part": {"text": "why"}},
+                "agent.thought",
+            ),
+            ("opencode", {"type": "step_finish", "part": {}}, "agent.status"),
+            ("opencode", {"type": "error", "error": "bad"}, "agent.status"),
+        ]
+        for adapter, record, expected in variants:
+            with self.subTest(adapter=adapter, record=record):
+                self.assertEqual(
+                    translate_adapter_record(adapter, json.dumps(record))[0]["type"],
+                    expected,
+                )
+
+        observed = translate_adapter_record("unknown", '{"private":"event"}')[0]
+        self.assertEqual(observed["type"], "adapter.observed")
+
+    def test_contract_bounds_nested_and_large_native_payloads(self) -> None:
+        self.assertEqual(translate_adapter_record("qwen", "   \n"), [])
+        self.assertEqual(
+            translate_adapter_record("qwen", "42")[0]["payload"]["message"], "42"
+        )
+        deeply_nested: dict[str, object] = {"value": "leaf"}
+        for _ in range(13):
+            deeply_nested = {"child": deeply_nested}
+        bounded = validate_worker_event(
+            "agent.status",
+            {
+                "status": "running",
+                "nested": {"items": ["x" * 70_000, {"deep": {"value": "ok"}}]},
+                "deeply_nested": deeply_nested,
+            },
+        )
+        self.assertEqual(len(bounded["nested"]["items"][0]), 64_000)
+        large = translate_adapter_record(
+            "unknown", json.dumps({"private": "x" * 140_000})
+        )[0]
+        self.assertTrue(large["payload"]["native_event"]["truncated"])
+        with self.assertRaisesRegex(ValueError, "decision object"):
+            validate_worker_event(
+                "permission.applied", {"permission_id": "p", "decision": []}
+            )
+
     def test_plain_output_and_contract_rejection(self) -> None:
         event = translate_adapter_record("codex", "plain CLI output")[0]
         self.assertEqual(event["type"], "agent.message")
