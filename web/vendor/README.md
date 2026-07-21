@@ -7,6 +7,11 @@ checkout at commit `837358f63`:
 - `@qwen-code/web-shell` 0.20.0
 - `@qwen-code/webui` 0.20.0
 
+The WebUI archive carries one packaging-only patch: its workspace-local
+`@qwen-code/sdk` dependency is normalized from `file:../sdk-typescript` to
+`>=0.1.8`. The published-style archive must not reference an upstream monorepo
+path, otherwise `npm ci` fails in a clean checkout.
+
 Upstream: <https://github.com/QwenLM/qwen-code> (Apache-2.0).
 
 They are committed because `@qwen-code/web-shell` is not published as a stable
