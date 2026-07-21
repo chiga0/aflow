@@ -187,7 +187,7 @@ jobs:
           fi
 
       - name: Deploy runtime to VPS
-        timeout-minutes: 25
+        timeout-minutes: 40
         env:
           RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
           PUBLIC_HOST: ${{ secrets.RUNTIME_PUBLIC_HOST }}
@@ -278,9 +278,24 @@ jobs:
           if [[ -f "$RUNNER_TEMP/runtime-deploy/qwen-settings.json" ]]; then
             export QWEN_SETTINGS_FILE="$RUNNER_TEMP/runtime-deploy/qwen-settings.json"
           fi
-          bash scripts/deploy_runtime_vps.sh \
-            "$RUNTIME_SSH_TARGET" \
-            "$RUNNER_TEMP/runtime-deploy/ssh_key"
+          deploy_attempt=1
+          deploy_attempts=3
+          while true; do
+            echo "[deploy-ci] attempt $deploy_attempt/$deploy_attempts"
+            if bash scripts/deploy_runtime_vps.sh \
+              "$RUNTIME_SSH_TARGET" \
+              "$RUNNER_TEMP/runtime-deploy/ssh_key"; then
+              break
+            else
+              exit_code=$?
+            fi
+            if [[ "$exit_code" -ne 255 || "$deploy_attempt" -ge "$deploy_attempts" ]]; then
+              exit "$exit_code"
+            fi
+            echo "[deploy-ci] SSH connection interrupted; retrying the idempotent deployment"
+            sleep $((deploy_attempt * 15))
+            deploy_attempt=$((deploy_attempt + 1))
+          done
 
       - name: Smoke test deployed runtime
         env:
