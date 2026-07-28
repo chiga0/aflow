@@ -11,11 +11,17 @@ Environment=PYTHONPATH=/opt/agentflow/runtime
 ExecStart=/usr/bin/python3 -m cloud_agents_runtime.worker
 Restart=always
 RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+WatchdogSec=30
 User=cloudagents
 Group=cloudagents
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
 ReadWritePaths=/var/lib/cloud-agents-worker
 CPUAccounting=true
 CPUQuota=100%

@@ -1,7 +1,15 @@
+# Define in http{} block: limit_req_zone $binary_remote_addr zone=agentflow:10m rate=30r/s;
+
 server {
     listen 80;
     listen [::]:80;
     server_name __PUBLIC_HOST__;
+
+    client_max_body_size 10m;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     location = /cloud-agents {
         return 302 /cloud-agents/;
@@ -12,6 +20,7 @@ server {
     }
 
     location /agentflow/ {
+        limit_req zone=agentflow burst=50 nodelay;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -28,6 +37,7 @@ server {
     }
 
     location /cloud-agents/ {
+        limit_req zone=agentflow burst=50 nodelay;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -44,6 +54,7 @@ server {
     }
 
     location /cloud-agents-worker/ {
+        limit_req zone=agentflow burst=50 nodelay;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -59,6 +70,7 @@ server {
     }
 
     location /agentflow-worker/ {
+        limit_req zone=agentflow burst=50 nodelay;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;

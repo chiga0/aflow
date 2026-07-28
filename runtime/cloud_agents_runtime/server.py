@@ -3,16 +3,23 @@ from __future__ import annotations
 import argparse
 import hmac
 import json
+import logging
 import mimetypes
 import os
+import signal
 import sqlite3
 import sys
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+logger = logging.getLogger("cloud_agents_runtime")
+
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
 
 from . import __version__
 from .access import roles_allow, scopes_allow
@@ -86,7 +93,19 @@ def make_handler(
                 self.write_static_file(static_path)
                 return
             if path == "/health":
-                self.write_json({"ok": True, "version": __version__})
+                healthy = True
+                checks: dict[str, Any] = {"version": __version__}
+                try:
+                    manager.store.queue_snapshot()
+                    checks["store"] = "ok"
+                except Exception:
+                    checks["store"] = "error"
+                    healthy = False
+                checks["ok"] = healthy
+                self.write_json(
+                    checks,
+                    status=HTTPStatus.OK if healthy else HTTPStatus.SERVICE_UNAVAILABLE,
+                )
                 return
             if path == "/v2/capabilities":
                 self.write_json(manager.v2.capabilities())
@@ -1961,11 +1980,20 @@ def make_handler(
             length = int(self.headers.get("content-length", "0") or "0")
             if length == 0:
                 return {}
+            if length > MAX_REQUEST_BODY_BYTES:
+                raise ValueError(
+                    f"request body too large ({length} bytes; limit {MAX_REQUEST_BODY_BYTES})"
+                )
             body = self.rfile.read(length)
             payload = json.loads(body.decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("json object required")
             return payload
+
+        def send_security_headers(self) -> None:
+            self.send_header("x-content-type-options", "nosniff")
+            self.send_header("x-frame-options", "DENY")
+            self.send_header("referrer-policy", "strict-origin-when-cross-origin")
 
         def write_json(
             self,
@@ -1977,6 +2005,7 @@ def make_handler(
             self.send_response(status)
             self.send_header("content-type", "application/json; charset=utf-8")
             self.send_header("content-length", str(len(body)))
+            self.send_security_headers()
             for name, value in (headers or {}).items():
                 self.send_header(name, value)
             self.end_headers()
@@ -1990,6 +2019,7 @@ def make_handler(
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(body)))
             self.send_header("cache-control", "no-store")
+            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
             self.wfile.flush()
@@ -2015,6 +2045,7 @@ def make_handler(
                 "content-disposition",
                 f'attachment; filename="{path.name.replace(chr(34), "")}"',
             )
+            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
             self.wfile.flush()
@@ -2027,6 +2058,7 @@ def make_handler(
             self.send_header("content-type", content_type)
             self.send_header("content-length", str(len(body)))
             self.send_header("cache-control", "public, max-age=31536000, immutable")
+            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
             self.wfile.flush()
@@ -2049,9 +2081,8 @@ def make_handler(
             self.wfile.flush()
 
         def log_message(self, fmt: str, *args: Any) -> None:
-            sys.stderr.write(
-                "%s - - [%s] %s\n"
-                % (self.address_string(), self.log_date_time_string(), fmt % args)
+            logger.info(
+                "%s %s", self.address_string(), fmt % args
             )
 
     return RuntimeHandler
@@ -2382,21 +2413,36 @@ def main(argv: list[str] | None = None) -> int:
         worker_id=args.worker_id,
         lease_ttl_seconds=args.lease_ttl_seconds,
     )
-    print(f"cloud-agents-runtime listening on http://{args.host}:{args.port}")
-    print(f"artifacts: {args.artifact_root}")
+    logging.basicConfig(
+        level=os.environ.get("RUNTIME_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
+    logger.info("cloud-agents-runtime listening on http://%s:%s", args.host, args.port)
+    logger.info("artifacts: %s", args.artifact_root)
     if args.token:
-        print("run manager auth: enabled")
+        logger.info("run manager auth: enabled")
     if args.qwen_url:
-        print(f"qwen serve: {args.qwen_url}")
-    print(f"executor registry: {server.manager.executor_registry.config.to_dict()}")
-    print(f"worker capacity: {server.manager.worker_capacity}")
-    print(f"resource limits: {server.manager.resource_resolver.config.to_dict()}")
-    print(f"cleanup policy: {server.manager.cleanup_manager.policy.to_dict()}")
+        logger.info("qwen serve: %s", args.qwen_url)
+    logger.info("executor registry: %s", server.manager.executor_registry.config.to_dict())
+    logger.info("worker capacity: %s", server.manager.worker_capacity)
+    logger.info("resource limits: %s", server.manager.resource_resolver.config.to_dict())
+    logger.info("cleanup policy: %s", server.manager.cleanup_manager.policy.to_dict())
+
+    shutdown_requested = threading.Event()
+
+    def handle_sigterm(signum: int, frame: Any) -> None:
+        logger.info("received signal %s, shutting down gracefully", signum)
+        shutdown_requested.set()
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGINT, handle_sigterm)
+
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nshutting down")
     finally:
+        logger.info("shutting down")
         server.server_close()
         if supervisor:
             supervisor.stop()

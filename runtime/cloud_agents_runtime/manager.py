@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import threading
@@ -9,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger("cloud_agents_runtime")
 
 from .access import AccessManager
 from .adapters import FakeAdapter, QwenServeAdapter, RuntimeAdapter
@@ -1122,14 +1125,14 @@ class RunManager:
                 self.store.recover_expired_leases()
                 self._drain_queue()
             except Exception:
-                return
+                logger.warning("heartbeat error (will retry)", exc_info=True)
 
     def _cleanup_loop(self) -> None:
         while not self._stop.is_set():
             try:
                 self.cleanup_once()
             except Exception:
-                pass
+                logger.warning("cleanup error (will retry)", exc_info=True)
             if self._stop.wait(self.cleanup_manager.policy.interval_seconds):
                 return
 

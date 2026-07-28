@@ -15,11 +15,17 @@ ExecStart=/usr/bin/python3 -m cloud_agents_runtime \
   --protect-health
 Restart=always
 RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+WatchdogSec=30
 User=cloudagents
 Group=cloudagents
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
 ReadWritePaths=/var/lib/cloud-agents-runtime
 CPUAccounting=true
 CPUQuota=100%
