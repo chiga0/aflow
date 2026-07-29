@@ -134,9 +134,7 @@ test("manages runs, permissions, profiles, and operations", async ({
     page.getByRole("heading", { name: "今天想完成什么？" }),
   ).toBeVisible();
   await page.getByRole("link", { name: /Admin|管理后台/ }).click();
-  await expect(
-    page.getByRole("heading", { name: "管理控制台" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "管理控制台" })).toBeVisible();
   await page.getByLabel(/Toggle language|切换语言/).click();
   await navigate(page, /Runs/);
   await page.getByLabel("Prompt").fill("Browser smoke run");
