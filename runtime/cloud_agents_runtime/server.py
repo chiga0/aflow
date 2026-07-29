@@ -6,11 +6,13 @@ import json
 import logging
 import mimetypes
 import os
+import secrets
 import signal
 import sqlite3
 import sys
 import threading
 import time
+import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -68,16 +70,46 @@ def make_handler(
         )
     login_failures: dict[str, list[float]] = {}
     v2_prompt_ids: dict[tuple[str, str], str] = {}
+    oidc_states: dict[str, float] = {}
+    rate_limiter = SlidingWindowRateLimiter(
+        max_requests=int(os.environ.get("RUNTIME_RATE_LIMIT", "0") or "0"),
+        window_seconds=int(
+            os.environ.get("RUNTIME_RATE_LIMIT_WINDOW", "60") or "60"
+        ),
+    )
+    trusted_proxies: set[str] = set(
+        p.strip()
+        for p in os.environ.get("RUNTIME_TRUSTED_PROXIES", "").split(",")
+        if p.strip()
+    )
 
     class RuntimeHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = f"agentflow-runtime/{__version__}"
         current_identity: dict[str, Any] | None = None
 
+        def check_rate_limit(self, path: str) -> bool:
+            if path in {"/health", "/metrics"} or path.startswith("/assets/"):
+                return False
+            if rate_limiter.is_limited(self.client_ip()):
+                self.write_error(
+                    HTTPStatus.TOO_MANY_REQUESTS, "rate limit exceeded"
+                )
+                return True
+            return False
+
         def do_GET(self) -> None:
             path = urlparse(self.path).path
+            if self.check_rate_limit(path):
+                return
             if path == "/auth/session":
                 self.write_json(auth_config.session_status(self.session_identity()))
+                return
+            if path == "/auth/oidc/login":
+                self.handle_oidc_login()
+                return
+            if path == "/auth/oidc/callback":
+                self.handle_oidc_callback()
                 return
             spa_target = spa_redirect_target(path, self.headers)
             if spa_target:
@@ -657,6 +689,8 @@ def make_handler(
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if self.check_rate_limit(path):
+                return
             if path == "/auth/login":
                 self.handle_login()
                 return
@@ -1789,6 +1823,125 @@ def make_handler(
             )
             return False
 
+        def handle_oidc_login(self) -> None:
+            if not auth_config.oidc_enabled:
+                self.write_error(HTTPStatus.NOT_FOUND, "OIDC is not configured")
+                return
+            try:
+                discovery = oidc_discover(auth_config.oidc_issuer or "")
+            except Exception as exc:
+                logger.warning("OIDC discovery failed: %s", exc)
+                self.write_error(
+                    HTTPStatus.BAD_GATEWAY, "OIDC discovery failed"
+                )
+                return
+            state = secrets.token_urlsafe(24)
+            oidc_states[state] = time.monotonic()
+            cutoff = time.monotonic() - 600
+            for key in [k for k, v in oidc_states.items() if v < cutoff]:
+                oidc_states.pop(key, None)
+            params = urllib.parse.urlencode(
+                {
+                    "response_type": "code",
+                    "client_id": auth_config.oidc_client_id,
+                    "redirect_uri": auth_config.oidc_redirect_uri
+                    or f"{self.base_url()}/auth/oidc/callback",
+                    "scope": "openid email profile",
+                    "state": state,
+                }
+            )
+            auth_endpoint = discovery.get("authorization_endpoint", "")
+            self.write_redirect(f"{auth_endpoint}?{params}")
+
+        def handle_oidc_callback(self) -> None:
+            if not auth_config.oidc_enabled:
+                self.write_error(HTTPStatus.NOT_FOUND, "OIDC is not configured")
+                return
+            query = urllib.parse.parse_qs(urlparse(self.path).query)
+            code = (query.get("code") or [""])[0]
+            state = (query.get("state") or [""])[0]
+            if not code or not state:
+                self.write_error(
+                    HTTPStatus.BAD_REQUEST, "missing code or state"
+                )
+                return
+            if state not in oidc_states:
+                self.write_error(HTTPStatus.FORBIDDEN, "invalid state")
+                return
+            oidc_states.pop(state, None)
+            try:
+                discovery = oidc_discover(auth_config.oidc_issuer or "")
+                redirect_uri = auth_config.oidc_redirect_uri or (
+                    f"{self.base_url()}/auth/oidc/callback"
+                )
+                tokens = oidc_exchange_code(
+                    discovery["token_endpoint"],
+                    auth_config.oidc_client_id or "",
+                    auth_config.oidc_client_secret or "",
+                    code,
+                    redirect_uri,
+                )
+                access_token = tokens.get("access_token", "")
+                info = oidc_userinfo(
+                    discovery["userinfo_endpoint"], access_token
+                )
+            except Exception as exc:
+                logger.warning("OIDC token exchange failed: %s", exc)
+                self.write_error(
+                    HTTPStatus.BAD_GATEWAY, "OIDC authentication failed"
+                )
+                return
+            email = str(info.get("email") or "").strip().lower()
+            if not email:
+                self.write_error(
+                    HTTPStatus.BAD_REQUEST,
+                    "OIDC provider did not return an email",
+                )
+                return
+            user = manager.store.get_auth_user(email)
+            if user is None:
+                user = manager.store.create_auth_user(
+                    email=email,
+                    display_name=str(
+                        info.get("name") or info.get("preferred_username") or email
+                    ),
+                    password_hash=hash_password(secrets.token_urlsafe(32)),
+                    roles=["member"],
+                    email_verified=True,
+                )
+            elif user.status != "active":
+                self.write_error(
+                    HTTPStatus.FORBIDDEN, "account is disabled"
+                )
+                return
+            _, session_token = manager.store.create_auth_session(
+                user=user,
+                ttl_seconds=auth_config.session_ttl_seconds,
+                user_agent=self.headers.get("user-agent"),
+                ip_address=self.client_ip(),
+            )
+            prefix = self.headers.get(
+                "x-forwarded-prefix", ""
+            ).strip().rstrip("/")
+            location = f"{prefix}/" if prefix.startswith("/") else "/"
+            body = b""
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("location", location)
+            self.send_header(
+                "set-cookie",
+                auth_config.issue_session_cookie(
+                    session_token,
+                    cookie_path=self.cookie_path(),
+                    secure=self.is_secure_request(),
+                ),
+            )
+            self.send_header("content-length", "0")
+            self.send_security_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            self.close_connection = True
+
         def handle_login(self) -> None:
             try:
                 payload = self.read_json()
@@ -1944,10 +2097,13 @@ def make_handler(
             return self.headers.get("x-forwarded-proto", "").lower() == "https"
 
         def client_ip(self) -> str:
+            direct_ip = str(self.client_address[0])
             forwarded_for = self.headers.get("x-forwarded-for", "")
-            if forwarded_for:
+            if forwarded_for and (
+                not trusted_proxies or direct_ip in trusted_proxies
+            ):
                 return forwarded_for.split(",", 1)[0].strip()
-            return str(self.client_address[0])
+            return direct_ip
 
         def browser_csrf_required(self) -> bool:
             return bool(
@@ -2192,6 +2348,77 @@ def make_handler(
     return RuntimeHandler
 
 
+class SlidingWindowRateLimiter:
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def is_limited(self, key: str) -> bool:
+        if self.max_requests <= 0:
+            return False
+        now = time.monotonic()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            hits = [t for t in self._hits.get(key, []) if t > cutoff]
+            if len(hits) >= self.max_requests:
+                self._hits[key] = hits
+                return True
+            hits.append(now)
+            self._hits[key] = hits
+            return False
+
+
+def oidc_discover(issuer: str) -> dict[str, Any]:
+    import urllib.request
+
+    url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def oidc_exchange_code(
+    token_endpoint: str,
+    client_id: str,
+    client_secret: str,
+    code: str,
+    redirect_uri: str,
+) -> dict[str, Any]:
+    import urllib.parse
+    import urllib.request
+
+    data = urllib.parse.urlencode(
+        {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        token_endpoint,
+        data=data,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def oidc_userinfo(
+    userinfo_endpoint: str, access_token: str
+) -> dict[str, Any]:
+    import urllib.request
+
+    req = urllib.request.Request(
+        userinfo_endpoint,
+        headers={"authorization": f"Bearer {access_token}"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def split_path(path: str) -> list[str]:
     return [part for part in path.strip("/").split("/") if part]
 
@@ -2401,9 +2628,26 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         server_address: tuple[str, int],
         handler_class: type[BaseHTTPRequestHandler],
         manager: RunManager,
+        max_concurrent: int | None = None,
     ):
         super().__init__(server_address, handler_class)
         self.manager = manager
+        limit = max_concurrent or int(
+            os.environ.get("RUNTIME_MAX_CONCURRENT", "200") or "200"
+        )
+        self._semaphore = threading.Semaphore(limit)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._semaphore.acquire(timeout=5):
+            try:
+                request.close()
+            except OSError:
+                pass
+            return
+        try:
+            super().process_request(request, client_address)
+        finally:
+            self._semaphore.release()
 
     def server_close(self) -> None:
         self.manager.shutdown()
