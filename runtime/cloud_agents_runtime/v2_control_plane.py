@@ -2423,7 +2423,10 @@ class V2ControlPlane:
                 cwd=self.root,
                 env=popen_env,
             )
-            timer = threading.Timer(20, stop_timed_out_process)
+            timer = threading.Timer(
+                max(30, int(os.environ.get("V2_CLI_TIMEOUT_SECONDS") or 300)),
+                stop_timed_out_process,
+            )
             timer.daemon = True
             timer.start()
             assert process.stdin is not None
@@ -2454,7 +2457,10 @@ class V2ControlPlane:
             return_code = process.wait()
             timer.cancel()
             if timed_out.is_set():
-                raise subprocess.TimeoutExpired(command, 20)
+                raise subprocess.TimeoutExpired(
+                    command,
+                    max(30, int(os.environ.get("V2_CLI_TIMEOUT_SECONDS") or 300)),
+                )
         except (OSError, subprocess.TimeoutExpired) as exc:
             result = simulated_adapter_result(adapter, protocol, envelope)
             result.update({"execution_mode": "cli-error", "error": str(exc)})

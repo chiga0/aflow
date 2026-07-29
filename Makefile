@@ -1,4 +1,4 @@
-.PHONY: test test-runtime test-web lint backup restore verify-backup local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down
+.PHONY: test test-runtime test-web lint backup restore verify-backup local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down e2e
 
 test: test-runtime test-web
 
@@ -50,3 +50,6 @@ local-logs:
 
 local-down:
 	python3 scripts/local_stack.py down
+
+e2e:
+	python3 scripts/e2e_audit.py --timeout 90

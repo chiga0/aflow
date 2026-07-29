@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUp, Clock, MessageSquarePlus, Settings2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-import { Button, Select, StatusBadge, Textarea } from "./components/ui";
+import { Button, Select, StatusBadge } from "./components/ui";
 import { runtimeApi, type V2Task } from "./lib/api";
 import { useI18n } from "./lib/i18n";
 
@@ -36,7 +36,7 @@ export function ClientHome() {
   const queryClient = useQueryClient();
   const [goal, setGoal] = useState("");
   const [mode, setMode] = useState("auto");
-  const [adapter, setAdapter] = useState("auto");
+  const [adapter, setAdapter] = useState("qwen");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const tasks = useQuery({
     queryKey: ["v2", "tasks"],
@@ -82,164 +82,126 @@ export function ClientHome() {
   );
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-4xl flex-col justify-center gap-10 py-8">
-      <style>{`
-        @keyframes home-fade-up {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: none; }
-        }
-        .home-fade-up { animation: home-fade-up 300ms both; }
-        @keyframes home-shimmer-slide {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(250%); }
-        }
-        .home-shimmer { animation: home-shimmer-slide 1.4s ease-in-out infinite; }
-      `}</style>
-      <div className="grid gap-3 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {t("home.title")}
-        </h1>
-        <p className="text-muted-foreground">{t("home.subtitle")}</p>
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      {/* Main content area */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="mx-auto max-w-3xl">
+          {(tasks.data?.tasks.length ?? 0) > 0 ? (
+            <TaskList
+              filter={filter}
+              onFilterChange={setFilter}
+              tasks={tasks.data?.tasks ?? []}
+            />
+          ) : (
+            <EmptyState onPick={(text) => setGoal(text)} />
+          )}
+        </div>
       </div>
 
-      <form
-        aria-label="New conversation"
-        className="rounded-2xl border border-border bg-card p-3 shadow-sm"
-        onSubmit={submit}
-      >
-        <Textarea
-          autoFocus
-          className="min-h-32 resize-none border-0 bg-transparent text-base shadow-none focus-visible:ring-0"
-          placeholder={t("home.placeholder")}
-          value={goal}
-          onChange={(event) => setGoal(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-        <div className="flex items-end justify-between gap-3 border-t border-border pt-3">
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
-              <Settings2 className="h-4 w-4" />
-              {t("home.settings")}
-            </summary>
-            <div className="absolute z-20 mt-2 grid w-64 gap-3 rounded-lg border border-border bg-card p-3 shadow-xl">
-              <label className="grid gap-1 text-xs text-muted-foreground">
-                {t("home.agentMode")}
-                <Select
-                  value={mode}
-                  onChange={(event) => setMode(event.target.value)}
-                >
-                  <option value="auto">{t("home.auto")}</option>
-                  <option value="single">{t("home.singleAgent")}</option>
-                  <option value="multi-agent">{t("home.multiAgent")}</option>
-                </Select>
-              </label>
-              <label className="grid gap-1 text-xs text-muted-foreground">
-                {t("home.executeAgent")}
-                <Select
-                  value={adapter}
-                  onChange={(event) => setAdapter(event.target.value)}
-                >
-                  <option value="auto">{t("home.autoSelect")}</option>
-                  {(
-                    agentOptions ?? [
-                      {
-                        adapter: "qwen",
-                        label: "qwen-code",
-                        status: "available",
-                      },
-                      {
-                        adapter: "codex",
-                        label: "codex cli",
-                        status: "available",
-                      },
-                      {
-                        adapter: "opencode",
-                        label: "opencode",
-                        status: "available",
-                      },
-                    ]
-                  ).map((item) => (
-                    <option
-                      key={item.adapter}
-                      disabled={item.status !== "available"}
-                      value={item.adapter}
-                    >
-                      {item.label}
-                      {item.status === "available"
-                        ? ` · ${t("home.available")}`
-                        : ` · ${t("home.notRegistered")}`}
-                    </option>
-                  ))}
-                </Select>
-                {capabilities.isError ? (
-                  <span className="text-amber-600">
-                    {t("home.cannotDetect")}
-                  </span>
-                ) : selectedCapability ? (
-                  <span>
-                    {selectedCapability.status === "available"
-                      ? `${t("home.ready")} · ${selectedCapability.execution}`
-                      : t("home.noUnits")}
-                  </span>
-                ) : null}
-              </label>
-            </div>
-          </details>
-          <Button
-            aria-label="Start conversation"
-            disabled={
-              !goal.trim() || createTask.isPending || selectedUnavailable
-            }
-            size="icon"
-            type="submit"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-        </div>
-      </form>
-
-      {createTask.isError ? (
-        <div
-          className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-          role="alert"
+      {/* Bottom input bar — webshell style */}
+      <div className="border-t border-border bg-muted/30 px-4 py-3">
+        <form
+          aria-label="New conversation"
+          className="mx-auto max-w-3xl"
+          onSubmit={submit}
         >
-          <div className="font-medium">{t("home.cannotStart")}</div>
-          <div className="mt-1 text-xs">{String(createTask.error)}</div>
-          <Button
-            className="mt-3"
-            disabled={!goal.trim() || selectedUnavailable}
-            size="sm"
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              createTask.mutate({
-                goal: goal.trim(),
-                mode,
-                adapter,
-                channel: "web",
-                metadata: { product_surface: "webshell" },
-              })
-            }
-          >
-            {t("home.retry")}
-          </Button>
-        </div>
-      ) : null}
-
-      {(tasks.data?.tasks.length ?? 0) > 0 ? (
-        <TaskList
-          filter={filter}
-          onFilterChange={setFilter}
-          tasks={tasks.data?.tasks ?? []}
-        />
-      ) : (
-        <EmptyState onPick={(text) => setGoal(text)} />
-      )}
+          <div className="flex items-end gap-2 rounded-xl border border-border bg-background px-3 py-2 shadow-sm transition-shadow focus-within:shadow-md">
+            <textarea
+              autoFocus
+              className="max-h-40 min-h-[2.5rem] flex-1 resize-none border-0 bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+              placeholder={t("home.placeholder")}
+              rows={1}
+              value={goal}
+              onChange={(event) => {
+                setGoal(event.target.value);
+                event.target.style.height = "auto";
+                event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`;
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <Button
+              aria-label="Start conversation"
+              className="h-8 w-8 shrink-0 rounded-lg"
+              disabled={
+                !goal.trim() || createTask.isPending || selectedUnavailable
+              }
+              size="icon"
+              type="submit"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <details className="group relative">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                <Settings2 className="h-3.5 w-3.5" />
+                {selectedCapability?.label ?? adapter}
+              </summary>
+              <div className="absolute bottom-full left-0 z-20 mb-2 grid w-56 gap-3 rounded-lg border border-border bg-card p-3 shadow-xl">
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  {t("home.agentMode")}
+                  <Select
+                    value={mode}
+                    onChange={(event) => setMode(event.target.value)}
+                  >
+                    <option value="auto">{t("home.auto")}</option>
+                    <option value="single">{t("home.singleAgent")}</option>
+                    <option value="multi-agent">{t("home.multiAgent")}</option>
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  {t("home.executeAgent")}
+                  <Select
+                    value={adapter}
+                    onChange={(event) => setAdapter(event.target.value)}
+                  >
+                    <option value="auto">{t("home.autoSelect")}</option>
+                    {(
+                      agentOptions ?? [
+                        { adapter: "qwen", label: "qwen-code", status: "available" },
+                        { adapter: "codex", label: "codex cli", status: "available" },
+                        { adapter: "opencode", label: "opencode", status: "available" },
+                      ]
+                    ).map((item) => (
+                      <option
+                        key={item.adapter}
+                        disabled={item.status !== "available"}
+                        value={item.adapter}
+                      >
+                        {item.label}
+                        {item.status === "available"
+                          ? ` · ${t("home.available")}`
+                          : ` · ${t("home.notRegistered")}`}
+                      </option>
+                    ))}
+                  </Select>
+                  {capabilities.isError ? (
+                    <span className="text-amber-600">
+                      {t("home.cannotDetect")}
+                    </span>
+                  ) : selectedCapability ? (
+                    <span>
+                      {selectedCapability.status === "available"
+                        ? `${t("home.ready")} · ${selectedCapability.execution}`
+                        : t("home.noUnits")}
+                    </span>
+                  ) : null}
+                </label>
+              </div>
+            </details>
+            {createTask.isError ? (
+              <span className="text-xs text-destructive">
+                {t("home.cannotStart")}
+              </span>
+            ) : null}
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -305,7 +267,7 @@ function TaskList({
       </div>
       {visible.length > 0 ? (
         <div className="grid gap-2 sm:grid-cols-2">
-          {visible.slice(0, 6).map((task) => (
+          {visible.slice(0, 8).map((task) => (
             <TaskCard key={task.task_id} task={task} />
           ))}
         </div>
@@ -349,7 +311,7 @@ function TaskCard({ task }: { task: V2Task }) {
                 style={{ width: `${Math.min(100, percent)}%` }}
               />
             ) : (
-              <div className="home-shimmer h-full w-2/5 rounded-full bg-primary" />
+              <div className="h-full w-2/5 animate-pulse rounded-full bg-primary/60" />
             )}
           </div>
           {elapsed ? (
@@ -374,19 +336,20 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   ] as const;
 
   return (
-    <div className="grid gap-4 text-center">
-      <div>
-        <div className="text-sm font-medium">{t("home.noTasksYet")}</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {t("home.noTasksYetDetail")}
-        </div>
+    <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-6">
+      <div className="text-center">
+        <h2 className="text-lg font-medium text-foreground">
+          {t("home.title")}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {t("home.subtitle")}
+        </p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {examples.map((key, index) => (
+      <div className="grid w-full max-w-md gap-2 sm:grid-cols-2">
+        {examples.map((key) => (
           <button
             key={key}
-            className="home-fade-up rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
-            style={{ animationDelay: `${index * 60}ms` }}
+            className="rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
             type="button"
             onClick={() => {
               onPick(t(key));
@@ -396,7 +359,6 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           </button>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground">{t("home.howItWorks")}</p>
     </div>
   );
 }

@@ -13,6 +13,13 @@ ARG QWEN_NODE_PACKAGE=@qwen-code/qwen-code@0.19.11
 ARG CODEX_NODE_PACKAGE=@openai/codex@0.144.5
 ARG OPENCODE_NODE_PACKAGE=opencode-ai@1.18.3
 
+# Mirror overrides for regions with slow access to upstream registries.
+# Leave empty to use official sources.
+ARG APT_MIRROR_HOST=
+ARG NPM_REGISTRY=
+ARG PIP_INDEX_URL=
+ARG PIP_TRUSTED_HOST=
+
 WORKDIR /app
 
 COPY runtime/requirements.txt /app/runtime/requirements.txt
@@ -20,21 +27,30 @@ COPY runtime/requirements.txt /app/runtime/requirements.txt
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
 
-RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
-    && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && node --version \
-    && npm install -g "${QWEN_NODE_PACKAGE}" "${CODEX_NODE_PACKAGE}" "${OPENCODE_NODE_PACKAGE}" \
-    && python3 -m pip install --no-cache-dir -r /app/runtime/requirements.txt \
-    && rm -rf /var/lib/apt/lists/* /root/.npm
+RUN set -eux; \
+    if [ -n "$APT_MIRROR_HOST" ]; then \
+        sed -i "s|deb.debian.org|${APT_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update; \
+    apt-get install -y --no-install-recommends ca-certificates git; \
+    ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
+    node --version; \
+    npm install -g \
+        ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"} \
+        "${QWEN_NODE_PACKAGE}" "${CODEX_NODE_PACKAGE}" "${OPENCODE_NODE_PACKAGE}"; \
+    python3 -m pip install --no-cache-dir \
+        ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} \
+        ${PIP_TRUSTED_HOST:+--trusted-host "$PIP_TRUSTED_HOST"} \
+        -r /app/runtime/requirements.txt; \
+    rm -rf /var/lib/apt/lists/* /root/.npm
 
 RUN useradd --create-home --shell /usr/sbin/nologin runtime
 
 COPY runtime /app/runtime
 COPY scripts /app/scripts
 
-RUN mkdir -p /data/artifacts && chown -R runtime:runtime /data/artifacts /app
+RUN mkdir -p /data/artifacts/.home && chown -R runtime:runtime /data/artifacts /app
 
 USER runtime
 

@@ -47,6 +47,9 @@ def main() -> int:
     if args.command == "up":
         init_environment(env_file, bind=args.bind)
         doctor()
+        env = read_env(env_file)
+        ensure_artifacts_home(env)
+        ensure_web_built()
         compose(env_file, "up", "-d", *("--build",) if not args.no_build else ())
         env = read_env(env_file)
         try:
@@ -163,7 +166,8 @@ def init_environment(path: Path, *, bind: str) -> dict[str, str]:
         "RUNTIME_PIDS_LIMIT": "1024",
         "V2_DEPLOYMENT_PROFILE": "local-nas",
         "V2_ENABLE_REAL_CLI_ADAPTERS": "0",
-        "V2_QWEN_CODE_COMMAND": "qwen",
+        "V2_ALLOW_UNISOLATED_CLI": "1",
+        "V2_QWEN_CODE_COMMAND": "qwen --auth-type openai",
         "V2_CODEX_CLI_COMMAND": "codex exec --skip-git-repo-check -",
         "V2_CLAUDE_CODE_COMMAND": "claude -p",
         "V2_OPENCODE_COMMAND": "opencode run",
@@ -272,6 +276,70 @@ def compose(env_file: Path, *args: str) -> None:
             *args,
         ]
     )
+
+
+def ensure_artifacts_home(env: dict[str, str]) -> None:
+    """Create .home directory and qwen-code auth config inside the artifacts volume."""
+    artifacts_dir = Path(env.get("RUNTIME_ARTIFACTS_DIR", ""))
+    if not artifacts_dir or not artifacts_dir.exists():
+        return
+    home_dir = artifacts_dir / ".home"
+    if not home_dir.exists():
+        home_dir.mkdir(parents=True, exist_ok=True)
+        print(f"created qwen home directory: {home_dir}")
+    # Ensure qwen-code auth settings exist for non-interactive mode
+    qwen_dir = home_dir / ".qwen"
+    qwen_dir.mkdir(parents=True, exist_ok=True)
+    settings_file = qwen_dir / "settings.json"
+    if not settings_file.exists():
+        settings_file.write_text('{"authType":"openai","$version":4}\n', encoding="utf-8")
+        print(f"created qwen auth settings: {settings_file}")
+
+
+def ensure_web_built() -> None:
+    """Rebuild web frontend if source is newer than the static build."""
+    static_index = ROOT / "runtime" / "cloud_agents_runtime" / "static" / "index.html"
+    web_src = ROOT / "web" / "src"
+    if not web_src.exists():
+        return
+    # Find the newest source file
+    newest_src_mtime = 0.0
+    for src_file in web_src.rglob("*"):
+        if src_file.is_file():
+            mtime = src_file.stat().st_mtime
+            if mtime > newest_src_mtime:
+                newest_src_mtime = mtime
+    # Check if static build exists and is up to date
+    if static_index.exists():
+        static_mtime = static_index.stat().st_mtime
+        if static_mtime >= newest_src_mtime:
+            return  # build is current
+    # Need to rebuild
+    web_dir = ROOT / "web"
+    if not (web_dir / "node_modules").exists():
+        # Try npm ci with fallback registry
+        print("installing web dependencies...")
+        npm_registry = os.environ.get("NPM_REGISTRY", "")
+        ci_cmd = ["npm", "ci"]
+        if npm_registry:
+            ci_cmd.append(f"--registry={npm_registry}")
+        try:
+            subprocess.run(ci_cmd, cwd=web_dir, check=True, text=True, capture_output=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("warning: npm ci failed; skipping web rebuild (using existing static files)")
+            return
+    print("building web frontend...")
+    try:
+        subprocess.run(
+            ["npm", "run", "build"],
+            cwd=web_dir,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        print("web frontend built successfully")
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(f"warning: web build failed ({exc}); using existing static files")
 
 
 def compose_diagnostics(env_file: Path) -> None:
