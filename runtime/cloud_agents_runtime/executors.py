@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import socket
@@ -17,6 +18,8 @@ from .events import utc_now
 from .models import ExecutorLease, RunState
 from .store import RunStore
 
+
+logger = logging.getLogger("cloud_agents_runtime")
 
 MANAGED_QWEN_STRATEGIES = {"per_run_process", "container"}
 
@@ -168,6 +171,13 @@ class ExecutorRegistry:
             except Exception:
                 self._release_port(port)
                 raise
+            if self.config.strategy == "per_run_process":
+                logger.warning(
+                    "UNISOLATED EXECUTOR: strategy 'per_run_process' runs the qwen "
+                    "runtime directly on the worker host without container isolation. "
+                    "Use strategy 'container' (QWEN_EXECUTOR_STRATEGY=container) for "
+                    "production isolation."
+                )
             lease = ExecutorLease(
                 executor_id=executor_id,
                 run_id=run.run_id,

@@ -2035,6 +2035,11 @@ class V2ControlPlane:
                     self._db.commit()
                 time.sleep(0.05)
                 adapter_result = self._execute_agent_adapter(task_id, agent)
+                if adapter_result.get("execution_mode") == "cli-error":
+                    raise RuntimeError(
+                        f"{agent['adapter']} CLI failed: "
+                        f"{adapter_result.get('error', 'unknown error')}"
+                    )
                 with self._lock:
                     if self._task_row(task_id)["status"] == "cancelled":
                         return
@@ -2912,10 +2917,14 @@ class V2ControlPlane:
         }
         real_cli_modes = {mode for mode in modes if mode.startswith("real-cli")}
         if real_cli_modes:
-            if "real-cli-container" in real_cli_modes:
-                return "real-cli-container"
+            # Report the LEAST-isolated mode so auditing surfaces any agent that
+            # ran without full container isolation.
             if "real-cli-unisolated" in real_cli_modes:
                 return "real-cli-unisolated"
+            if "real-cli-custom" in real_cli_modes:
+                return "real-cli-custom"
+            if "real-cli-container" in real_cli_modes:
+                return "real-cli-container"
             return "real-cli"
         if "protocol-simulated" in modes:
             return "protocol-simulated"

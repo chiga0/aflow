@@ -22,7 +22,12 @@ from typing import Any
 
 from .adapters import FakeAdapter, QwenServeAdapter, RuntimeAdapter
 from .agent_events import translate_adapter_record
-from .isolation import V2IsolationConfig, resolve_cli_execution
+from .isolation import (
+    IsolationUnavailableError,
+    V2IsolationConfig,
+    resolve_cli_execution,
+    resolve_verification_execution,
+)
 from .models import RunSpec, RunState
 
 
@@ -564,6 +569,11 @@ class RemoteWorkerDaemon:
                 artifacts.append(
                     {"name": "test_results", "kind": "test", "content": exc.result}
                 )
+            # Isolation/config errors will not self-heal on retry; fail closed
+            # without re-dispatch to avoid a retry storm.
+            retryable = not context.cancelled.is_set() and not isinstance(
+                exc, IsolationUnavailableError
+            )
             try:
                 self.client.v2_finish_agent(
                     self.config.worker_id,
@@ -572,7 +582,7 @@ class RemoteWorkerDaemon:
                     {
                         "lease_token": lease_token,
                         "error": str(exc),
-                        "retryable": not context.cancelled.is_set(),
+                        "retryable": retryable,
                         "artifacts": artifacts,
                         "workspace": workspace_manifest,
                     },
@@ -1061,11 +1071,21 @@ class RemoteWorkerDaemon:
         command = command_value if isinstance(command_value, list) else shlex.split(command_value)
         if not command:
             raise ValueError("workspace test command is empty")
+        container_name = "aflow-verify-" + str(
+            context.assignment.get("agent_task_id") or os.getpid()
+        ).replace("_", "-")[:54]
+        resolved_command, popen_env = resolve_verification_execution(
+            V2IsolationConfig.from_env(),
+            command,
+            workspace=workspace,
+            env=self._sanitized_worker_env(),
+            container_name=container_name,
+        )
         timeout = max(1, int(os.environ.get("V2_WORKSPACE_TEST_TIMEOUT_SECONDS") or 1800))
         process = subprocess.Popen(
-            command,
+            resolved_command,
             cwd=workspace,
-            env=self._sanitized_worker_env(),
+            env=popen_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
