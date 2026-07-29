@@ -295,8 +295,9 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           <Link
             key={item.to}
             className={cn(
-              "flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
-              active && "bg-muted text-foreground",
+              "flex h-10 items-center gap-3 rounded-md border-l-2 border-transparent px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+              active &&
+                "border-primary bg-primary/5 font-semibold text-foreground",
             )}
             to={item.to}
             onClick={onNavigate}
@@ -432,7 +433,7 @@ function ActiveRunDock() {
           </div>
         </div>
         {!collapsed ? (
-          <div className="grid gap-2">
+          <div className="grid max-h-[40vh] gap-2 overflow-y-auto">
             {activeRuns.map((run) => (
               <ActiveRunLink key={run.run_id} run={run} />
             ))}

@@ -49,6 +49,7 @@ import {
 } from "react";
 
 import { LanguageToggle, Shell } from "./components/shell";
+import { FlowDag, type DagEdge, type DagNode } from "./components/flow-dag";
 import {
   Badge,
   Button,
@@ -3671,6 +3672,15 @@ function MissionChatPanel({
 function MissionDagPanel({ mission }: { mission?: MissionState }) {
   const { t } = useI18n();
   const tasks = mission?.tasks ?? [];
+  const dagNodes: DagNode[] = tasks.map((task) => ({
+    id: task.task_id,
+    label: task.title,
+    sublabel: task.profile_id,
+    status: task.status,
+  }));
+  const dagEdges: DagEdge[] = tasks.flatMap((task) =>
+    task.depends_on.map((dep) => ({ from: dep, to: task.task_id })),
+  );
   return (
     <Card>
       <CardHeader>
@@ -3680,67 +3690,12 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
         </div>
         <Badge tone="neutral">{tasks.length}</Badge>
       </CardHeader>
-      <CardBody className="grid gap-3">
-        {tasks.map((task) => (
-          <div
-            key={task.task_id}
-            className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[220px_minmax(0,1fr)_180px]"
-          >
-            <div className="min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium">{task.title}</span>
-                <StatusBadge status={task.status} />
-              </div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">
-                {task.task_id}
-              </div>
-            </div>
-            <div className="grid gap-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">
-                  {t("common.profile")}{" "}
-                </span>
-                <span className="font-medium">{task.profile_id}</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(task.depends_on.length ? task.depends_on : ["root"]).map(
-                  (dependency) => (
-                    <Badge key={dependency} tone="neutral">
-                      {dependency}
-                    </Badge>
-                  ),
-                )}
-              </div>
-            </div>
-            <div className="grid content-start gap-2">
-              {task.run_id ? (
-                <Link
-                  className="inline-flex items-center gap-2 text-sm text-primary"
-                  to="/admin/runs/$runId"
-                  params={{ runId: task.run_id }}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  {t("missions.openRun")}
-                </Link>
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  Waiting for dependencies
-                </span>
-              )}
-              {task.result ? (
-                <details className="text-xs">
-                  <summary className="cursor-pointer text-muted-foreground">
-                    {t("common.result")}
-                  </summary>
-                  <pre className="mt-2 max-h-32 overflow-auto rounded-md border border-border bg-muted p-2 text-foreground">
-                    {JSON.stringify(task.result, null, 2)}
-                  </pre>
-                </details>
-              ) : null}
-            </div>
-          </div>
-        ))}
-        {!tasks.length ? <EmptyState title={t("missions.noTasks")} /> : null}
+      <CardBody>
+        {tasks.length ? (
+          <FlowDag dagNodes={dagNodes} dagEdges={dagEdges} />
+        ) : (
+          <EmptyState title={t("missions.noTasks")} />
+        )}
       </CardBody>
     </Card>
   );

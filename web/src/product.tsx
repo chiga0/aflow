@@ -53,6 +53,7 @@ import {
   StatusBadge,
   Textarea,
 } from "./components/ui";
+import { FlowDag, type DagEdge, type DagNode } from "./components/flow-dag";
 import {
   runtimeApi,
   v2TaskArtifactHref,
@@ -1741,29 +1742,20 @@ function AgentDag({ agents }: { agents: V2AgentTask[] }) {
   if (!agents.length) {
     return <EmptyState title={t("admin.noPlan")} />;
   }
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      {agents.map((agent) => (
-        <div
-          key={agent.agent_task_id}
-          className="grid gap-2 rounded-md border border-border p-3"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <Badge tone="info">{agent.role}</Badge>
-            <StatusBadge status={agent.status} />
-          </div>
-          <div className="font-medium">{agent.title}</div>
-          <div className="text-sm text-muted-foreground">{agent.goal}</div>
-          <div className="text-xs text-muted-foreground">
-            {t("admin.dependsOn")}{" "}
-            {agent.depends_on.length
-              ? agent.depends_on.join(", ")
-              : t("admin.none")}
-          </div>
-        </div>
-      ))}
-    </div>
+  const dagNodes: DagNode[] = agents.map((agent) => ({
+    id: agent.agent_task_id,
+    label: agent.title,
+    sublabel: agent.goal,
+    badge: agent.role,
+    status: agent.status,
+  }));
+  const dagEdges: DagEdge[] = agents.flatMap((agent) =>
+    agent.depends_on.map((dep) => ({
+      from: dep,
+      to: agent.agent_task_id,
+    })),
   );
+  return <FlowDag dagNodes={dagNodes} dagEdges={dagEdges} />;
 }
 
 function EventTimeline({ events }: { events: V2Event[] }) {
