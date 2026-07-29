@@ -38,13 +38,15 @@ test("creates a task from the client workspace", async ({ page, isMobile }) => {
 
   await expect(
     page.getByRole("button", {
-      name: isMobile ? "brain" : "brain Plan the work",
+      name: isMobile ? "Completed brain" : "Completed brain Plan the work",
       exact: true,
     }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: isMobile ? "builder" : "builder Execute the work",
+      name: isMobile
+        ? "Completed builder"
+        : "Completed builder Execute the work",
       exact: true,
     }),
   ).toBeVisible();
@@ -84,13 +86,15 @@ test("uses the client and admin control-plane surfaces", async ({
 
   await expect(
     page.getByRole("button", {
-      name: isMobile ? "brain" : "brain Plan the work",
+      name: isMobile ? "Completed brain" : "Completed brain Plan the work",
       exact: true,
     }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: isMobile ? "reviewer" : "reviewer Review and package",
+      name: isMobile
+        ? "Completed reviewer"
+        : "Completed reviewer Review and package",
       exact: true,
     }),
   ).toBeVisible();
@@ -99,6 +103,7 @@ test("uses the client and admin control-plane surfaces", async ({
     .getByRole("link", { name: /Admin|管理后台/ })
     .first()
     .click();
+  await page.getByLabel(/Toggle language|切换语言/).click();
   await expect(
     page.getByRole("heading", { name: "Admin Control Plane" }),
   ).toBeVisible();
@@ -130,7 +135,7 @@ test("manages runs, permissions, profiles, and operations", async ({
   ).toBeVisible();
   await page.getByRole("link", { name: /Admin|管理后台/ }).click();
   await expect(
-    page.getByRole("heading", { name: "Admin Control Plane" }),
+    page.getByRole("heading", { name: "管理控制台" }),
   ).toBeVisible();
   await page.getByLabel(/Toggle language|切换语言/).click();
   await navigate(page, /Runs/);
@@ -227,8 +232,10 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.getByRole("button", { name: "Copy" }).click();
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.getByRole("button", { name: "Drain" }).first().click();
+  await page.getByRole("button", { name: "Confirm" }).first().click();
   await page.getByRole("button", { name: "Resume" }).first().click();
   await page.getByRole("button", { name: "Retry" }).first().click();
+  await page.getByRole("button", { name: "Confirm" }).first().click();
 
   await navigate(page, /Operations/);
   await page.getByRole("button", { name: "Create" }).click();
