@@ -1,4 +1,9 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import {
+  Link,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -12,6 +17,7 @@ import {
   Menu,
   Moon,
   Network,
+  Search,
   Server,
   ShieldCheck,
   Sun,
@@ -21,6 +27,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { CommandPalette } from "./command-palette";
 import { Badge, Button, StatusBadge } from "./ui";
 import {
   extractPermissionRequest,
@@ -86,8 +93,11 @@ const navItems = [
 
 export function Shell() {
   const [open, setOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const { t } = useI18n();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { t, toggleLocale } = useI18n();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -106,6 +116,33 @@ export function Shell() {
       drawerRef.current.focus();
     }
   }, [open]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const handlePaletteAction = (
+    action: "toggle-theme" | "toggle-language" | "sign-out",
+  ) => {
+    if (action === "toggle-theme") {
+      const next = !document.documentElement.classList.contains("dark");
+      document.documentElement.classList.toggle("dark", next);
+      localStorage.setItem("cloud-agents-theme", next ? "dark" : "light");
+    } else if (action === "toggle-language") {
+      toggleLocale();
+    } else {
+      void runtimeApi
+        .logout()
+        .finally(() =>
+          queryClient.invalidateQueries({ queryKey: ["auth", "session"] }),
+        );
+    }
+  };
   return (
     <div className="min-h-screen bg-background">
       <a
@@ -141,6 +178,17 @@ export function Shell() {
             ) : canUseAdmin ? (
               <LinkButton to="/admin" label={t("nav.admin")} />
             ) : null}
+            <button
+              aria-label={t("palette.placeholder")}
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search className="h-3.5 w-3.5" />
+              <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-semibold">
+                ⌘K
+              </kbd>
+            </button>
             <DocsLink />
             <LanguageToggle />
             <ThemeToggle />
@@ -196,6 +244,15 @@ export function Shell() {
         </main>
       </div>
       {isAdmin ? <ActiveRunDock /> : null}
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onNavigate={(path) => {
+          setPaletteOpen(false);
+          void navigate({ to: path });
+        }}
+        onAction={handlePaletteAction}
+      />
     </div>
   );
 }

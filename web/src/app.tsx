@@ -105,7 +105,8 @@ import {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 5000,
+      refetchInterval: 15000,
+      refetchOnWindowFocus: true,
       retry: 1,
     },
   },
@@ -272,22 +273,51 @@ function LoginPage() {
               </p>
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Metric
-              label={t("login.ingress")}
-              value={t("login.ingressValue")}
-              detail={t("login.ingressDetail")}
-            />
-            <Metric
-              label={t("login.scope")}
-              value={t("login.scopeValue")}
-              detail={t("login.scopeDetail")}
-            />
-            <Metric
-              label={t("login.workers")}
-              value={t("login.workersValue")}
-              detail={t("login.workersDetail")}
-            />
+          <div className="grid gap-6">
+            <p className="max-w-md text-2xl font-semibold leading-snug tracking-tight">
+              {t("login.valueHeadline")}
+            </p>
+            <ul className="grid gap-5">
+              <li className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                  <GitBranch className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    {t("login.valueOrchestration")}
+                  </div>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {t("login.valueOrchestrationDetail")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    {t("login.valueAudit")}
+                  </div>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {t("login.valueAuditDetail")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <Server className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    {t("login.valueSelfHosted")}
+                  </div>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {t("login.valueSelfHostedDetail")}
+                  </p>
+                </div>
+              </li>
+            </ul>
           </div>
         </section>
 
@@ -801,7 +831,7 @@ function WorkerRegistrationResult({
               {t("units.deployNoSourceDetail")}
             </div>
           </div>
-          <pre className="max-h-[320px] overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
+          <pre className="max-h-[320px] overflow-auto rounded-md border border-border bg-muted p-3 text-xs text-foreground">
             {noSourceCommand}
           </pre>
         </div>
@@ -814,7 +844,7 @@ function WorkerRegistrationResult({
               {t("units.deployLocalSourceDetail")}
             </div>
           </div>
-          <pre className="max-h-[320px] overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
+          <pre className="max-h-[320px] overflow-auto rounded-md border border-border bg-muted p-3 text-xs text-foreground">
             {registration.deploy_command}
           </pre>
         </div>
@@ -3339,7 +3369,7 @@ function OperationsPage() {
             {(backups.data?.backups ?? []).map((backup) => (
               <a
                 key={backup.name}
-                className="rounded-md border border-border p-3 text-sm hover:bg-muted"
+                className="block rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 href={backupHref(backup.name)}
               >
                 <div className="font-medium">{backup.name}</div>
@@ -3382,7 +3412,7 @@ function OperationsPage() {
             <CardTitle>{t("operations.runtimeStatus")}</CardTitle>
           </CardHeader>
           <CardBody>
-            <pre className="max-h-[420px] overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
+            <pre className="max-h-[420px] overflow-auto rounded-md border border-border bg-muted p-3 text-xs text-foreground">
               {JSON.stringify(status.data ?? {}, null, 2)}
             </pre>
           </CardBody>
@@ -3440,7 +3470,7 @@ function RunList({ runs }: { runs: RunState[] }) {
       {runs.map((run) => (
         <Link
           key={run.run_id}
-          className="grid gap-2 rounded-md border border-border p-3 hover:bg-muted"
+          className="grid gap-2 rounded-md border border-border p-3 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           to="/admin/runs/$runId"
           params={{ runId: run.run_id }}
         >
@@ -3508,7 +3538,7 @@ function MissionList({ missions }: { missions: MissionState[] }) {
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs font-medium text-primary hover:bg-muted"
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs font-medium text-primary transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               to="/admin/missions/$missionId"
               params={{ missionId: mission.mission_id }}
             >
@@ -3702,7 +3732,7 @@ function MissionDagPanel({ mission }: { mission?: MissionState }) {
                   <summary className="cursor-pointer text-muted-foreground">
                     {t("common.result")}
                   </summary>
-                  <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-slate-950 p-2 text-slate-100">
+                  <pre className="mt-2 max-h-32 overflow-auto rounded-md border border-border bg-muted p-2 text-foreground">
                     {JSON.stringify(task.result, null, 2)}
                   </pre>
                 </details>
@@ -3735,7 +3765,7 @@ function MissionEventList({ events }: { events: MissionEvent[] }) {
                 {timeAgo(event.created_at)}
               </span>
             </div>
-            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-950 p-2 text-xs text-slate-100">
+            <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-border bg-muted p-2 text-xs text-foreground">
               {JSON.stringify(event.data, null, 2)}
             </pre>
           </div>
@@ -3832,7 +3862,7 @@ function MissionArtifactPanel({
                 {String(preview.error)}
               </div>
             ) : (
-              <pre className="max-h-[520px] overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+              <pre className="max-h-[520px] overflow-auto rounded-md border border-border bg-muted p-3 text-xs leading-5 text-foreground">
                 {preview.data}
               </pre>
             )}
@@ -3862,7 +3892,7 @@ function EventList({ events }: { events: RuntimeEvent[] }) {
                 {timeAgo(event.created_at)}
               </span>
             </div>
-            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-950 p-2 text-xs text-slate-100">
+            <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-border bg-muted p-2 text-xs text-foreground">
               {JSON.stringify(event.data, null, 2)}
             </pre>
           </div>
@@ -3955,7 +3985,7 @@ function ArtifactPanel({
                 {String(preview.error)}
               </div>
             ) : (
-              <pre className="max-h-[520px] overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+              <pre className="max-h-[520px] overflow-auto rounded-md border border-border bg-muted p-3 text-xs leading-5 text-foreground">
                 {preview.data}
               </pre>
             )}
@@ -3983,7 +4013,7 @@ function ProfileJson({
   return (
     <details className="rounded-md border border-border p-2">
       <summary className="cursor-pointer text-sm font-medium">{label}</summary>
-      <pre className="mt-2 max-h-44 overflow-auto rounded-md bg-slate-950 p-2 text-xs text-slate-100">
+      <pre className="mt-2 max-h-44 overflow-auto rounded-md border border-border bg-muted p-2 text-xs text-foreground">
         {JSON.stringify(value, null, 2)}
       </pre>
     </details>

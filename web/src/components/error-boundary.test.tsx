@@ -27,6 +27,7 @@ describe("ErrorBoundary", () => {
   });
 
   it("shows error fallback when a child throws", () => {
+    localStorage.setItem("agentflow-locale", "en");
     render(
       <ErrorBoundary>
         <ThrowingChild message="boom" />
@@ -35,6 +36,7 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("Something went wrong")).toBeDefined();
     expect(screen.getByText("boom")).toBeDefined();
     expect(screen.getByText("Reload")).toBeDefined();
+    localStorage.removeItem("agentflow-locale");
   });
 
   it("renders custom fallback when provided", () => {

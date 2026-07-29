@@ -189,15 +189,36 @@ export function Metric({
   label,
   value,
   detail,
+  icon,
+  tone = "neutral",
 }: {
   label: string;
   value: ReactNode;
   detail?: ReactNode;
+  icon?: ReactNode;
+  tone?: "neutral" | "ok" | "warn" | "bad" | "info";
 }) {
+  const valueTones = {
+    neutral: "text-foreground",
+    ok: "text-success",
+    warn: "text-warning",
+    bad: "text-destructive",
+    info: "text-sky-600 dark:text-sky-400",
+  };
   return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tracking-normal">{value}</div>
+    <div className="rounded-lg border border-border bg-background p-3 transition-colors hover:border-primary/30">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        {icon ? <div className="text-muted-foreground/60">{icon}</div> : null}
+      </div>
+      <div
+        className={cn(
+          "mt-1 text-2xl font-semibold tracking-normal",
+          valueTones[tone],
+        )}
+      >
+        {value}
+      </div>
       {detail ? (
         <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
       ) : null}
@@ -216,7 +237,18 @@ export function StatusBadge({ status }: { status: string }) {
           : status === "queued" || status === "warn"
             ? "warn"
             : "neutral";
-  return <Badge tone={tone}>{status}</Badge>;
+  const live = status === "running" || status === "starting";
+  return (
+    <Badge tone={tone}>
+      {live ? (
+        <span
+          className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500"
+          aria-hidden="true"
+        />
+      ) : null}
+      {status}
+    </Badge>
+  );
 }
 
 export function EmptyState({

@@ -45,3 +45,99 @@
       sans-serif;
   }
 }
+
+@layer utilities {
+  /* Ambient layered backdrop for the app shell */
+  .bg-ambient {
+    background-image:
+      radial-gradient(
+        60rem 30rem at 85% -10%,
+        hsl(var(--primary) / 0.05),
+        transparent 60%
+      ),
+      radial-gradient(
+        40rem 24rem at -10% 110%,
+        hsl(var(--primary) / 0.04),
+        transparent 55%
+      );
+  }
+
+  /* Page / panel entrance */
+  .animate-fade-up {
+    animation: fade-up 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.2s ease-out both;
+  }
+  /* Command palette entrance */
+  .animate-palette-in {
+    animation: palette-in 0.16s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  }
+  /* Mobile drawer slide */
+  .animate-drawer-in {
+    animation: drawer-in 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  }
+  /* Indeterminate progress shimmer */
+  .animate-shimmer {
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-palette-in,
+  .animate-drawer-in,
+  .animate-shimmer {
+    animation: none;
+  }
+}
