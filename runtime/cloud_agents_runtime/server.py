@@ -476,7 +476,7 @@ def make_handler(
                 try:
                     self.write_file(manager.backup_path(unquote(parts[2])))
                 except ValueError as exc:
-                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    self.write_value_error(exc)
                 except FileNotFoundError:
                     self.write_error(HTTPStatus.NOT_FOUND, "backup not found")
                 return
@@ -612,7 +612,7 @@ def make_handler(
                 except KeyError:
                     self.write_error(HTTPStatus.NOT_FOUND, "mission not found")
                 except ValueError as exc:
-                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    self.write_value_error(exc)
                 except FileNotFoundError:
                     self.write_error(HTTPStatus.NOT_FOUND, "artifact not found")
                 return
@@ -714,7 +714,7 @@ def make_handler(
                 except KeyError:
                     self.write_error(HTTPStatus.NOT_FOUND, "run not found")
                 except ValueError as exc:
-                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    self.write_value_error(exc)
                 except FileNotFoundError:
                     self.write_error(HTTPStatus.NOT_FOUND, "artifact not found")
                 return
@@ -766,7 +766,7 @@ def make_handler(
                     self.write_error(HTTPStatus.FORBIDDEN, str(exc))
                     return
                 except ValueError as exc:
-                    self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    self.write_value_error(exc)
                     return
                 except json.JSONDecodeError:
                     self.write_error(HTTPStatus.BAD_REQUEST, "invalid json")
@@ -898,7 +898,7 @@ def make_handler(
                             idempotency_key=self.headers.get("idempotency-key"),
                         )
                     except ValueError as exc:
-                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        self.write_value_error(exc)
                         return
                     self.write_json(task, status=HTTPStatus.CREATED)
                     return
@@ -920,7 +920,7 @@ def make_handler(
                         self.write_error(HTTPStatus.NOT_FOUND, "task not found")
                         return
                     except ValueError as exc:
-                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        self.write_value_error(exc)
                         return
                     self.write_json({"event": event}, status=HTTPStatus.ACCEPTED)
                     return
@@ -941,7 +941,7 @@ def make_handler(
                         self.write_error(HTTPStatus.NOT_FOUND, "task not found")
                         return
                     except ValueError as exc:
-                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        self.write_value_error(exc)
                         return
                     self.write_json(task, status=HTTPStatus.ACCEPTED)
                     return
@@ -1009,7 +1009,7 @@ def make_handler(
                     try:
                         unit = manager.v2.register_execution_unit(payload)
                     except ValueError as exc:
-                        self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        self.write_value_error(exc)
                         return
                     self.write_json(unit, status=HTTPStatus.CREATED)
                     return
@@ -1365,7 +1365,7 @@ def make_handler(
                 self.write_error(HTTPStatus.NOT_FOUND, "run not found")
                 return
             except ValueError as exc:
-                self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                self.write_value_error(exc)
                 return
             except RuntimeError as exc:
                 self.write_error(HTTPStatus.BAD_GATEWAY, str(exc))
@@ -1735,7 +1735,7 @@ def make_handler(
             except KeyError:
                 self.write_error(HTTPStatus.NOT_FOUND, "session not found")
             except ValueError as exc:
-                self.write_error(HTTPStatus.BAD_REQUEST, str(exc))
+                self.write_value_error(exc)
 
         def resolve_v2_daemon_permission(
             self, task_id: str, permission_id: str, payload: dict[str, Any]
@@ -2318,6 +2318,13 @@ def make_handler(
 
         def write_error(self, status: HTTPStatus, message: str) -> None:
             self.write_json({"error": message}, status=status)
+
+        def write_value_error(self, exc: ValueError) -> None:
+            msg = str(exc)
+            if "already exists" in msg:
+                self.write_error(HTTPStatus.CONFLICT, msg)
+            else:
+                self.write_error(HTTPStatus.BAD_REQUEST, msg)
 
         def write_sse(self, event_id: int, event_type: str, payload: dict[str, Any]) -> None:
             data = json.dumps(payload, ensure_ascii=False, sort_keys=True)

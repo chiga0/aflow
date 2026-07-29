@@ -826,7 +826,7 @@ class RuntimeServerTest(unittest.TestCase):
                     },
                     headers={"cookie": cookie},
                 )
-            self.assertEqual(duplicate_user.exception.code, HTTPStatus.BAD_REQUEST)
+            self.assertEqual(duplicate_user.exception.code, HTTPStatus.CONFLICT)
             member = request_json(
                 f"{base_url}/auth/users",
                 method="POST",
