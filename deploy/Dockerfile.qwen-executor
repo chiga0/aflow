@@ -1,6 +1,10 @@
 ARG BASE_IMAGE=node:22-bookworm-slim
 FROM ${BASE_IMAGE}
 
+LABEL org.opencontainers.image.title="aflow-qwen-executor"
+LABEL org.opencontainers.image.description="AgentFlow Qwen Executor"
+LABEL org.opencontainers.image.source="https://github.com/chiga0/aflow"
+
 ARG NODE_PACKAGE=@qwen-code/qwen-code@0.19.11
 
 RUN apt-get update \

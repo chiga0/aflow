@@ -578,3 +578,18 @@ jobs:
               raise SystemExit("public ingress health check was not ok")
           print("public ingress: authenticated health ok")
           PY
+
+      - name: Notify deployment
+        if: always()
+        env:
+          DEPLOY_WEBHOOK: ${{ secrets.RUNTIME_DEPLOY_WEBHOOK_URL }}
+        run: |
+          if [ -z "${DEPLOY_WEBHOOK:-}" ]; then
+            exit 0
+          fi
+          status="${{ job.status }}"
+          sha="$(echo '${{ github.sha }}' | cut -c1-7)"
+          curl -sf -X POST "$DEPLOY_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"aflow deploy ${status}: ${sha}\"}" \
+            || true

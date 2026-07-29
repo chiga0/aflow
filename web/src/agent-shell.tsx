@@ -5,7 +5,7 @@ import {
   DaemonWorkspaceProvider,
 } from "@qwen-code/webui/daemon-react-sdk";
 import { ChevronRight, PanelRightClose, PanelRightOpen, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge, Button, StatusBadge } from "./components/ui";
 import {
@@ -45,6 +45,7 @@ export function AflowAgentShell({
   );
   const [processesOpen, setProcessesOpen] = useState(true);
   const [mobileProcessesOpen, setMobileProcessesOpen] = useState(false);
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
   const baseUrl = v2TaskDaemonBaseHref(task.task_id);
   const workspaceCwd = taskWorkspace(task);
   const transport = useMemo(
@@ -53,6 +54,12 @@ export function AflowAgentShell({
   );
 
   useEffect(() => () => transport.dispose(), [transport]);
+
+  useEffect(() => {
+    if (mobileProcessesOpen && mobileDrawerRef.current) {
+      mobileDrawerRef.current.focus();
+    }
+  }, [mobileProcessesOpen]);
 
   useEffect(() => {
     if (
@@ -212,9 +219,11 @@ export function AflowAgentShell({
       ) : null}
       {mobileProcessesOpen ? (
         <div
+          ref={mobileDrawerRef}
           aria-label="Process status drawer"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex justify-end bg-black/40 xl:hidden"
+          tabIndex={-1}
+          className="fixed inset-0 z-50 flex justify-end bg-black/40 focus:outline-none xl:hidden"
           role="dialog"
           onClick={() => setMobileProcessesOpen(false)}
         >
@@ -356,7 +365,24 @@ function AgentStatusDot({ status }: { status: string }) {
         : status === "failed"
           ? "bg-red-500"
           : "bg-slate-400";
-  return <span aria-hidden className={`h-2 w-2 rounded-full ${tone}`} />;
+  const label =
+    status === "running"
+      ? "Running"
+      : status === "waiting_approval"
+        ? "Waiting for approval"
+        : status === "failed"
+          ? "Failed"
+          : status === "completed"
+            ? "Completed"
+            : "Idle";
+  return (
+    <span
+      aria-label={label}
+      role="img"
+      title={label}
+      className={`h-2 w-2 rounded-full ${tone}`}
+    />
+  );
 }
 
 function taskWorkspace(task: V2Task) {

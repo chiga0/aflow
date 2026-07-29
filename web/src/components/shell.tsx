@@ -19,7 +19,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge, Button, StatusBadge } from "./ui";
 import {
@@ -86,6 +86,7 @@ const navItems = [
 
 export function Shell() {
   const [open, setOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -100,8 +101,19 @@ export function Shell() {
   const canUseAdmin = roles.some((role) =>
     ["owner", "operator", "auditor"].includes(role),
   );
+  useEffect(() => {
+    if (open && drawerRef.current) {
+      drawerRef.current.focus();
+    }
+  }, [open]);
   return (
     <div className="min-h-screen bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        {t("nav.skipToContent")}
+      </a>
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur">
         <div className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -147,7 +159,14 @@ export function Shell() {
         ) : null}
         {open ? (
           <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur lg:hidden">
-            <div className="h-full w-72 border-r border-border bg-card">
+            <div
+              ref={drawerRef}
+              aria-label={t("navLabel")}
+              aria-modal="true"
+              role="dialog"
+              tabIndex={-1}
+              className="h-full w-72 border-r border-border bg-card focus:outline-none"
+            >
               <div className="flex h-14 items-center justify-between border-b border-border px-4">
                 <span className="text-sm font-semibold">{t("navLabel")}</span>
                 <Button
@@ -164,6 +183,7 @@ export function Shell() {
           </div>
         ) : null}
         <main
+          id="main-content"
           className={
             isAdmin
               ? "min-w-0 p-4 pb-36 lg:p-6 lg:pb-36"

@@ -1239,7 +1239,9 @@ describe("aflow console", () => {
       screen.getAllByRole("button", { name: /reviewer/ }),
     ).not.toHaveLength(0);
     await user.click(
-      screen.getByRole("button", { name: "builder Execute the work" }),
+      screen.getByRole("button", {
+        name: "Completed builder Execute the work",
+      }),
     );
     await user.click(
       screen.getByRole("button", {

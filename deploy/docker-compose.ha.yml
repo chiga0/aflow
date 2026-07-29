@@ -1,6 +1,13 @@
+networks:
+  backend:
+    internal: true
+  frontend:
+
 services:
   postgres:
     image: postgres:16-alpine
+    networks:
+      - backend
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-agentflow}
       POSTGRES_USER: ${POSTGRES_USER:-agentflow}
@@ -23,6 +30,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    networks:
+      - backend
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
@@ -42,6 +51,8 @@ services:
 
   temporal:
     image: temporalio/auto-setup:1.25
+    networks:
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +76,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.runtime
+    networks:
+      - backend
+      - frontend
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +139,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.runtime
+    networks:
+      - backend
     depends_on:
       runtime:
         condition: service_healthy
@@ -148,6 +164,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.runtime
+    networks:
+      - backend
     depends_on:
       runtime:
         condition: service_healthy
