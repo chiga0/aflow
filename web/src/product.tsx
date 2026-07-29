@@ -1669,6 +1669,8 @@ export function ProductAdminPage() {
   );
 }
 
+/* v8 ignore start -- TaskGrid/TaskTrackItem/AgentDag/EventTimeline are referenced
+   only by the v8-ignored legacy pages above; retained as migration references. */
 function TaskGrid({ tasks }: { tasks: V2Task[] }) {
   const { t } = useI18n();
   if (!tasks.length) {
@@ -1906,6 +1908,7 @@ function QwenWebshellPanel({
     </div>
   );
 }
+/* v8 ignore stop */
 
 function AdminStatusCard({ overview }: { overview?: V2AdminOverview }) {
   const { t } = useI18n();
@@ -2263,6 +2266,7 @@ function tenantSlug(name: string) {
   return slug ? `tenant_${slug}` : "tenant_new";
 }
 
+/* v8 ignore next -- ProgressBar is referenced only by the v8-ignored TaskTrackItem. */
 function ProgressBar({ percent }: { percent: number }) {
   return (
     <div className="h-2 overflow-hidden rounded-full bg-muted">

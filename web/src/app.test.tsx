@@ -1380,6 +1380,71 @@ describe("aflow console", () => {
     );
   });
 
+  it("shows the empty state with example prompts when there are no tasks", async () => {
+    const user = userEvent.setup();
+    const baseFetch = fetchMock;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const path = String(input)
+        .replace(/^https?:\/\/[^/]+\//, "")
+        .replace(/^\//, "");
+      if (path === "v2/tasks") {
+        return jsonResponse({ tasks: [] });
+      }
+      return baseFetch(input, init);
+    });
+    render(<App />);
+
+    expect(await screen.findByText("还没有对话")).toBeInTheDocument();
+    const example = screen.getByText("审计部署链路并修复问题");
+    await user.click(example);
+    const textarea = (await screen.findByPlaceholderText(
+      "例如：审计这个仓库的部署链路，修复问题并给出可验证的交付产物",
+    )) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("审计部署链路并修复问题");
+  });
+
+  it("filters recent tasks by status", async () => {
+    const user = userEvent.setup();
+    const baseFetch = fetchMock;
+    const runningTask = {
+      ...v2Task,
+      task_id: "task_running",
+      title: "Running task",
+      goal: "running goal detail",
+      status: "running",
+      progress: { completed_steps: 0, total_steps: 2, percent: 50 },
+    };
+    const doneTask = {
+      ...v2Task,
+      task_id: "task_done",
+      title: "Done task",
+      goal: "done goal detail",
+      status: "completed",
+      progress: { completed_steps: 2, total_steps: 2, percent: 100 },
+    };
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const path = String(input)
+        .replace(/^https?:\/\/[^/]+\//, "")
+        .replace(/^\//, "");
+      if (path === "v2/tasks") {
+        return jsonResponse({ tasks: [runningTask, doneTask] });
+      }
+      return baseFetch(input, init);
+    });
+    render(<App />);
+
+    expect(await screen.findByText("Running task")).toBeInTheDocument();
+    expect(screen.getByText("Done task")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /进行中/ }));
+    expect(screen.getByText("Running task")).toBeInTheDocument();
+    expect(screen.queryByText("Done task")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /已完成/ }));
+    expect(screen.getByText("Done task")).toBeInTheDocument();
+    expect(screen.queryByText("Running task")).toBeNull();
+  });
+
   it("shows the admin control plane overview", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -1410,6 +1475,86 @@ describe("aflow console", () => {
     await user.click(screen.getByRole("button", { name: "创建" }));
     await user.type(screen.getByLabelText("默认租户用户"), "new@example.com");
     await user.click(screen.getByRole("button", { name: "添加" }));
+  });
+
+  it("fills the access user creation form", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({ to: "/admin/access" });
+    });
+    render(<App />);
+    await switchToEnglish(user);
+
+    await screen.findByText("Users");
+    const displayName = screen.getAllByLabelText("Display name")[0];
+    await user.type(displayName, "New User");
+    await user.type(
+      screen.getAllByLabelText("Initial password")[0],
+      "secret123456",
+    );
+    await user.selectOptions(screen.getAllByLabelText("Role")[0], "operator");
+    expect((displayName as HTMLInputElement).value).toBe("New User");
+  });
+
+  it("runs backups and drills from the operations page", async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate({ to: "/admin/operations" });
+    });
+    render(<App />);
+    await switchToEnglish(user);
+
+    expect(await screen.findByText("Backups")).toBeInTheDocument();
+    const createButtons = screen.getAllByRole("button", { name: "Create" });
+    await user.click(createButtons[0]);
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/ops/backups",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    expect(screen.getByText("Failure Drills")).toBeInTheDocument();
+    const runButtons = screen.getAllByRole("button", { name: "Run" });
+    await user.click(runButtons[0]);
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/ops/drills",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("shows the active run dock on admin pages", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(
+      await screen.findByRole("link", { name: /Admin|管理后台/ }),
+    );
+    expect(await screen.findByText("活跃运行")).toBeInTheDocument();
+    const collapse = screen.getByRole("button", { name: "折叠活跃运行" });
+    await user.click(collapse);
+    expect(
+      screen.getByRole("button", { name: "展开活跃运行" }),
+    ).toBeInTheDocument();
+  });
+
+  it("creates a project and adds a member from the admin overview", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(
+      await screen.findByRole("link", { name: /Admin|管理后台/ }),
+    );
+    await screen.findByRole("heading", { name: "管理控制台" });
+
+    await user.type(screen.getByLabelText("项目名称"), "Platform Team");
+    await user.click(screen.getByRole("button", { name: "创建项目" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/v2/admin/projects",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
   });
 
   it("creates a run from the Runs page", async () => {
