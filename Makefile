@@ -1,4 +1,4 @@
-.PHONY: test test-runtime test-web lint backup restore local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down
+.PHONY: test test-runtime test-web lint backup restore verify-backup local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down
 
 test: test-runtime test-web
 
@@ -19,6 +19,10 @@ backup:
 restore:
 	@test -n "$(BACKUP_FILE)" || (echo "Usage: make restore BACKUP_FILE=<path>" && exit 1)
 	bash scripts/backup_runtime.sh restore "$(BACKUP_FILE)"
+
+verify-backup:
+	@test -n "$(BACKUP_FILE)" || (echo "Usage: make verify-backup BACKUP_FILE=<path>" && exit 1)
+	python3 scripts/verify_backup.py "$(BACKUP_FILE)"
 
 local-init:
 	python3 scripts/local_stack.py init

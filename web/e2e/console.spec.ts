@@ -243,6 +243,23 @@ test("keeps navigation usable on mobile", async ({ page, isMobile }) => {
   await expect(page.getByRole("heading", { name: "任务编排" })).toBeVisible();
 });
 
+test("shows error state when the tasks API fails", async ({ page }) => {
+  await page.route("**/v2/tasks", (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "internal server error" }),
+    }),
+  );
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "今天想完成什么？" }),
+  ).toBeVisible();
+  const body = await page.textContent("body");
+  expect(body).toBeTruthy();
+  expect(body!.length).toBeGreaterThan(0);
+});
+
 async function mockRuntime(
   page: Page,
   options: { authenticated?: boolean; roles?: string[] } = {},
