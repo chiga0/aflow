@@ -101,6 +101,36 @@ def make_handler(
                 return True
             return False
 
+        def do_HEAD(self) -> None:
+            path = urlparse(self.path).path
+            if path == "/health":
+                self.send_response(HTTPStatus.OK)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", "0")
+                self.send_security_headers()
+                self.end_headers()
+                self.close_connection = True
+                return
+            static_path = resolve_static_path(path)
+            if static_path is not None:
+                body = static_path.read_bytes()
+                ct = mimetypes.guess_type(static_path.name)[0]
+                self.send_response(HTTPStatus.OK)
+                self.send_header(
+                    "content-type",
+                    ct or "application/octet-stream",
+                )
+                self.send_header("content-length", str(len(body)))
+                self.send_security_headers()
+                self.end_headers()
+                self.close_connection = True
+                return
+            self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+            self.send_header("content-length", "0")
+            self.send_security_headers()
+            self.end_headers()
+            self.close_connection = True
+
         def do_GET(self) -> None:
             path = urlparse(self.path).path
             if self.check_rate_limit(path):
@@ -2661,12 +2691,12 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         manager: RunManager,
         max_concurrent: int | None = None,
     ):
-        super().__init__(server_address, handler_class)
         self.manager = manager
         limit = max_concurrent or int(
             os.environ.get("RUNTIME_MAX_CONCURRENT", "200") or "200"
         )
         self._semaphore = threading.Semaphore(limit)
+        super().__init__(server_address, handler_class)
 
     def process_request(self, request: Any, client_address: Any) -> None:
         if not self._semaphore.acquire(timeout=5):
@@ -2681,7 +2711,8 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
             self._semaphore.release()
 
     def server_close(self) -> None:
-        self.manager.shutdown()
+        if hasattr(self, "manager"):
+            self.manager.shutdown()
         super().server_close()
 
 
