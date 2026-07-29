@@ -46,7 +46,9 @@ import {
   EmptyState,
   Field,
   Input,
+  ListSkeleton,
   Metric,
+  MetricSkeleton,
   Select,
   StatusBadge,
   Textarea,
@@ -1528,16 +1530,30 @@ export function ProductAdminPage() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-5">
-        <Metric label={t("admin.tasks")} value={data?.tasks.total ?? 0} />
-        <Metric
-          label={t("admin.agentTasks")}
-          value={data?.agent_tasks.total ?? 0}
-        />
-        <Metric
-          label={t("units.executionUnits")}
-          value={data?.execution_units.length ?? 0}
-        />
-        <Metric label={t("admin.tenants")} value={data?.tenants.length ?? 0} />
+        {overview.isPending ? (
+          <>
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+          </>
+        ) : (
+          <>
+            <Metric label={t("admin.tasks")} value={data?.tasks.total ?? 0} />
+            <Metric
+              label={t("admin.agentTasks")}
+              value={data?.agent_tasks.total ?? 0}
+            />
+            <Metric
+              label={t("units.executionUnits")}
+              value={data?.execution_units.length ?? 0}
+            />
+            <Metric
+              label={t("admin.tenants")}
+              value={data?.tenants.length ?? 0}
+            />
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -1578,6 +1594,7 @@ export function ProductAdminPage() {
                 </Button>
               </div>
             ) : null}
+            {overview.isPending ? <ListSkeleton rows={3} /> : null}
             {(data?.execution_units ?? []).map((unit) => (
               <div
                 key={unit.unit_id}

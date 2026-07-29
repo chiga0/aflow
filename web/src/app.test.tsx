@@ -1674,8 +1674,10 @@ describe("aflow console", () => {
       screen.getAllByRole("button", { name: "Reset password" })[0],
     );
     await user.click(screen.getAllByRole("button", { name: "Disable" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Confirm" })[0]);
     expect(await screen.findByText("cat_created_secret")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke" }));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/access/tokens",
@@ -1815,8 +1817,10 @@ describe("aflow console", () => {
     );
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     await user.click(screen.getAllByRole("button", { name: "Drain" })[0]);
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
     await user.click(screen.getAllByRole("button", { name: "Resume" })[1]);
     await user.click(screen.getAllByRole("button", { name: "Retry" })[0]);
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/workers/hk-2c2g-a/retry",

@@ -1,10 +1,12 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type {
-  AnchorHTMLAttributes,
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  ReactNode,
+import {
+  useState,
+  type AnchorHTMLAttributes,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type ReactNode,
 } from "react";
+import { AlertTriangle } from "lucide-react";
 
 import { cn } from "../lib/utils";
 
@@ -230,6 +232,91 @@ export function EmptyState({
       {detail ? (
         <div className="mt-1 text-sm text-muted-foreground">{detail}</div>
       ) : null}
+    </div>
+  );
+}
+
+export function ConfirmButton({
+  confirmLabel,
+  cancelLabel,
+  onConfirm,
+  disabled,
+  variant = "danger",
+  size = "sm",
+  children,
+}: {
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  disabled?: boolean;
+  variant?: VariantProps<typeof buttonVariants>["variant"];
+  size?: VariantProps<typeof buttonVariants>["size"];
+  children: ReactNode;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <Button
+        disabled={disabled}
+        size={size}
+        variant={variant}
+        onClick={() => setConfirming(true)}
+      >
+        {children}
+      </Button>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+      <Button
+        autoFocus
+        size={size}
+        variant="danger"
+        onClick={() => {
+          setConfirming(false);
+          onConfirm();
+        }}
+      >
+        {confirmLabel}
+      </Button>
+      <Button size={size} variant="ghost" onClick={() => setConfirming(false)}>
+        {cancelLabel}
+      </Button>
+    </span>
+  );
+}
+
+export function Skeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn("animate-pulse rounded-md bg-muted", className)}
+      aria-hidden="true"
+    />
+  );
+}
+
+export function MetricSkeleton() {
+  return (
+    <div className="grid gap-2 rounded-lg border border-border p-4">
+      <Skeleton className="h-3 w-16" />
+      <Skeleton className="h-7 w-10" />
+    </div>
+  );
+}
+
+export function ListSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="grid gap-2">
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-lg border border-border p-3"
+        >
+          <Skeleton className="h-4 flex-1" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+      ))}
     </div>
   );
 }

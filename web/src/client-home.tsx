@@ -222,7 +222,40 @@ export function ClientHome() {
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="grid gap-4 text-center">
+          <div>
+            <div className="text-sm font-medium">{t("home.noTasksYet")}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {t("home.noTasksYetDetail")}
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                "home.exampleAudit",
+                "home.examplePlan",
+                "home.exampleResearch",
+                "home.exampleReview",
+              ] as const
+            ).map((key) => (
+              <button
+                key={key}
+                className="rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
+                type="button"
+                onClick={() => {
+                  setGoal(t(key));
+                }}
+              >
+                {t(key)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("home.howItWorks")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

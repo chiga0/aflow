@@ -56,6 +56,7 @@ import {
   CardBody,
   CardHeader,
   CardTitle,
+  ConfirmButton,
   EmptyState,
   Field,
   Input,
@@ -685,14 +686,17 @@ function WorkerList({
             />
           </div>
           <div className="flex flex-wrap content-start justify-start gap-2 xl:justify-end">
-            <Button
+            <ConfirmButton
+              cancelLabel={t("common.cancel")}
+              confirmLabel={t("common.confirm")}
               disabled={worker.status === "draining"}
               size="sm"
-              onClick={() => onDrain(worker.worker_id)}
+              variant="secondary"
+              onConfirm={() => onDrain(worker.worker_id)}
             >
               <PauseCircle className="h-4 w-4" />
               {t("units.drain")}
-            </Button>
+            </ConfirmButton>
             <Button
               disabled={worker.status === "active"}
               size="sm"
@@ -701,15 +705,17 @@ function WorkerList({
               <Play className="h-4 w-4" />
               {t("units.resume")}
             </Button>
-            <Button
+            <ConfirmButton
+              cancelLabel={t("common.cancel")}
+              confirmLabel={t("common.confirm")}
               disabled={worker.active_count === 0}
               size="sm"
-              variant="danger"
-              onClick={() => onRetry(worker.worker_id)}
+              variant="secondary"
+              onConfirm={() => onRetry(worker.worker_id)}
             >
               <RefreshCw className="h-4 w-4" />
               {t("units.retry")}
-            </Button>
+            </ConfirmButton>
           </div>
         </div>
       ))}
@@ -1182,14 +1188,16 @@ function RunDetailPage() {
               <CardTitle>{t("runs.state")}</CardTitle>
               <div className="flex gap-2">
                 {run.data ? <StatusBadge status={run.data.status} /> : null}
-                <Button
+                <ConfirmButton
+                  cancelLabel={t("common.cancel")}
+                  confirmLabel={t("common.confirm")}
                   disabled={cancel.isPending || isTerminal(run.data?.status)}
                   size="sm"
-                  onClick={() => cancel.mutate()}
+                  onConfirm={() => cancel.mutate()}
                 >
                   <PauseCircle className="h-4 w-4" />
                   {t("common.cancel")}
-                </Button>
+                </ConfirmButton>
               </div>
             </CardHeader>
             <CardBody className="grid gap-3 md:grid-cols-4">
@@ -2158,14 +2166,16 @@ function MissionDetailPage() {
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 {state ? <StatusBadge status={state.status} /> : null}
-                <Button
+                <ConfirmButton
+                  cancelLabel={t("common.cancel")}
+                  confirmLabel={t("common.confirm")}
                   disabled={cancel.isPending || isTerminal(state?.status)}
                   size="sm"
-                  onClick={() => cancel.mutate()}
+                  onConfirm={() => cancel.mutate()}
                 >
                   <PauseCircle className="h-4 w-4" />
                   {t("common.cancel")}
-                </Button>
+                </ConfirmButton>
               </div>
             </CardHeader>
             <CardBody className="grid gap-3 md:grid-cols-4">
@@ -2967,25 +2977,29 @@ function AccessUserList({
                 <Save className="h-4 w-4" />
                 {t("access.saveRole")}
               </Button>
-              <Button
-                className="self-end"
-                disabled={!canManage || user.email === currentPrincipalId}
-                onClick={() =>
-                  onStatus(
-                    user.email,
-                    user.status === "active" ? "disabled" : "active",
-                  )
-                }
-              >
-                {user.status === "active" ? (
-                  <PauseCircle className="h-4 w-4" />
-                ) : (
+              {user.status === "active" ? (
+                <span className="self-end">
+                  <ConfirmButton
+                    cancelLabel={t("common.cancel")}
+                    confirmLabel={t("common.confirm")}
+                    disabled={!canManage || user.email === currentPrincipalId}
+                    variant="danger"
+                    onConfirm={() => onStatus(user.email, "disabled")}
+                  >
+                    <PauseCircle className="h-4 w-4" />
+                    {t("access.disableUser")}
+                  </ConfirmButton>
+                </span>
+              ) : (
+                <Button
+                  className="self-end"
+                  disabled={!canManage || user.email === currentPrincipalId}
+                  onClick={() => onStatus(user.email, "active")}
+                >
                   <Play className="h-4 w-4" />
-                )}
-                {user.status === "active"
-                  ? t("access.disableUser")
-                  : t("access.enableUser")}
-              </Button>
+                  {t("access.enableUser")}
+                </Button>
+              )}
             </div>
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
               <Field label={t("access.newPassword")}>
@@ -3090,14 +3104,16 @@ function ApiTokenList({
               ))}
             </div>
           </div>
-          <Button
+          <ConfirmButton
+            cancelLabel={t("common.cancel")}
+            confirmLabel={t("common.confirm")}
             disabled={!canManage || token.status !== "active"}
             size="sm"
             variant="danger"
-            onClick={() => onRevoke(token.token_id)}
+            onConfirm={() => onRevoke(token.token_id)}
           >
             {t("access.revoke")}
-          </Button>
+          </ConfirmButton>
         </div>
       ))}
     </div>
