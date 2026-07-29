@@ -1,8 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "rollback" ]]; then
+  if [[ $# -lt 3 ]]; then
+    echo "usage: $0 rollback <ssh-target> <ssh-key>" >&2
+    exit 2
+  fi
+  ROLLBACK_SSH_TARGET="$2"
+  ROLLBACK_SSH_KEY="$3"
+  ROLLBACK_APP_DIR="${APP_DIR:-/opt/agentflow}"
+  ssh -i "$ROLLBACK_SSH_KEY" \
+    -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=30 \
+    "$ROLLBACK_SSH_TARGET" bash -s <<'ROLLBACK_REMOTE'
+set -euo pipefail
+APP_DIR="${APP_DIR:-/opt/agentflow}"
+PREVIOUS_REVISION_FILE="$APP_DIR/.previous_revision"
+if [[ ! -f "$PREVIOUS_REVISION_FILE" ]]; then
+  echo "no previous revision found at $PREVIOUS_REVISION_FILE" >&2
+  exit 1
+fi
+PREVIOUS_REVISION="$(cat "$PREVIOUS_REVISION_FILE")"
+echo "[rollback] reverting to $PREVIOUS_REVISION"
+git -C "$APP_DIR" reset --hard "$PREVIOUS_REVISION"
+systemctl kill --signal=SIGTERM cloud-agents-runtime || true
+for i in $(seq 1 30); do
+  if ! systemctl is-active --quiet cloud-agents-runtime; then
+    break
+  fi
+  sleep 1
+done
+systemctl stop cloud-agents-runtime || true
+systemctl start cloud-agents-runtime
+sleep 3
+if systemctl --no-pager --full status cloud-agents-runtime; then
+  echo "[rollback] successfully reverted to $PREVIOUS_REVISION"
+else
+  journalctl -u cloud-agents-runtime -n 120 --no-pager || true
+  exit 3
+fi
+ROLLBACK_REMOTE
+  exit $?
+fi
+
 if [[ $# -lt 2 ]]; then
   echo "usage: $0 <ssh-target> <ssh-key>" >&2
+  echo "       $0 rollback <ssh-target> <ssh-key>" >&2
   exit 2
 fi
 
@@ -548,6 +591,7 @@ if [[ ! -d "$APP_DIR/.git" ]]; then
     "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
     git clone "$REPO_URL" "$APP_DIR"
 else
+  git -C "$APP_DIR" rev-parse HEAD > "$APP_DIR/.previous_revision" || true
   run_timeout \
     "fetch runtime repository" \
     "$DEPLOY_COMMAND_TIMEOUT_SECONDS" \
@@ -820,7 +864,15 @@ systemctl reload nginx
 
 systemctl daemon-reload
 systemctl enable --now cloud-agents-runtime
-systemctl restart cloud-agents-runtime
+systemctl kill --signal=SIGTERM cloud-agents-runtime || true
+for drain_i in $(seq 1 30); do
+  if ! systemctl is-active --quiet cloud-agents-runtime; then
+    break
+  fi
+  sleep 1
+done
+systemctl stop cloud-agents-runtime || true
+systemctl start cloud-agents-runtime
 sleep 3
 if ! systemctl --no-pager --full status cloud-agents-runtime; then
   journalctl -u cloud-agents-runtime -n 120 --no-pager || true

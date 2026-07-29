@@ -52,6 +52,7 @@ from .webshell_gateway import (
 def make_handler(
     manager: RunManager,
     auth_config: AuthConfig | None = None,
+    cors_origin: str | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     auth_config = auth_config or AuthConfig()
     if auth_config.login_enabled:
@@ -367,6 +368,12 @@ def make_handler(
                 return
             if path == "/metrics.json":
                 self.write_json(manager.metrics())
+                return
+            if path == "/metrics":
+                self.write_prometheus_metrics()
+                return
+            if path == "/ops/audit/export":
+                self.write_audit_export()
                 return
             if path == "/ops/status":
                 self.write_json(manager.operations_status())
@@ -1994,6 +2001,27 @@ def make_handler(
             self.send_header("x-content-type-options", "nosniff")
             self.send_header("x-frame-options", "DENY")
             self.send_header("referrer-policy", "strict-origin-when-cross-origin")
+            if cors_origin:
+                self.send_header("access-control-allow-origin", cors_origin)
+                self.send_header(
+                    "access-control-allow-methods",
+                    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+                )
+                self.send_header(
+                    "access-control-allow-headers",
+                    "content-type, authorization, x-csrf-token",
+                )
+                self.send_header("access-control-max-age", "86400")
+
+        def do_OPTIONS(self) -> None:
+            if not cors_origin:
+                self.write_error(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
+                return
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_security_headers()
+            self.send_header("content-length", "0")
+            self.end_headers()
+            self.close_connection = True
 
         def write_json(
             self,
@@ -2080,10 +2108,86 @@ def make_handler(
             self.wfile.write(frame.encode("utf-8"))
             self.wfile.flush()
 
-        def log_message(self, fmt: str, *args: Any) -> None:
-            logger.info(
-                "%s %s", self.address_string(), fmt % args
+        def write_prometheus_metrics(self) -> None:
+            data = manager.metrics()
+            lines: list[str] = []
+            runs = data.get("runs", {})
+            lines.append("# HELP aflow_runs_total Total runs by status.")
+            lines.append("# TYPE aflow_runs_total gauge")
+            for status, count in sorted(runs.get("by_status", {}).items()):
+                lines.append(f'aflow_runs_total{{status="{status}"}} {count}')
+            missions = data.get("missions", {})
+            lines.append("# HELP aflow_missions_total Total missions by status.")
+            lines.append("# TYPE aflow_missions_total gauge")
+            for status, count in sorted(missions.get("by_status", {}).items()):
+                lines.append(f'aflow_missions_total{{status="{status}"}} {count}')
+            queue = data.get("queue", {})
+            lines.append("# HELP aflow_queue_jobs Queue jobs by status.")
+            lines.append("# TYPE aflow_queue_jobs gauge")
+            for status, count in sorted(queue.get("counts", {}).items()):
+                lines.append(f'aflow_queue_jobs{{status="{status}"}} {count}')
+            lines.append("# HELP aflow_workers_total Workers by status.")
+            lines.append("# TYPE aflow_workers_total gauge")
+            lines.append(f'aflow_workers_total{{status="active"}} {queue.get("active_workers", 0)}')
+            lines.append(f'aflow_workers_total{{status="stale"}} {queue.get("stale_workers", 0)}')
+            perms = data.get("permissions", {})
+            lines.append("# HELP aflow_permissions_pending Pending permission requests.")
+            lines.append("# TYPE aflow_permissions_pending gauge")
+            lines.append(f"aflow_permissions_pending {perms.get('pending', 0)}")
+            latency = data.get("latency_seconds", {})
+            if latency.get("avg") is not None:
+                lines.append("# HELP aflow_run_latency_seconds Run latency.")
+                lines.append("# TYPE aflow_run_latency_seconds summary")
+                lines.append(f'aflow_run_latency_seconds{{quantile="0.5"}} {latency["avg"]}')
+                lines.append(
+                    f'aflow_run_latency_seconds{{quantile="0.95"}} {latency.get("p95", 0)}'
+                )
+                lines.append(f"aflow_run_latency_seconds_count {latency.get('count', 0)}")
+            body = "\n".join(lines) + "\n"
+            encoded = body.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("content-length", str(len(encoded)))
+            self.send_security_headers()
+            self.end_headers()
+            self.wfile.write(encoded)
+            self.wfile.flush()
+            self.close_connection = True
+
+        def write_audit_export(self) -> None:
+            runs = manager.store.list_runs()
+            lines: list[str] = []
+            for run in runs:
+                for event in manager.store.events_since(run.run_id):
+                    lines.append(
+                        json.dumps(
+                            {
+                                "run_id": run.run_id,
+                                "sequence": event.sequence,
+                                "type": event.type,
+                                "created_at": event.created_at,
+                                "data": event.data,
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    )
+            body = "\n".join(lines) + "\n" if lines else ""
+            encoded = body.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "application/x-ndjson; charset=utf-8")
+            self.send_header("content-length", str(len(encoded)))
+            self.send_header(
+                "content-disposition", 'attachment; filename="audit-export.ndjson"'
             )
+            self.send_security_headers()
+            self.end_headers()
+            self.wfile.write(encoded)
+            self.wfile.flush()
+            self.close_connection = True
+
+        def log_message(self, fmt: str, *args: Any) -> None:
+            logger.info("%s %s", self.address_string(), fmt % args)
 
     return RuntimeHandler
 
@@ -2273,6 +2377,7 @@ def build_server(
     worker_capacity: int | None = None,
     worker_id: str | None = None,
     lease_ttl_seconds: int | None = None,
+    cors_origin: str | None = None,
 ) -> ThreadingHTTPServer:
     manager = RunManager(
         artifact_root=artifact_root,
@@ -2283,7 +2388,11 @@ def build_server(
         lease_ttl_seconds=lease_ttl_seconds,
         heartbeat_enabled=True,
     )
-    return RuntimeHTTPServer((host, port), make_handler(manager, auth_config=auth_config), manager)
+    return RuntimeHTTPServer(
+        (host, port),
+        make_handler(manager, auth_config=auth_config, cors_origin=cors_origin),
+        manager,
+    )
 
 
 class RuntimeHTTPServer(ThreadingHTTPServer):
@@ -2362,6 +2471,26 @@ def main(argv: list[str] | None = None) -> int:
         help="secret used to sign console session cookies",
     )
     parser.add_argument(
+        "--oidc-issuer",
+        default=os.environ.get("RUNTIME_OIDC_ISSUER"),
+        help="OIDC issuer URL for SSO login",
+    )
+    parser.add_argument(
+        "--oidc-client-id",
+        default=os.environ.get("RUNTIME_OIDC_CLIENT_ID"),
+        help="OIDC client id",
+    )
+    parser.add_argument(
+        "--oidc-client-secret",
+        default=os.environ.get("RUNTIME_OIDC_CLIENT_SECRET"),
+        help="OIDC client secret",
+    )
+    parser.add_argument(
+        "--oidc-redirect-uri",
+        default=os.environ.get("RUNTIME_OIDC_REDIRECT_URI"),
+        help="OIDC redirect URI for the callback endpoint",
+    )
+    parser.add_argument(
         "--qwen-url",
         default=os.environ.get("QWEN_SERVE_URL"),
         help="existing qwen serve base URL",
@@ -2388,6 +2517,11 @@ def main(argv: list[str] | None = None) -> int:
         default=parse_optional_int(os.environ.get("RUN_MANAGER_LEASE_TTL_SECONDS")),
         help="seconds before an unrefreshed run lease can be reclaimed",
     )
+    parser.add_argument(
+        "--cors-origin",
+        default=os.environ.get("RUNTIME_CORS_ORIGIN"),
+        help="allowed CORS origin (e.g. https://app.example.com)",
+    )
     args = parser.parse_args(argv)
     executor_config = ExecutorConfig.from_env()
     supervisor = None if executor_config.enabled else qwen_supervisor_from_env()
@@ -2406,12 +2540,17 @@ def main(argv: list[str] | None = None) -> int:
             bootstrap_password=args.bootstrap_password,
             bootstrap_name=args.bootstrap_name,
             session_secret=args.session_secret,
+            oidc_issuer=args.oidc_issuer,
+            oidc_client_id=args.oidc_client_id,
+            oidc_client_secret=args.oidc_client_secret,
+            oidc_redirect_uri=args.oidc_redirect_uri,
         ),
         qwen_base_url=args.qwen_url,
         qwen_token=args.qwen_token,
         worker_capacity=args.worker_capacity,
         worker_id=args.worker_id,
         lease_ttl_seconds=args.lease_ttl_seconds,
+        cors_origin=args.cors_origin,
     )
     logging.basicConfig(
         level=os.environ.get("RUNTIME_LOG_LEVEL", "INFO").upper(),

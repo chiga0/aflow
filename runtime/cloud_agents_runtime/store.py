@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import sqlite3
 import threading
 import weakref
@@ -9,6 +10,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("cloud_agents_runtime")
 
 from .events import RuntimeEvent, TERMINAL_RUN_EVENTS, utc_now
 from .auth import new_session_token, normalize_email, session_expiry
@@ -40,6 +43,9 @@ class RunStore:
         self.db_path = self.artifact_root / "runtime.db"
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        self._db.execute("pragma journal_mode=WAL")
+        self._db.execute("pragma synchronous=NORMAL")
+        self._db.execute("pragma busy_timeout=5000")
         self._closed = False
         self._db_finalizer = weakref.finalize(self, self._db.close)
         self._runs: dict[str, RunState] = {}
@@ -1444,7 +1450,61 @@ class RunStore:
         self._ensure_column("workers", "metadata_json", "text not null default '{}'")
         self._ensure_column("auth_users", "token_version", "integer not null default 1")
         self._ensure_column("auth_sessions", "token_version", "integer not null default 1")
+        self._run_migrations()
+        self._ensure_indexes()
         self._db.commit()
+
+    MIGRATIONS: list[tuple[int, str, str]] = [
+        (1, "add_runs_timeout_seconds", "alter table runs add column timeout_seconds integer"),
+        (
+            2,
+            "add_run_jobs_failure_kind",
+            "alter table run_jobs add column failure_kind text",
+        ),
+    ]
+
+    def _run_migrations(self) -> None:
+        self._db.execute(
+            "create table if not exists schema_migrations ("
+            "  version integer primary key,"
+            "  name text not null,"
+            "  applied_at text not null"
+            ")"
+        )
+        applied = {
+            row["version"]
+            for row in self._db.execute("select version from schema_migrations").fetchall()
+        }
+        for version, name, sql in self.MIGRATIONS:
+            if version in applied:
+                continue
+            try:
+                self._db.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
+            self._db.execute(
+                "insert into schema_migrations (version, name, applied_at) values (?, ?, ?)",
+                (version, name, utc_now()),
+            )
+            logger.info("applied migration %d: %s", version, name)
+
+    def _ensure_indexes(self) -> None:
+        self._db.executescript(
+            """
+            create index if not exists idx_run_events_run_id on run_events (run_id);
+            create index if not exists idx_raw_events_run_id on raw_events (run_id);
+            create index if not exists idx_run_jobs_status on run_jobs (status);
+            create index if not exists idx_workers_status on workers (status);
+            create index if not exists idx_auth_sessions_user on auth_sessions (user_email);
+            create index if not exists idx_api_tokens_principal on api_tokens (principal_id);
+            create index if not exists idx_mission_tasks_mission on mission_tasks (mission_id);
+            create index if not exists idx_mission_events_mission on mission_events (mission_id);
+            create index if not exists idx_executor_leases_run on executor_leases (run_id);
+            create index if not exists idx_permission_notifications_run
+              on permission_notifications (run_id);
+            """
+        )
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         columns = {

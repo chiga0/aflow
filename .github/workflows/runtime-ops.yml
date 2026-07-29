@@ -14,6 +14,7 @@ on:
           - retry_worker
           - restart_runtime
           - restart_nginx
+          - monitor
       worker_id:
         description: "Worker id used by retry_worker"
         required: false
@@ -162,9 +163,26 @@ jobs:
               curl -fsS http://127.0.0.1/agentflow/ >/dev/null
               echo '{"nginx":"ok"}'
               ;;
+            monitor)
+              python3 /opt/cloud-agents-runtime/scripts/monitor_runtime.py --json
+              ;;
             *)
               echo "unknown runtime operation: $RUNTIME_OP_ACTION" >&2
               exit 2
               ;;
           esac
           REMOTE
+
+      - name: Alert on monitor failure
+        if: failure() && inputs.action == 'monitor'
+        env:
+          RUNTIME_ALERT_WEBHOOK_URL: ${{ secrets.RUNTIME_ALERT_WEBHOOK_URL }}
+          RUNTIME_SSH_TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+        run: |
+          set -eu
+          if [ -n "${RUNTIME_ALERT_WEBHOOK_URL:-}" ]; then
+            host="${RUNTIME_SSH_TARGET##*@}"
+            curl -sf -X POST "$RUNTIME_ALERT_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d "{\"text\": \"aflow runtime monitor: FAIL on ${host}\"}" || true
+          fi

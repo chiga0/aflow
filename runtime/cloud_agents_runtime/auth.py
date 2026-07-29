@@ -29,6 +29,10 @@ class AuthConfig:
     bootstrap_name: str | None = None
     session_secret: str | None = None
     session_ttl_seconds: int = 12 * 60 * 60
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None
+    oidc_redirect_uri: str | None = None
 
     @property
     def enabled(self) -> bool:
@@ -37,6 +41,10 @@ class AuthConfig:
     @property
     def login_enabled(self) -> bool:
         return bool(self.bootstrap_password_value and self.bootstrap_email_value)
+
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id)
 
     @property
     def session_secret_value(self) -> str | None:
@@ -63,6 +71,8 @@ class AuthConfig:
         if path == "/health" and not self.protect_health:
             return True
         if path in {"/", "/ui", "/auth/session", "/auth/login", "/auth/logout"}:
+            return True
+        if self.oidc_enabled and path in {"/auth/oidc/login", "/auth/oidc/callback"}:
             return True
         return path.startswith("/assets/")
 
@@ -124,7 +134,13 @@ class AuthConfig:
                 if identity or not self.login_enabled
                 else None
             ),
-            "auth_mode": "local_email" if self.login_enabled else "disabled",
+            "auth_mode": (
+                "oidc"
+                if self.oidc_enabled
+                else "local_email"
+                if self.login_enabled
+                else "disabled"
+            ),
             "csrf_token": identity.get("csrf_token") if identity else None,
         }
 

@@ -1,4 +1,4 @@
-.PHONY: test test-runtime test-web lint local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down
+.PHONY: test test-runtime test-web lint backup restore local-init local-doctor local-up local-status local-smoke local-demo local-load local-logs local-down
 
 test: test-runtime test-web
 
@@ -12,6 +12,13 @@ lint:
 	python3 scripts/check_style.py
 	cd web && npm run lint
 	cd web && npm run format
+
+backup:
+	bash scripts/backup_runtime.sh backup
+
+restore:
+	@test -n "$(BACKUP_FILE)" || (echo "Usage: make restore BACKUP_FILE=<path>" && exit 1)
+	bash scripts/backup_runtime.sh restore "$(BACKUP_FILE)"
 
 local-init:
 	python3 scripts/local_stack.py init
