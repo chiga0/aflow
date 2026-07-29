@@ -82,6 +82,9 @@ def make_handler(
         for p in os.environ.get("RUNTIME_TRUSTED_PROXIES", "").split(",")
         if p.strip()
     )
+    sse_semaphore = threading.Semaphore(
+        int(os.environ.get("RUNTIME_MAX_SSE_CONNECTIONS", "50") or "50")
+    )
 
     class RuntimeHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -1349,6 +1352,12 @@ def make_handler(
             if manager.get_run(run_id) is None:
                 self.write_error(HTTPStatus.NOT_FOUND, "run not found")
                 return
+            if not sse_semaphore.acquire(timeout=5):
+                self.write_error(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "too many SSE connections",
+                )
+                return
 
             last_sequence = parse_last_event_id(self.headers.get("Last-Event-ID"))
             last_sequence = manager.store.record_gap_if_needed(run_id, last_sequence)
@@ -1362,9 +1371,13 @@ def make_handler(
             last_heartbeat = time.monotonic()
             try:
                 while True:
-                    events = manager.store.wait_for_events(run_id, last_sequence, timeout=1.0)
+                    events = manager.store.wait_for_events(
+                        run_id, last_sequence, timeout=1.0
+                    )
                     for event in events:
-                        self.write_sse(event.sequence, event.type, event.to_dict())
+                        self.write_sse(
+                            event.sequence, event.type, event.to_dict()
+                        )
                         last_sequence = event.sequence
                     if manager.store.is_terminal(run_id) and not events:
                         break
@@ -1373,12 +1386,20 @@ def make_handler(
                         self.wfile.flush()
                         last_heartbeat = time.monotonic()
             except (BrokenPipeError, ConnectionResetError):
-                return
+                pass
+            finally:
+                sse_semaphore.release()
 
         def stream_session_events(self, session_id: str) -> None:
             run = manager.get_run(session_id)
             if run is None:
                 self.write_error(HTTPStatus.NOT_FOUND, "session not found")
+                return
+            if not sse_semaphore.acquire(timeout=5):
+                self.write_error(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "too many SSE connections",
+                )
                 return
 
             last_sequence = parse_last_event_id(self.headers.get("Last-Event-ID"))
@@ -1406,7 +1427,9 @@ def make_handler(
                         self.wfile.flush()
                         last_heartbeat = time.monotonic()
             except (BrokenPipeError, ConnectionResetError):
-                return
+                pass
+            finally:
+                sse_semaphore.release()
 
         def stream_v2_webshell_events(self, task_id: str) -> None:
             if not self.authorize_v2_task(task_id):
@@ -1415,6 +1438,12 @@ def make_handler(
                 manager.v2.get_task(task_id)
             except KeyError:
                 self.write_error(HTTPStatus.NOT_FOUND, "task not found")
+                return
+            if not sse_semaphore.acquire(timeout=5):
+                self.write_error(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "too many SSE connections",
+                )
                 return
 
             last_sequence = parse_last_event_id(self.headers.get("Last-Event-ID"))
@@ -1449,7 +1478,9 @@ def make_handler(
                         last_heartbeat = time.monotonic()
                     time.sleep(0.2)
             except (BrokenPipeError, ConnectionResetError):
-                return
+                pass
+            finally:
+                sse_semaphore.release()
 
         def handle_v2_daemon_get(self, task_id: str, route: list[str]) -> None:
             if not self.authorize_v2_task(task_id):

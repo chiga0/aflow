@@ -3496,7 +3496,49 @@ class V2ControlPlane:
                     ON v2_tenant_users(tenant_id);
                 """
             )
+            self._run_migrations()
             self._db.commit()
+
+    V2_MIGRATIONS: list[tuple[int, str, str]] = [
+        (
+            1,
+            "add_v2_tasks_timeout_seconds",
+            "ALTER TABLE v2_tasks ADD COLUMN timeout_seconds INTEGER",
+        ),
+        (
+            2,
+            "add_v2_agent_tasks_worker_id",
+            "ALTER TABLE v2_agent_tasks ADD COLUMN worker_id TEXT",
+        ),
+    ]
+
+    def _run_migrations(self) -> None:
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS v2_schema_migrations ("
+            "  version INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  applied_at TEXT NOT NULL"
+            ")"
+        )
+        applied = {
+            row[0]
+            for row in self._db.execute(
+                "SELECT version FROM v2_schema_migrations"
+            ).fetchall()
+        }
+        for version, name, sql in self.V2_MIGRATIONS:
+            if version in applied:
+                continue
+            try:
+                self._db.execute(sql)
+            except Exception as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
+            self._db.execute(
+                "INSERT INTO v2_schema_migrations"
+                " (version, name, applied_at) VALUES (?, ?, ?)",
+                (version, name, utc_now()),
+            )
 
 
 def summarize_goal(goal: str) -> str:

@@ -68,6 +68,37 @@ class WorkspaceVerificationError(RuntimeError):
         )
 
 
+class CircuitBreaker:
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_seconds: float = 30.0,
+    ):
+        self.failure_threshold = failure_threshold
+        self.recovery_seconds = recovery_seconds
+        self._failures = 0
+        self._last_failure: float = 0.0
+        self._lock = threading.Lock()
+
+    def allow_request(self) -> bool:
+        with self._lock:
+            if self._failures < self.failure_threshold:
+                return True
+            if time.monotonic() - self._last_failure >= self.recovery_seconds:
+                self._failures = 0
+                return True
+            return False
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = 0
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._failures += 1
+            self._last_failure = time.monotonic()
+
+
 class ControlPlaneClient:
     def __init__(
         self,
@@ -75,10 +106,13 @@ class ControlPlaneClient:
         *,
         token: str | None = None,
         timeout_seconds: float = 10.0,
+        max_retries: int = 3,
     ):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.circuit_breaker = CircuitBreaker()
 
     def heartbeat(self, worker_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request_json(
@@ -192,27 +226,62 @@ class ControlPlaneClient:
         method: str = "GET",
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        if not self.circuit_breaker.allow_request():
+            raise RuntimeError(
+                f"circuit open: {method} {path} rejected"
+            )
+        body = (
+            json.dumps(payload).encode("utf-8")
+            if payload is not None
+            else None
+        )
         headers = {"accept": "application/json"}
         if payload is not None:
             headers["content-type"] = "application/json"
         if self.token:
             headers["authorization"] = f"Bearer {self.token}"
-        request = urllib.request.Request(
-            f"{self.base_url}{path}",
-            data=body,
-            headers=headers,
-            method=method,
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                parsed = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"{method} {path} failed: {exc.code} {detail}") from exc
-        if not isinstance(parsed, dict):
-            raise RuntimeError(f"{method} {path} returned non-object JSON")
-        return parsed
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            if attempt > 0:
+                time.sleep(min(2 ** attempt * 0.5, 8.0))
+            request = urllib.request.Request(
+                f"{self.base_url}{path}",
+                data=body,
+                headers=headers,
+                method=method,
+            )
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=self.timeout_seconds
+                ) as response:
+                    parsed = json.loads(
+                        response.read().decode("utf-8")
+                    )
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                if exc.code < 500:
+                    self.circuit_breaker.record_success()
+                    raise RuntimeError(
+                        f"{method} {path} failed: {exc.code} {detail}"
+                    ) from exc
+                last_error = RuntimeError(
+                    f"{method} {path} failed: {exc.code} {detail}"
+                )
+                continue
+            except (urllib.error.URLError, OSError) as exc:
+                last_error = RuntimeError(
+                    f"{method} {path} unreachable: {exc}"
+                )
+                continue
+            if not isinstance(parsed, dict):
+                self.circuit_breaker.record_success()
+                raise RuntimeError(
+                    f"{method} {path} returned non-object JSON"
+                )
+            self.circuit_breaker.record_success()
+            return parsed
+        self.circuit_breaker.record_failure()
+        raise last_error or RuntimeError(f"{method} {path} failed")
 
 
 class RemoteWorkerRunStore:
