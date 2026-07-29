@@ -362,7 +362,8 @@ function RunsPage() {
               {t("common.refresh")}
             </Button>
           </CardHeader>
-          <CardBody>
+          <CardBody className="grid gap-3">
+            <QueryError query={runs} />
             <RunList runs={runs.data?.runs ?? []} />
           </CardBody>
         </Card>
@@ -460,7 +461,8 @@ function UnitsPage() {
               {t("common.refresh")}
             </Button>
           </CardHeader>
-          <CardBody>
+          <CardBody className="grid gap-3">
+            <QueryError query={workers} />
             <WorkerList
               workers={workerList}
               onDrain={(workerId) => drain.mutate(workerId)}
@@ -897,7 +899,8 @@ function ExecutorsPage() {
               {t("common.refresh")}
             </Button>
           </CardHeader>
-          <CardBody>
+          <CardBody className="grid gap-3">
+            <QueryError query={executors} />
             <ExecutorLeaseList leases={leases} />
           </CardBody>
         </Card>
@@ -2088,7 +2091,8 @@ function MissionsPage() {
           <CardHeader>
             <CardTitle>{t("missions.history")}</CardTitle>
           </CardHeader>
-          <CardBody>
+          <CardBody className="grid gap-3">
+            <QueryError query={missions} />
             <MissionList missions={missions.data?.missions ?? []} />
           </CardBody>
         </Card>
@@ -2363,6 +2367,7 @@ function ProfilesPage() {
           onSaved={() => setDraft(null)}
         />
         <div className="grid gap-4 md:grid-cols-2">
+          <QueryError query={profiles} />
           {(profiles.data?.profiles ?? []).map((profile) => (
             <Card key={`${profile.id}-${profile.version}`}>
               <CardHeader>
@@ -2739,6 +2744,7 @@ function AccessPage() {
               {String(createUser.error)}
             </div>
           ) : null}
+          <QueryError query={users} />
           <AccessUserList
             canManage={isOwner}
             currentPrincipalId={principal?.id}
@@ -2790,6 +2796,7 @@ function AccessPage() {
                 {t("common.create")}
               </Button>
             </div>
+            <QueryError query={projects} />
             <AccessProjectList
               projects={projects.data?.projects ?? policy.data?.projects ?? []}
             />
@@ -2841,6 +2848,7 @@ function AccessPage() {
                 </div>
               </div>
             ) : null}
+            <QueryError query={tokens} />
             <ApiTokenList
               canManage={isOwner}
               tokens={tokens.data?.tokens ?? policy.data?.tokens ?? []}
@@ -3284,6 +3292,7 @@ function OperationsPage() {
             </Button>
           </CardHeader>
           <CardBody className="grid gap-2">
+            <QueryError query={drills} />
             {checks.map((check) => (
               <div
                 key={check.id}
@@ -4020,6 +4029,38 @@ function Page({
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </div>
       {children}
+    </div>
+  );
+}
+
+function QueryError({
+  query,
+}: {
+  query: { isError: boolean; refetch: () => void };
+}) {
+  const { t } = useI18n();
+  if (!query.isError) {
+    return null;
+  }
+  return (
+    <div
+      className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+      role="alert"
+    >
+      <div className="flex items-center gap-2 font-medium">
+        <AlertTriangle className="h-4 w-4" />
+        {t("common.loadFailed")}
+      </div>
+      <Button
+        className="mt-2"
+        size="sm"
+        type="button"
+        variant="secondary"
+        onClick={() => query.refetch()}
+      >
+        <RefreshCw className="h-4 w-4" />
+        {t("common.refresh")}
+      </Button>
     </div>
   );
 }

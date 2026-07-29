@@ -493,7 +493,26 @@ export function LegacyProductClientPage() {
           </div>
           <Badge tone="neutral">{taskItems.length} total</Badge>
         </div>
-        <TaskGrid tasks={recent} />
+        {tasks.isError ? (
+          <div
+            className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            role="alert"
+          >
+            <div className="font-medium">Failed to load tasks.</div>
+            <Button
+              className="mt-2"
+              size="sm"
+              type="button"
+              variant="secondary"
+              onClick={() => tasks.refetch()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <TaskGrid tasks={recent} />
+        )}
       </section>
     </div>
   );
@@ -1536,6 +1555,24 @@ export function ProductAdminPage() {
             </div>
           </CardHeader>
           <CardBody className="grid gap-3">
+            {overview.isError ? (
+              <div
+                className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+                role="alert"
+              >
+                <div className="font-medium">Failed to load overview.</div>
+                <Button
+                  className="mt-2"
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                  onClick={() => overview.refetch()}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Retry
+                </Button>
+              </div>
+            ) : null}
             {(data?.execution_units ?? []).map((unit) => (
               <div
                 key={unit.unit_id}
