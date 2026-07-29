@@ -1157,9 +1157,9 @@ describe("aflow console", () => {
 
     await user.click(screen.getByRole("link", { name: "管理后台" }));
     expect(
-      await screen.findByRole("heading", { name: "Admin Control Plane" }),
+      await screen.findByRole("heading", { name: "管理控制台" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Reliability Spine")).toBeInTheDocument();
+    expect(screen.getByText("可靠性基座")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("切换语言"));
     expect(
@@ -1389,30 +1389,27 @@ describe("aflow console", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Admin Control Plane" }),
+      await screen.findByRole("heading", { name: "管理控制台" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Reliability Spine")).toBeInTheDocument();
+    expect(screen.getByText("可靠性基座")).toBeInTheDocument();
     expect(screen.getByText("local-dev")).toBeInTheDocument();
     expect(screen.getByText("Feishu")).toBeInTheDocument();
     expect(screen.getByText("sqlite:v2_events")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Discover" }));
+    await user.click(screen.getByRole("button", { name: "发现" }));
     await user.type(
-      screen.getByLabelText("Webhook URL"),
+      screen.getByLabelText("Webhook 地址"),
       "https://bot.example",
     );
-    await user.type(screen.getByLabelText("Callback token"), "token");
-    await user.click(screen.getByRole("button", { name: "Configure" }));
-    await user.clear(screen.getByLabelText("Outbound test"));
-    await user.type(screen.getByLabelText("Outbound test"), "hello channel");
-    await user.click(screen.getByRole("button", { name: "Send" }));
-    await user.type(screen.getByLabelText("Tenant name"), "Acme");
-    await user.click(screen.getByRole("button", { name: "Create" }));
-    await user.type(
-      screen.getByLabelText("Default tenant user"),
-      "new@example.com",
-    );
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("回调令牌"), "token");
+    await user.click(screen.getByRole("button", { name: "配置" }));
+    await user.clear(screen.getByLabelText("出站测试"));
+    await user.type(screen.getByLabelText("出站测试"), "hello channel");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    await user.type(screen.getByLabelText("租户名称"), "Acme");
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    await user.type(screen.getByLabelText("默认租户用户"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "添加" }));
   });
 
   it("creates a run from the Runs page", async () => {

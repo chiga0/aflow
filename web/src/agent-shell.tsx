@@ -16,6 +16,7 @@ import {
   type V2Artifact,
   type V2Task,
 } from "./lib/api";
+import { useI18n } from "./lib/i18n";
 
 interface AflowAgentShellProps {
   task: V2Task;
@@ -32,6 +33,7 @@ export function AflowAgentShell({
   onRetry,
   busy = false,
 }: AflowAgentShellProps) {
+  const { t } = useI18n();
   const agents = useMemo(
     () => task.plan?.agent_tasks ?? [],
     [task.plan?.agent_tasks],
@@ -104,7 +106,7 @@ export function AflowAgentShell({
             ))}
           </div>
           <Badge tone={runningCount ? "info" : "neutral"}>
-            {runningCount} active
+            {runningCount} {t("shell.active")}
           </Badge>
           <Button
             className="xl:hidden"
@@ -185,7 +187,7 @@ export function AflowAgentShell({
                   {
                     id: "aflow-agent",
                     label: `${selectedAgent?.role ?? "agent"} · ${selectedAgent?.status ?? task.status}`,
-                    title: "Current Aflow agent process",
+                    title: t("shell.currentAgent"),
                     onClick: () => setProcessesOpen(true),
                   },
                 ]}
@@ -277,12 +279,13 @@ function ProcessPanel({
   onRetry: () => void;
   onSelectAgent: (agentId: string) => void;
 }) {
+  const { t } = useI18n();
   const terminal = ["completed", "failed", "cancelled"].includes(task.status);
   return (
     <div className="grid gap-5 p-4">
       <div className="grid gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold">实时进程</h2>
+          <h2 className="font-semibold">{t("shell.processes")}</h2>
           <StatusBadge status={task.status} />
         </div>
         <p className="text-xs text-muted-foreground">{task.goal}</p>

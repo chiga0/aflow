@@ -209,9 +209,11 @@ export function StatusBadge({ status }: { status: string }) {
       ? "ok"
       : status === "failed" || status === "cancelled" || status === "fail"
         ? "bad"
-        : status === "running" || status === "queued" || status === "warn"
-          ? "warn"
-          : "neutral";
+        : status === "running" || status === "starting"
+          ? "info"
+          : status === "queued" || status === "warn"
+            ? "warn"
+            : "neutral";
   return <Badge tone={tone}>{status}</Badge>;
 }
 

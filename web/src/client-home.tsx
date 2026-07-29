@@ -5,8 +5,10 @@ import { useState, type FormEvent } from "react";
 
 import { Button, Select, StatusBadge, Textarea } from "./components/ui";
 import { runtimeApi } from "./lib/api";
+import { useI18n } from "./lib/i18n";
 
 export function ClientHome() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [goal, setGoal] = useState("");
@@ -59,11 +61,9 @@ export function ClientHome() {
     <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-4xl flex-col justify-center gap-10 py-8">
       <div className="grid gap-3 text-center">
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          今天想完成什么？
+          {t("home.title")}
         </h1>
-        <p className="text-muted-foreground">
-          描述目标，Aflow 会选择执行单元并直接进入实时 Agent 对话。
-        </p>
+        <p className="text-muted-foreground">{t("home.subtitle")}</p>
       </div>
 
       <form
@@ -74,7 +74,7 @@ export function ClientHome() {
         <Textarea
           autoFocus
           className="min-h-32 resize-none border-0 bg-transparent text-base shadow-none focus-visible:ring-0"
-          placeholder="例如：审计这个仓库的部署链路，修复问题并给出可验证的交付产物"
+          placeholder={t("home.placeholder")}
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
           onKeyDown={(event) => {
@@ -88,27 +88,27 @@ export function ClientHome() {
           <details className="group">
             <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
               <Settings2 className="h-4 w-4" />
-              设置
+              {t("home.settings")}
             </summary>
             <div className="absolute z-20 mt-2 grid w-64 gap-3 rounded-lg border border-border bg-card p-3 shadow-xl">
               <label className="grid gap-1 text-xs text-muted-foreground">
-                Agent 模式
+                {t("home.agentMode")}
                 <Select
                   value={mode}
                   onChange={(event) => setMode(event.target.value)}
                 >
-                  <option value="auto">自动</option>
-                  <option value="single">单 Agent</option>
-                  <option value="multi-agent">多 Agent</option>
+                  <option value="auto">{t("home.auto")}</option>
+                  <option value="single">{t("home.singleAgent")}</option>
+                  <option value="multi-agent">{t("home.multiAgent")}</option>
                 </Select>
               </label>
               <label className="grid gap-1 text-xs text-muted-foreground">
-                执行 Agent
+                {t("home.executeAgent")}
                 <Select
                   value={adapter}
                   onChange={(event) => setAdapter(event.target.value)}
                 >
-                  <option value="auto">自动选择</option>
+                  <option value="auto">{t("home.autoSelect")}</option>
                   {(
                     agentOptions ?? [
                       {
@@ -134,19 +134,21 @@ export function ClientHome() {
                       value={item.adapter}
                     >
                       {item.label}
-                      {item.status === "available" ? " · 可用" : " · 未注册"}
+                      {item.status === "available"
+                        ? ` · ${t("home.available")}`
+                        : ` · ${t("home.notRegistered")}`}
                     </option>
                   ))}
                 </Select>
                 {capabilities.isError ? (
                   <span className="text-amber-600">
-                    无法检测 Agent 状态，将由服务端校验。
+                    {t("home.cannotDetect")}
                   </span>
                 ) : selectedCapability ? (
                   <span>
                     {selectedCapability.status === "available"
-                      ? `已就绪 · ${selectedCapability.execution}`
-                      : "没有可用的执行单元"}
+                      ? `${t("home.ready")} · ${selectedCapability.execution}`
+                      : t("home.noUnits")}
                   </span>
                 ) : null}
               </label>
@@ -170,7 +172,7 @@ export function ClientHome() {
           className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
           role="alert"
         >
-          <div className="font-medium">无法启动 Agent 对话</div>
+          <div className="font-medium">{t("home.cannotStart")}</div>
           <div className="mt-1 text-xs">{String(createTask.error)}</div>
           <Button
             className="mt-3"
@@ -188,7 +190,7 @@ export function ClientHome() {
               })
             }
           >
-            重试
+            {t("home.retry")}
           </Button>
         </div>
       ) : null}
@@ -197,7 +199,7 @@ export function ClientHome() {
         <div className="grid gap-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <MessageSquarePlus className="h-4 w-4" />
-            最近对话
+            {t("home.recentChats")}
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {tasks.data?.tasks.slice(0, 6).map((task) => (

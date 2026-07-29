@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useI18n } from "./lib/i18n";
 import {
   Activity,
   ArrowRight,
@@ -1404,6 +1405,7 @@ function ReplayList({ replays }: { replays: V2Replay[] }) {
 /* v8 ignore stop */
 
 export function ProductAdminPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [channelPlatform, setChannelPlatform] = useState("feishu");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -1514,25 +1516,28 @@ export function ProductAdminPage() {
         <div>
           <div className="text-sm font-medium text-primary">aflow</div>
           <h1 className="mt-1 text-2xl font-semibold tracking-normal">
-            Admin Control Plane
+            {t("admin.title")}
           </h1>
         </div>
         <Link
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted"
           to="/"
         >
-          Client
+          {t("admin.client")}
         </Link>
       </div>
 
       <div className="grid gap-3 md:grid-cols-5">
-        <Metric label="Tasks" value={data?.tasks.total ?? 0} />
-        <Metric label="Agent Tasks" value={data?.agent_tasks.total ?? 0} />
+        <Metric label={t("admin.tasks")} value={data?.tasks.total ?? 0} />
         <Metric
-          label="Execution Units"
+          label={t("admin.agentTasks")}
+          value={data?.agent_tasks.total ?? 0}
+        />
+        <Metric
+          label={t("units.executionUnits")}
           value={data?.execution_units.length ?? 0}
         />
-        <Metric label="Tenants" value={data?.tenants.length ?? 0} />
+        <Metric label={t("admin.tenants")} value={data?.tenants.length ?? 0} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -1542,7 +1547,7 @@ export function ProductAdminPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Network className="h-4 w-4 text-primary" />
-                <CardTitle>Execution Units</CardTitle>
+                <CardTitle>{t("units.executionUnits")}</CardTitle>
               </div>
               <Button
                 className="h-8 px-3 text-xs"
@@ -1550,7 +1555,7 @@ export function ProductAdminPage() {
                 disabled={discoverUnits.isPending}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Discover
+                {t("admin.discover")}
               </Button>
             </div>
           </CardHeader>
@@ -1560,7 +1565,7 @@ export function ProductAdminPage() {
                 className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
                 role="alert"
               >
-                <div className="font-medium">Failed to load overview.</div>
+                <div className="font-medium">{t("admin.loadFailed")}</div>
                 <Button
                   className="mt-2"
                   size="sm"
@@ -1569,7 +1574,7 @@ export function ProductAdminPage() {
                   onClick={() => overview.refetch()}
                 >
                   <RefreshCw className="h-4 w-4" />
-                  Retry
+                  {t("admin.retry")}
                 </Button>
               </div>
             ) : null}
@@ -1621,7 +1626,7 @@ export function ProductAdminPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Smartphone className="h-4 w-4 text-primary" />
-            <CardTitle>Channels</CardTitle>
+            <CardTitle>{t("admin.channels")}</CardTitle>
           </div>
         </CardHeader>
         <CardBody className="grid gap-4">
@@ -1647,11 +1652,12 @@ export function ProductAdminPage() {
 }
 
 function TaskGrid({ tasks }: { tasks: V2Task[] }) {
+  const { t } = useI18n();
   if (!tasks.length) {
     return (
       <EmptyState
-        title="No tasks yet"
-        detail="Create a task to see the control plane run end to end."
+        title={t("admin.noTasks")}
+        detail={t("admin.noTasksDetail")}
       />
     );
   }
@@ -1665,6 +1671,7 @@ function TaskGrid({ tasks }: { tasks: V2Task[] }) {
 }
 
 function TaskTrackItem({ task }: { task: V2Task }) {
+  const { t } = useI18n();
   const dispatch = task.metadata?.dispatch as
     Record<string, unknown> | undefined;
   const adapter = String(dispatch?.adapter ?? task.adapter);
@@ -1698,12 +1705,12 @@ function TaskTrackItem({ task }: { task: V2Task }) {
         </div>
         <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">
           <TerminalSquare className="h-3.5 w-3.5" />
-          Open live chat
+          {t("admin.openLiveChat")}
         </div>
       </div>
       <div className="grid content-center gap-2">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Progress</span>
+          <span>{t("common.progress")}</span>
           <span>{task.progress.percent}%</span>
         </div>
         <ProgressBar percent={task.progress.percent} />
@@ -1713,8 +1720,9 @@ function TaskTrackItem({ task }: { task: V2Task }) {
 }
 
 function AgentDag({ agents }: { agents: V2AgentTask[] }) {
+  const { t } = useI18n();
   if (!agents.length) {
-    return <EmptyState title="No plan yet" />;
+    return <EmptyState title={t("admin.noPlan")} />;
   }
   return (
     <div className="grid gap-3 md:grid-cols-3">
@@ -1730,8 +1738,10 @@ function AgentDag({ agents }: { agents: V2AgentTask[] }) {
           <div className="font-medium">{agent.title}</div>
           <div className="text-sm text-muted-foreground">{agent.goal}</div>
           <div className="text-xs text-muted-foreground">
-            Depends on:{" "}
-            {agent.depends_on.length ? agent.depends_on.join(", ") : "none"}
+            {t("admin.dependsOn")}{" "}
+            {agent.depends_on.length
+              ? agent.depends_on.join(", ")
+              : t("admin.none")}
           </div>
         </div>
       ))}
@@ -1740,8 +1750,9 @@ function AgentDag({ agents }: { agents: V2AgentTask[] }) {
 }
 
 function EventTimeline({ events }: { events: V2Event[] }) {
+  const { t } = useI18n();
   if (!events.length) {
-    return <EmptyState title="No events yet" />;
+    return <EmptyState title={t("admin.noEvents")} />;
   }
   return (
     <div className="grid gap-3">
@@ -1777,6 +1788,7 @@ function AgentSwitcher({
   selectedAgentId: string;
   onSelect: (agentId: string) => void;
 }) {
+  const { t } = useI18n();
   if (!agents.length) {
     return null;
   }
@@ -1795,7 +1807,7 @@ function AgentSwitcher({
         onClick={() => onSelect("all")}
       >
         <Layers3 className="h-4 w-4 text-primary" />
-        All output
+        {t("admin.allOutput")}
       </button>
       {agents.map((agent) => (
         <button
@@ -1824,6 +1836,7 @@ function QwenWebshellPanel({
   events: DaemonEvent[];
   emptyDetail?: string;
 }) {
+  const { t } = useI18n();
   const outputRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const output = outputRef.current;
@@ -1838,11 +1851,8 @@ function QwenWebshellPanel({
         className="grid min-h-[55vh] place-items-center rounded-md border border-border bg-muted/20 p-4"
       >
         <EmptyState
-          title="No WebShell events yet"
-          detail={
-            emptyDetail ??
-            "The agent transcript will appear here as soon as the task runner emits user, agent, tool, or status events."
-          }
+          title={t("admin.noWebshellEvents")}
+          detail={emptyDetail ?? t("admin.noWebshellEventsDetail")}
         />
       </div>
     );
@@ -1877,7 +1887,7 @@ function QwenWebshellPanel({
               }`}
             >
               <div className="mb-1 text-[11px] opacity-75">
-                {isUser ? "you" : agentRole} · {kind}
+                {isUser ? t("admin.you") : agentRole} · {kind}
               </div>
               <div className="whitespace-pre-wrap">{text || "..."}</div>
             </div>
@@ -1889,12 +1899,13 @@ function QwenWebshellPanel({
 }
 
 function AdminStatusCard({ overview }: { overview?: V2AdminOverview }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Boxes className="h-4 w-4 text-primary" />
-          <CardTitle>Reliability Spine</CardTitle>
+          <CardTitle>{t("admin.reliabilitySpine")}</CardTitle>
         </div>
       </CardHeader>
       <CardBody className="grid gap-3">
@@ -1913,6 +1924,7 @@ function AdminStatusCard({ overview }: { overview?: V2AdminOverview }) {
 }
 
 function HaStatusCard({ overview }: { overview?: V2AdminOverview }) {
+  const { t } = useI18n();
   const ha = overview?.ha;
   const workflow = ha?.workflow;
   return (
@@ -1920,26 +1932,35 @@ function HaStatusCard({ overview }: { overview?: V2AdminOverview }) {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-primary" />
-          <CardTitle>HA Runtime</CardTitle>
+          <CardTitle>{t("admin.haRuntime")}</CardTitle>
         </div>
       </CardHeader>
       <CardBody className="grid gap-3">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Metric label="Profile" value={String(ha?.profile ?? "local")} />
           <Metric
-            label="Database"
-            value={String(ha?.database?.driver ?? "sqlite")}
-            detail={ha?.database?.configured ? "configured" : "local"}
+            label={t("common.profile")}
+            value={String(ha?.profile ?? "local")}
           />
           <Metric
-            label="Queue"
+            label={t("admin.database")}
+            value={String(ha?.database?.driver ?? "sqlite")}
+            detail={
+              ha?.database?.configured
+                ? t("admin.configured")
+                : t("admin.local")
+            }
+          />
+          <Metric
+            label={t("admin.queue")}
             value={String(ha?.queue?.driver ?? "sqlite")}
-            detail={ha?.queue?.configured ? "configured" : "local"}
+            detail={
+              ha?.queue?.configured ? t("admin.configured") : t("admin.local")
+            }
           />
         </div>
         <div className="rounded-md border border-border p-3 text-sm">
           <div className="flex items-center justify-between gap-3">
-            <span className="font-medium">Workflow Engine</span>
+            <span className="font-medium">{t("admin.workflowEngine")}</span>
             <Badge tone="info">
               {String(workflow?.active_engine ?? "local")}
             </Badge>
@@ -1980,17 +2001,18 @@ function TenantAdminCard({
   onAddTenantUser: () => void;
   busy: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-primary" />
-          <CardTitle>Tenant Admin</CardTitle>
+          <CardTitle>{t("admin.tenantAdmin")}</CardTitle>
         </div>
       </CardHeader>
       <CardBody className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Field label="Tenant name">
+          <Field label={t("admin.tenantName")}>
             <Input
               value={tenantName}
               onChange={(event) => onTenantName(event.target.value)}
@@ -2003,11 +2025,11 @@ function TenantAdminCard({
             disabled={busy || !tenantName.trim()}
           >
             <KeyRound className="h-4 w-4" />
-            Create
+            {t("common.create")}
           </Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Field label="Default tenant user">
+          <Field label={t("admin.defaultTenantUser")}>
             <Input
               value={tenantUserEmail}
               onChange={(event) => onTenantUserEmail(event.target.value)}
@@ -2020,7 +2042,7 @@ function TenantAdminCard({
             disabled={busy || !tenantUserEmail.trim()}
           >
             <Users className="h-4 w-4" />
-            Add
+            {t("admin.add")}
           </Button>
         </div>
         <div className="grid gap-2">
@@ -2060,18 +2082,21 @@ function ProjectMembershipCard({
   onCreateProject: () => void;
   onAddMember: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-primary" />
-          <CardTitle>Project Membership</CardTitle>
+          <CardTitle>{t("admin.projectMembership")}</CardTitle>
         </div>
-        <Badge tone="neutral">{projects.length} projects</Badge>
+        <Badge tone="neutral">
+          {projects.length} {t("admin.projects")}
+        </Badge>
       </CardHeader>
       <CardBody className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Field label="Project name">
+          <Field label={t("admin.projectName")}>
             <Input
               value={projectName}
               onChange={(event) => onProjectName(event.target.value)}
@@ -2083,11 +2108,11 @@ function ProjectMembershipCard({
             disabled={busy || !projectName.trim()}
             onClick={onCreateProject}
           >
-            Create project
+            {t("admin.createProject")}
           </Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Field label="Default project member">
+          <Field label={t("admin.defaultProjectMember")}>
             <Input
               value={memberEmail}
               onChange={(event) => onMemberEmail(event.target.value)}
@@ -2099,7 +2124,7 @@ function ProjectMembershipCard({
             disabled={busy || !memberEmail.trim()}
             onClick={onAddMember}
           >
-            Share project
+            {t("admin.shareProject")}
           </Button>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -2147,6 +2172,7 @@ function ChannelConfigPanel({
   onSend: () => void;
   busy: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-5">
@@ -2166,14 +2192,14 @@ function ChannelConfigPanel({
         ))}
       </div>
       <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
-        <Field label="Webhook URL">
+        <Field label={t("admin.webhookUrl")}>
           <Input
             value={webhookUrl}
             onChange={(event) => onWebhookUrl(event.target.value)}
             placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
           />
         </Field>
-        <Field label="Callback token">
+        <Field label={t("admin.callbackToken")}>
           <Input
             value={callbackToken}
             onChange={(event) => onCallbackToken(event.target.value)}
@@ -2182,11 +2208,11 @@ function ChannelConfigPanel({
         </Field>
         <Button className="self-end" onClick={onConfigure} disabled={busy}>
           <ShieldCheck className="h-4 w-4" />
-          Configure
+          {t("admin.configure")}
         </Button>
       </div>
       <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-        <Field label="Outbound test">
+        <Field label={t("admin.outboundTest")}>
           <Input
             value={outboundText}
             onChange={(event) => onOutboundText(event.target.value)}
@@ -2194,7 +2220,7 @@ function ChannelConfigPanel({
         </Field>
         <Button className="self-end" onClick={onSend} disabled={busy}>
           <Send className="h-4 w-4" />
-          Send
+          {t("admin.send")}
         </Button>
       </div>
       <div className="grid gap-2">
