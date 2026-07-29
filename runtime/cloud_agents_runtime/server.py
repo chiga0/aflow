@@ -2886,7 +2886,14 @@ def main(argv: list[str] | None = None) -> int:
     def handle_sigterm(signum: int, frame: Any) -> None:
         logger.info("received signal %s, shutting down gracefully", signum)
         shutdown_requested.set()
-        server.shutdown()
+
+        def do_shutdown() -> None:
+            server.shutdown()
+            time.sleep(5)
+            logger.warning("graceful shutdown timeout, forcing exit")
+            os._exit(1)
+
+        threading.Thread(target=do_shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
