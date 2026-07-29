@@ -9,10 +9,17 @@ const {
   eventPreviewText,
 } = __shellTestUtils;
 
-type Evt = { type: string; data: Record<string, unknown> };
-
-function evt(type: string, data: Record<string, unknown> = {}): Evt {
-  return { type, data };
+let seq = 0;
+function evt(type: string, data: Record<string, unknown> = {}) {
+  seq += 1;
+  return {
+    id: `evt_${seq}`,
+    run_id: "run_test",
+    sequence: seq,
+    created_at: new Date().toISOString(),
+    type,
+    data,
+  };
 }
 
 describe("shell dock utils", () => {
