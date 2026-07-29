@@ -20,6 +20,7 @@ from uuid import uuid4
 from .agent_events import validate_worker_event
 from .database import RuntimeDatabase
 from .events import utc_now
+from .isolation import V2IsolationConfig, resolve_cli_execution
 
 
 TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
@@ -2395,15 +2396,27 @@ class V2ControlPlane:
             if process is not None and process.poll() is None:
                 process.kill()
 
+        container_name = "aflow-" + str(
+            agent.get("agent_task_id") or task_id
+        ).replace("_", "-")[:60]
+        resolved_command, popen_env, execution_mode = resolve_cli_execution(
+            V2IsolationConfig.from_env(),
+            adapter,
+            [executable, *command[1:]],
+            workspace=self.root,
+            env=dict(os.environ),
+            container_name=container_name,
+        )
         try:
             process = subprocess.Popen(
-                [executable, *command[1:]],
+                resolved_command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
                 cwd=self.root,
+                env=popen_env,
             )
             timer = threading.Timer(20, stop_timed_out_process)
             timer.daemon = True
@@ -2427,7 +2440,7 @@ class V2ControlPlane:
                             "agent_task_id": agent["agent_task_id"],
                             "message": line[:800],
                             "protocol": protocol,
-                            "execution_mode": "real-cli",
+                            "execution_mode": execution_mode,
                             "partial": True,
                         },
                     )
@@ -2454,7 +2467,7 @@ class V2ControlPlane:
         return {
             "adapter": adapter,
             "protocol": protocol,
-            "execution_mode": "real-cli",
+            "execution_mode": execution_mode,
             "exit_code": return_code,
             "message": output[:800],
             "summary": output[:1200],
@@ -2897,7 +2910,12 @@ class V2ControlPlane:
             for agent in self._agent_tasks(task_id)
             if agent["result"].get("adapter", {}).get("execution_mode")
         }
-        if "real-cli" in modes:
+        real_cli_modes = {mode for mode in modes if mode.startswith("real-cli")}
+        if real_cli_modes:
+            if "real-cli-container" in real_cli_modes:
+                return "real-cli-container"
+            if "real-cli-unisolated" in real_cli_modes:
+                return "real-cli-unisolated"
             return "real-cli"
         if "protocol-simulated" in modes:
             return "protocol-simulated"

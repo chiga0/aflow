@@ -529,11 +529,13 @@ class V2ControlPlaneTest(unittest.TestCase):
         }
         old_enabled = os.environ.get("V2_ENABLE_REAL_CLI_ADAPTERS")
         old_command = os.environ.get("V2_CODEX_CLI_COMMAND")
+        old_unisolated = os.environ.get("V2_ALLOW_UNISOLATED_CLI")
         try:
             os.environ["V2_ENABLE_REAL_CLI_ADAPTERS"] = "1"
+            os.environ["V2_ALLOW_UNISOLATED_CLI"] = "1"
             os.environ["V2_CODEX_CLI_COMMAND"] = str(script)
             result = control._execute_agent_adapter(task["task_id"], agent)
-            self.assertEqual(result["execution_mode"], "real-cli")
+            self.assertEqual(result["execution_mode"], "real-cli-unisolated")
             self.assertIn("agentflow-v2-acp-a2a", result["summary"])
             streamed = [
                 event
@@ -558,6 +560,7 @@ class V2ControlPlaneTest(unittest.TestCase):
         finally:
             restore_env("V2_ENABLE_REAL_CLI_ADAPTERS", old_enabled)
             restore_env("V2_CODEX_CLI_COMMAND", old_command)
+            restore_env("V2_ALLOW_UNISOLATED_CLI", old_unisolated)
 
     def test_idempotency_key_returns_existing_task(self):
         control = V2ControlPlane(self.tmp_path())

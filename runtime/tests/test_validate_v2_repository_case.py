@@ -53,6 +53,7 @@ class ValidateV2RepositoryCaseTest(unittest.TestCase):
                     os.environ,
                     {
                         "V2_ENABLE_REAL_CLI_ADAPTERS": "1",
+                        "V2_ALLOW_UNISOLATED_CLI": "1",
                         "V2_WORKER_ADAPTERS": "qwen",
                         "V2_WORKSPACE_ROOTS": str(root),
                         "V2_QWEN_CODE_COMMAND": str(command),
@@ -78,7 +79,7 @@ class ValidateV2RepositoryCaseTest(unittest.TestCase):
 
             evidence = output.getvalue()
             self.assertIn("repository case task: task_", evidence)
-            self.assertIn('"execution_mode": "real-cli"', evidence)
+            self.assertRegex(evidence, r'"execution_mode": "real-cli(-\w+)?"')
             self.assertIn('"source_head_unchanged": true', evidence)
 
     def test_fixture_reproduces_real_defect_without_dirtying_source(self) -> None:

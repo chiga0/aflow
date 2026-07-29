@@ -152,9 +152,9 @@ def validate_delivery(
     if task.get("status") != "completed":
         status = task.get("status")
         raise RuntimeError(f"repository task ended as {status}: {task.get('result')}")
-    if task.get("execution_mode") != "real-cli":
+    if not str(task.get("execution_mode") or "").startswith("real-cli"):
         raise RuntimeError(
-            f"repository task used {task.get('execution_mode')}, expected real-cli"
+            f"repository task used {task.get('execution_mode')}, expected a real-cli mode"
         )
     if task.get("goal") != GOAL or task.get("mode") != "single":
         raise RuntimeError("repository task did not preserve the requested goal/mode")

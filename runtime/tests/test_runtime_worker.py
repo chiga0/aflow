@@ -222,6 +222,7 @@ class RemoteWorkerDaemonTest(unittest.TestCase):
                 os.environ,
                 {
                     "V2_ENABLE_REAL_CLI_ADAPTERS": "1",
+                    "V2_ALLOW_UNISOLATED_CLI": "1",
                     "V2_CODEX_CLI_COMMAND": str(script),
                     "V2_AGENT_TIMEOUT_SECONDS": "1",
                 },
@@ -376,6 +377,7 @@ class RemoteWorkerDaemonTest(unittest.TestCase):
                     os.environ,
                     {
                         "V2_ENABLE_REAL_CLI_ADAPTERS": "1",
+                        "V2_ALLOW_UNISOLATED_CLI": "1",
                         "V2_CODEX_CLI_COMMAND": str(script),
                     },
                 ):
@@ -383,7 +385,7 @@ class RemoteWorkerDaemonTest(unittest.TestCase):
                 completed = request_json(
                     f"{base_url}/v2/tasks/{task['task_id']}", headers=headers
                 )
-                self.assertEqual(completed["execution_mode"], "real-cli")
+                self.assertEqual(completed["execution_mode"], "real-cli-unisolated")
                 events = request_json(
                     f"{base_url}/v2/tasks/{task['task_id']}/events.json",
                     headers=headers,
@@ -491,6 +493,7 @@ class RemoteWorkerDaemonTest(unittest.TestCase):
                     os.environ,
                     {
                         "V2_ENABLE_REAL_CLI_ADAPTERS": "1",
+                        "V2_ALLOW_UNISOLATED_CLI": "1",
                         "V2_CODEX_CLI_COMMAND": str(script),
                         "V2_WORKSPACE_ROOTS": str(repo.parent),
                     },

@@ -22,6 +22,7 @@ from typing import Any
 
 from .adapters import FakeAdapter, QwenServeAdapter, RuntimeAdapter
 from .agent_events import translate_adapter_record
+from .isolation import V2IsolationConfig, resolve_cli_execution
 from .models import RunSpec, RunState
 
 
@@ -620,15 +621,27 @@ class RemoteWorkerDaemon:
                 "protocol-simulated",
                 0,
             )
-        process = subprocess.Popen(
+        worker_env = self._sanitized_worker_env()
+        container_name = "aflow-" + str(
+            context.assignment.get("agent_task_id") or os.getpid()
+        ).replace("_", "-")[:60]
+        resolved_command, popen_env, execution_mode = resolve_cli_execution(
+            V2IsolationConfig.from_env(),
+            adapter,
             [executable, *command[1:]],
+            workspace=workspace,
+            env=worker_env,
+            container_name=container_name,
+        )
+        process = subprocess.Popen(
+            resolved_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
             cwd=workspace,
-            env=self._sanitized_worker_env(),
+            env=popen_env,
             start_new_session=True,
         )
         context.process = process
@@ -641,14 +654,14 @@ class RemoteWorkerDaemon:
             process,
             timeout_seconds=timeout,
             message_prefix="",
-            execution_mode="real-cli",
+            execution_mode=execution_mode,
         )
         if truncated:
             summary = f"[earlier output truncated]\n{summary}"
         summary = summary.strip() or f"{adapter} completed with code {exit_code}"
         if exit_code != 0:
             raise RuntimeError(f"{adapter} CLI exited with code {exit_code}: {summary[:400]}")
-        return summary[:4000], "real-cli", exit_code
+        return summary[:4000], execution_mode, exit_code
 
     def _stream_agent_process(
         self,
