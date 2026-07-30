@@ -29,27 +29,24 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Check API key
+      - name: Configure qwen-code
         run: |
-          if [ -z "$DASHSCOPE_API_KEY" ]; then
-            echo "::error::DASHSCOPE_API_KEY secret is not configured."
-            echo "Add it via: gh secret set DASHSCOPE_API_KEY"
+          if [ -z "$QWEN_SETTINGS_JSON" ]; then
+            echo "::error::QWEN_SETTINGS_JSON secret is not configured."
+            echo "Add it via: gh secret set QWEN_SETTINGS_JSON"
             exit 1
           fi
+          mkdir -p ~/.qwen
+          echo "$QWEN_SETTINGS_JSON" > ~/.qwen/settings.json
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          QWEN_SETTINGS_JSON: ${{ secrets.QWEN_SETTINGS_JSON }}
 
       - name: Install qwen-code
-        run: npm install -g @anthropic-ai/qwen-code
-        # TODO: 确认实际 npm 包名，可能是 @anthropic-ai/qwen-code 或 @anthropic/qwen-code
-        # 如果是内部源，需要配置 .npmrc
+        run: npm install -g @qwen-code/qwen-code
 
       - name: Run research agent
         run: |
-          qwen --print "$(cat .github/prompts/research-weekly.md)" \
-            --model qwen3-coder
-        env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          qwen --print "$(cat .github/prompts/research-weekly.md)"
         timeout-minutes: 30
 
       - name: Refresh dashboard
