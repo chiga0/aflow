@@ -13,6 +13,7 @@ from typing import Any
 
 logger = logging.getLogger("cloud_agents_runtime")
 
+from .database import RuntimeDatabase
 from .events import RuntimeEvent, TERMINAL_RUN_EVENTS, utc_now
 from .auth import new_session_token, normalize_email, session_expiry
 from .models import (
@@ -37,15 +38,15 @@ from .profiles import builtin_profiles, latest_profiles
 
 
 class RunStore:
-    def __init__(self, artifact_root: Path):
+    def __init__(self, artifact_root: Path, database_url: str | None = None):
         self.artifact_root = artifact_root
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.artifact_root / "runtime.db"
-        self._db = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("pragma journal_mode=WAL")
-        self._db.execute("pragma synchronous=NORMAL")
-        self._db.execute("pragma busy_timeout=5000")
+        self._db = RuntimeDatabase(self.db_path, database_url)
+        if self._db.dialect == "sqlite":
+            self._db.execute("pragma journal_mode=WAL")
+            self._db.execute("pragma synchronous=NORMAL")
+            self._db.execute("pragma busy_timeout=5000")
         self._closed = False
         self._db_finalizer = weakref.finalize(self, self._db.close)
         self._runs: dict[str, RunState] = {}
@@ -1260,8 +1261,13 @@ class RunStore:
         return mission
 
     def _init_db(self) -> None:
+        raw_events_pk = (
+            "id integer primary key autoincrement"
+            if self._db.dialect == "sqlite"
+            else "id bigserial primary key"
+        )
         self._db.executescript(
-            """
+            f"""
             create table if not exists runs (
               run_id text primary key,
               spec_json text not null,
@@ -1282,7 +1288,7 @@ class RunStore:
               primary key (run_id, sequence)
             );
             create table if not exists raw_events (
-              id integer primary key autoincrement,
+              {raw_events_pk},
               run_id text not null,
               source text not null,
               payload_json text not null,
@@ -1478,11 +1484,14 @@ class RunStore:
         for version, name, sql in self.MIGRATIONS:
             if version in applied:
                 continue
-            try:
-                self._db.execute(sql)
-            except sqlite3.OperationalError as exc:
-                if "duplicate column" not in str(exc).lower():
-                    raise
+            if self._db.dialect == "postgres":
+                self._db.execute(sql.replace("add column", "add column if not exists"))
+            else:
+                try:
+                    self._db.execute(sql)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
             self._db.execute(
                 "insert into schema_migrations (version, name, applied_at) values (?, ?, ?)",
                 (version, name, utc_now()),
@@ -1507,6 +1516,11 @@ class RunStore:
         )
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        if self._db.dialect == "postgres":
+            self._db.execute(
+                f"alter table {table} add column if not exists {column} {definition}"
+            )
+            return
         columns = {
             row["name"]
             for row in self._db.execute(f"pragma table_info({table})").fetchall()

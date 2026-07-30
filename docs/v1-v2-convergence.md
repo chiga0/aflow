@@ -68,6 +68,23 @@ V1 的 `auth_users`/`auth_sessions`/`api_tokens`/`access_projects` 与 V2 的 `v
 
 先做 **阶段 A1+A2**（`RunStore` 接入 `RuntimeDatabase`，获得 Postgres 能力），这是解锁多副本的最小关键增量，风险最低、价值最高。A3/A4（去内存锁）作为紧随的下一步。阶段 B/C 待 A 稳定后单独排期。
 
+### A1+A2 完成状态（已实现）
+
+- **A1**：`RunStore.__init__(artifact_root, database_url=None)` 用 `RuntimeDatabase` 替代裸
+  `sqlite3.connect`；`RunManager` 从 `RUNTIME_DATABASE_URL`/`DATABASE_URL` 读取并传入。
+- **A2**：SQLite 专有语法方言适配——
+  - 连接 PRAGMA（WAL/synchronous/busy_timeout）仅 sqlite 执行；
+  - `raw_events` 主键 DDL：sqlite 用 `integer primary key autoincrement`，postgres 用 `bigserial primary key`；
+  - `_ensure_column`：postgres 用 `ADD COLUMN IF NOT EXISTS`，sqlite 保留 `pragma table_info` 内省；
+  - `_run_migrations`：postgres 把 `add column` 重写为 `add column if not exists`（幂等），sqlite 保留 `OperationalError` 容错。
+- 兼容性：`row["column"]` 访问、`?` 占位符、`INSERT OR IGNORE`、`ON CONFLICT` upsert、`executescript` 均经 `RuntimeDatabase` 自动适配；257 个测试通过（sqlite 路径行为不变 + 5 个方言分支测试）。
+- **待验证**：postgres 路径需真实 Postgres 实例做集成测试（本环境无 Postgres，仅单测覆盖方言分支逻辑）。
+
+### 后续（A3/A4，未开始）
+
+- **A3**：进程内 `RLock`/`Condition` → DB 级协调（advisory lock + `SKIP LOCKED` + LISTEN/NOTIFY）。
+- **A4**：移除 `_load_from_db()` 全量内存镜像，改为按需查询。
+
 ## 验收标准
 
 - `RUNTIME_DATABASE_URL=postgres://...` 时 V1 RunStore 全量测试通过。

@@ -51,7 +51,10 @@ class RunManager:
         cleanup_policy: CleanupPolicy | None = None,
         heartbeat_enabled: bool = False,
     ):
-        self.store = RunStore(artifact_root)
+        store_database_url = os.environ.get("RUNTIME_DATABASE_URL") or os.environ.get(
+            "DATABASE_URL"
+        )
+        self.store = RunStore(artifact_root, store_database_url)
         self.v2 = V2ControlPlane(artifact_root / "v2")
         self.executor_registry = ExecutorRegistry(self.store, ExecutorConfig.from_env())
         self.workspace_allocator = WorkspaceAllocator(artifact_root)

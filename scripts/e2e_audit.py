@@ -106,7 +106,12 @@ def case_simple_qa(base_url: str, token: str, timeout: int) -> CaseResult:
     }, timeout=10)
 
     if "_http_error" in task:
-        return CaseResult(name, False, time.time() - start, error=f"HTTP {task['_http_error']}: {task['_body'][:200]}")
+        return CaseResult(
+            name,
+            False,
+            time.time() - start,
+            error=f"HTTP {task['_http_error']}: {task['_body'][:200]}",
+        )
 
     task_id = task["task_id"]
     details.append(f"task_id={task_id}")
