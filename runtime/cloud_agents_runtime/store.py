@@ -1566,12 +1566,17 @@ class RunStore:
             );
             """
         )
+        logger.info("init_db: ddl executed (%s)", self._db.dialect)
         self._ensure_column("workers", "metadata_json", "text not null default '{}'")
         self._ensure_column("auth_users", "token_version", "integer not null default 1")
         self._ensure_column("auth_sessions", "token_version", "integer not null default 1")
+        logger.info("init_db: ensure_column done")
         self._run_migrations()
+        logger.info("init_db: migrations done")
         self._ensure_indexes()
+        logger.info("init_db: indexes done")
         self._db.commit()
+        logger.info("init_db: committed")
 
     MIGRATIONS: list[tuple[int, str, str]] = [
         (1, "add_runs_timeout_seconds", "alter table runs add column timeout_seconds integer"),
@@ -1642,6 +1647,7 @@ class RunStore:
             self._db.execute(f"alter table {table} add column {column} {definition}")
 
     def _load_from_db(self) -> None:
+        logger.info("load_from_db: start (%s)", self._db.dialect)
         with self._lock:
             for row in self._db.execute("select * from agent_profiles order by profile_id"):
                 payload = json.loads(row["profile_json"])

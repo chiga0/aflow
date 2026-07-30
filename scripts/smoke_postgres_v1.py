@@ -12,6 +12,7 @@ postgres://postgres:aflow_test@127.0.0.1:5433/aflow).
 from __future__ import annotations
 
 import os
+import logging
 import tempfile
 import threading
 import time
@@ -27,6 +28,7 @@ def spec(goal: str) -> RunSpec:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     database_url = os.environ.get("RUNTIME_DATABASE_URL")
     if not database_url:
         raise SystemExit("RUNTIME_DATABASE_URL is required")
@@ -34,8 +36,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         # Two replicas: same Postgres, separate local artifact roots.
+        print("step: create first RunStore", flush=True)
         first = RunStore(root / "first", database_url)
+        print("step: first RunStore ready", flush=True)
         second = RunStore(root / "second", database_url)
+        print("step: second RunStore ready", flush=True)
         if first._db.dialect != "postgres":
             raise RuntimeError("expected postgres dialect")
 
