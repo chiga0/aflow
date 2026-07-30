@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Generator
@@ -63,24 +64,98 @@ class QwenAdapter:
         except Exception:
             return False
 
+    def summarize(self, text: str, timeout: float = 12.0) -> str | None:
+        """Ask qwen for a short title in a throwaway session.
+
+        Returns the collected assistant text, or None on any failure / timeout.
+        This never touches the lite store: it is a private, ephemeral call used
+        only to refine a session title after the first turn completes.
+        """
+        snippet = (text or "")[:600]
+        if not snippet.strip():
+            return None
+        session_id: str | None = None
+        try:
+            session_id = self.create_session()
+            self.send_prompt(
+                session_id,
+                "用不超过8个字概括下面任务的标题，只输出标题本身，不要解释、不要标点、不要引号：\n"
+                + snippet,
+            )
+            return self._collect_title_text(session_id, timeout)
+        except Exception as exc:
+            logger.debug("summarize failed: %s", exc)
+            return None
+        finally:
+            if session_id:
+                try:
+                    self.cancel(session_id, reason="title-summary")
+                except Exception:
+                    pass
+
+    def _collect_title_text(self, session_id: str, timeout: float) -> str | None:
+        deadline = time.monotonic() + timeout
+        chunks: list[str] = []
+        req = self._build_request(
+            "GET",
+            f"/session/{session_id}/events",
+            headers={"accept": "text/event-stream"},
+        )
+        # Short per-read timeout so a stalled stream cannot block the worker.
+        try:
+            resp = urllib.request.urlopen(req, timeout=min(timeout, 8.0))
+        except Exception:
+            return None
+        try:
+            event_name: str | None = None
+            data_lines: list[str] = []
+            for raw_line in resp:
+                if time.monotonic() > deadline:
+                    break
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                if line.startswith("event:"):
+                    event_name = line[6:].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line[5:].strip())
+                elif line == "" and data_lines:
+                    payload = _parse_json("\n".join(data_lines))
+                    data_lines = []
+                    text = _title_chunk_text(event_name, payload)
+                    if text:
+                        chunks.append(text)
+                    if _is_title_terminal(event_name, payload):
+                        break
+                    event_name = None
+        except Exception:
+            pass
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+        joined = "".join(chunks).strip()
+        return joined or None
+
     # ── SSE stream ────────────────────────────────────────────
 
     def stream_events(
         self,
         session_id: str,
         last_event_id: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> Generator[tuple[str | None, str | None, Any], None, None]:
         """GET /session/{id}/events → yield (sse_id, event_name, data)
 
         Parses the SSE text protocol line by line. Yields one tuple per
-        complete SSE frame. Reconnect logic is left to the caller.
+        complete SSE frame. Reconnect logic is left to the caller. ``timeout``
+        bounds a single socket read so a stalled stream cannot block forever.
         """
         headers = {"accept": "text/event-stream"}
         if last_event_id:
             headers["Last-Event-ID"] = last_event_id
         req = self._build_request("GET", f"/session/{session_id}/events", headers=headers)
 
-        with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             event_name: str | None = None
             event_id: str | None = None
             data_lines: list[str] = []
@@ -152,3 +227,25 @@ def _parse_json(text: str) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         return text
+
+
+def _title_chunk_text(event_name: str | None, payload: Any) -> str:
+    """Extract visible assistant text from a qwen SSE frame (title mode)."""
+    if not isinstance(payload, dict):
+        return ""
+    qwen_type = payload.get("type") or event_name
+    data = payload.get("data")
+    if qwen_type == "session_update" and isinstance(data, dict):
+        update = data.get("update") if isinstance(data.get("update"), dict) else data
+        if update.get("sessionUpdate") == "agent_message_chunk":
+            content = update.get("content")
+            if isinstance(content, dict):
+                return str(content.get("text") or "")
+    return ""
+
+
+def _is_title_terminal(event_name: str | None, payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    qwen_type = payload.get("type") or event_name
+    return qwen_type in ("turn_complete", "turn_error", "session_died", "client_evicted")

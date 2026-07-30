@@ -1,275 +1,176 @@
-"""Event relay: maps qwen SSE events → aflow-lite events, persists and notifies."""
+"""Turn collector: drive one qwen session to completion without side effects.
+
+In the WebShell architecture the *browser* streams the interactive chat
+directly from qwen via the ``/daemon`` proxy. The control plane only needs to
+*programmatically* run a qwen turn when it orchestrates work itself — i.e. for
+server-side missions and inbound chat channels. ``collect_turn`` does exactly
+that: it opens no lite DB rows, it just reads the qwen SSE stream until the
+turn terminates and returns a structured result, optionally fanning each mapped
+event out through ``on_event`` so callers can update progress or re-broadcast.
+"""
 
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Any
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from .adapter import QwenAdapter
-from .models import Message, Session
-from .store import Store
 
 logger = logging.getLogger("aflow_lite.relay")
 
-# Subscribers: session_id → list of threading.Event for SSE wakeup
-_subscribers: dict[str, list[threading.Event]] = {}
-_sub_lock = threading.Lock()
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
-def subscribe(session_id: str) -> threading.Event:
-    event = threading.Event()
-    with _sub_lock:
-        _subscribers.setdefault(session_id, []).append(event)
-    return event
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    input: Any = None
+    output: Any = None
+    is_error: bool = False
 
 
-def unsubscribe(session_id: str, event: threading.Event) -> None:
-    with _sub_lock:
-        subs = _subscribers.get(session_id, [])
-        if event in subs:
-            subs.remove(event)
-        if not subs:
-            _subscribers.pop(session_id, None)
+@dataclass
+class TurnResult:
+    status: str = "running"  # running | completed | failed | cancelled | timeout
+    text: str = ""
+    tools: list[ToolCall] = field(default_factory=list)
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "completed"
 
 
-def _notify(session_id: str) -> None:
-    with _sub_lock:
-        for event in _subscribers.get(session_id, []):
-            event.set()
-
-
-def pump_session(
-    session: Session,
+def collect_turn(
     adapter: QwenAdapter,
-    store: Store,
-) -> None:
-    """Background thread: read qwen SSE stream, map events, persist, notify.
+    qwen_session_id: str,
+    *,
+    on_event: EventCallback | None = None,
+    timeout: float = 600.0,
+    read_timeout: float = 60.0,
+) -> TurnResult:
+    """Read the qwen SSE stream for ``qwen_session_id`` until the turn ends.
 
-    Runs until a terminal event (done/error) or the session is cancelled.
-    Handles reconnection up to 3 times.
+    ``timeout`` is a wall-clock budget for the whole turn; ``read_timeout``
+    bounds a single socket read. Already-collected text is preserved on failure.
     """
-    qwen_sid = session.qwen_session_id
-    if not qwen_sid:
-        return
+    result = TurnResult()
+    deadline = time.monotonic() + timeout
+    text_buf: list[str] = []
+    tools_by_id: dict[str, ToolCall] = {}
 
-    last_sse_id: str | None = None
-    reconnects = 0
-    max_reconnects = 3
-    # Accumulate agent text for final persistence
-    agent_text_buf: list[str] = []
-    thought_text_buf: list[str] = []
+    def emit(event_type: str, data: dict[str, Any]) -> None:
+        if on_event:
+            try:
+                on_event(event_type, data)
+            except Exception:
+                logger.debug("on_event callback raised", exc_info=True)
 
-    while reconnects < max_reconnects:
-        current = store.get_session(session.id)
-        if not current or current.status in ("completed", "failed", "cancelled"):
-            return
+    try:
+        for _sse_id, _event_name, payload in adapter.stream_events(
+            qwen_session_id, timeout=read_timeout
+        ):
+            if time.monotonic() > deadline:
+                result.status = "timeout"
+                result.error = f"turn exceeded {timeout:.0f}s budget"
+                break
 
-        try:
-            seen = 0
-            for sse_id, event_name, payload in adapter.stream_events(qwen_sid, last_sse_id):
-                current = store.get_session(session.id)
-                if not current or current.status in ("completed", "failed", "cancelled"):
-                    return
+            for event_type, data in _map_qwen_event(payload):
+                emit(event_type, data)
 
-                if sse_id:
-                    last_sse_id = sse_id
+                if event_type == "message.delta" and not data.get("thought"):
+                    text_buf.append(str(data.get("text") or ""))
+                elif event_type == "tool.start":
+                    tc = ToolCall(
+                        id=str(data.get("tool_call_id") or ""),
+                        name=str(data.get("name") or "tool"),
+                        input=data.get("input"),
+                    )
+                    tools_by_id[tc.id] = tc
+                    result.tools.append(tc)
+                elif event_type == "tool.end":
+                    tc = tools_by_id.get(str(data.get("tool_call_id") or ""))
+                    if tc:
+                        tc.output = data.get("output")
+                        tc.is_error = bool(data.get("is_error"))
+                elif event_type == "done":
+                    result.status = "completed"
+                elif event_type == "error":
+                    result.status = "failed"
+                    result.error = str(data.get("reason") or "turn error")
 
-                mapped = map_qwen_event(session.id, event_name, payload)
-                for event_type, data in mapped:
-                    store.append_event(session.id, event_type, data)
+                if result.status in ("completed", "failed"):
+                    break
+            if result.status in ("completed", "failed", "timeout"):
+                break
+        else:
+            # Stream closed cleanly without a terminal event.
+            if result.status == "running":
+                result.status = "completed"
+    except Exception as exc:
+        logger.warning("collect_turn stream error: %s", exc)
+        if result.status == "running":
+            result.status = "failed"
+            result.error = str(exc)
 
-                    # Accumulate text for persistence
-                    if event_type == "message.delta":
-                        text = str(data.get("text") or "")
-                        if data.get("thought"):
-                            thought_text_buf.append(text)
-                        else:
-                            # Flush thought buffer when real text starts
-                            if thought_text_buf:
-                                _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
-                                thought_text_buf.clear()
-                            agent_text_buf.append(text)
-                    elif event_type == "tool.start":
-                        # Flush any accumulated text before tool call
-                        if thought_text_buf:
-                            _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
-                            thought_text_buf.clear()
-                        if agent_text_buf:
-                            _save_assistant_message(store, session.id, "".join(agent_text_buf))
-                            agent_text_buf.clear()
-
-                    _persist_message_if_needed(store, session.id, event_type, data)
-                    _notify(session.id)
-
-                    if event_type in ("done", "error"):
-                        # Flush remaining buffers
-                        if thought_text_buf:
-                            _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
-                            thought_text_buf.clear()
-                        if agent_text_buf:
-                            _save_assistant_message(store, session.id, "".join(agent_text_buf))
-                            agent_text_buf.clear()
-                        terminal_status = "completed" if event_type == "done" else "failed"
-                        current = store.get_session(session.id)
-                        if current and current.status not in ("cancelled",):
-                            current.status = terminal_status
-                            store.update_session(current)
-                        _notify(session.id)
-                        return
-                seen += 1
-
-            # Stream ended without terminal event
-            reconnects += 1
-            logger.info(
-                "stream closed for %s (reconnect %d/%d)",
-                session.id, reconnects, max_reconnects,
-            )
-
-        except Exception as exc:
-            current = store.get_session(session.id)
-            if not current or current.status in ("completed", "failed", "cancelled"):
-                return
-            reconnects += 1
-            logger.warning(
-                "stream error for %s: %s (reconnect %d/%d)",
-                session.id, exc, reconnects, max_reconnects,
-            )
-
-    # Exhausted reconnects
-    current = store.get_session(session.id)
-    if current and current.status == "running":
-        current.status = "failed"
-        store.update_session(current)
-        store.append_event(session.id, "error", {"reason": "stream disconnected"})
-        _notify(session.id)
+    result.text = "".join(text_buf)
+    if result.status == "running":
+        result.status = "completed"
+    return result
 
 
-def map_qwen_event(
-    session_id: str,
-    event_name: str | None,
-    payload: Any,
-) -> list[tuple[str, dict[str, Any]]]:
-    """Map one qwen SSE frame to zero or more aflow-lite events."""
+def _map_qwen_event(payload: Any) -> list[tuple[str, dict[str, Any]]]:
+    """Map one qwen SSE payload to zero-or-more canonical (type, data) events."""
     if not isinstance(payload, dict):
         return []
 
-    qwen_type = payload.get("type") or event_name
+    qwen_type = payload.get("type")
     data = payload.get("data")
 
-    # session_update wraps most streaming content
     if qwen_type == "session_update" and isinstance(data, dict):
         update = data.get("update") if isinstance(data.get("update"), dict) else data
-        session_update = update.get("sessionUpdate")
+        kind = update.get("sessionUpdate")
         content = update.get("content")
 
-        if session_update == "agent_message_chunk" and isinstance(content, dict):
+        if kind == "agent_message_chunk" and isinstance(content, dict):
             text = str(content.get("text") or "")
-            if text:
-                return [("message.delta", {"text": text})]
-
-        if session_update == "agent_thought_chunk" and isinstance(content, dict):
+            return [("message.delta", {"text": text})] if text else []
+        if kind == "agent_thought_chunk" and isinstance(content, dict):
             text = str(content.get("text") or "")
-            if text:
-                return [("message.delta", {"text": text, "thought": True})]
-
-        if session_update == "tool_call" and isinstance(content, dict):
+            return [("message.delta", {"text": text, "thought": True})] if text else []
+        if kind == "tool_call" and isinstance(content, dict):
             return [("tool.start", {
                 "tool_call_id": str(content.get("id") or ""),
                 "name": str(content.get("name") or "tool"),
                 "input": content.get("input"),
             })]
-
-        if session_update == "tool_call_update" and isinstance(content, dict):
+        if kind == "tool_call_update" and isinstance(content, dict):
             return [("tool.update", {
                 "tool_call_id": str(content.get("id") or ""),
                 "name": str(content.get("name") or "tool"),
                 "partial_output": content.get("output"),
             })]
-
-        if session_update == "tool_output" and isinstance(content, dict):
+        if kind == "tool_output" and isinstance(content, dict):
             return [("tool.end", {
                 "tool_call_id": str(content.get("tool_use_id") or content.get("id") or ""),
                 "name": str(content.get("name") or "tool"),
                 "output": content.get("content") or content.get("output"),
                 "is_error": bool(content.get("is_error")),
             })]
-
-        if session_update in ("shell_output",):
-            text = str(content.get("text") or "") if isinstance(content, dict) else ""
-            if text:
-                return [("message.delta", {"text": text, "shell": True})]
-
+        if kind == "shell_output" and isinstance(content, dict):
+            text = str(content.get("text") or "")
+            return [("message.delta", {"text": text, "shell": True})] if text else []
         return []
 
-    # permission
     if qwen_type == "permission_request":
         return [("permission.request", {"raw": payload})]
-
     if qwen_type == "permission_resolved":
         return [("permission.resolved", {"raw": payload})]
-
-    # terminal
     if qwen_type == "turn_complete":
         return [("done", {"raw_type": qwen_type})]
-
     if qwen_type in ("turn_error", "session_died", "client_evicted"):
         return [("error", {"reason": qwen_type, "raw": payload})]
-
     return []
-
-
-def _save_assistant_message(
-    store: Store,
-    session_id: str,
-    text: str,
-    *,
-    thought: bool = False,
-) -> None:
-    """Persist accumulated assistant text as a message."""
-    if not text.strip():
-        return
-    store.append_message(Message.create(
-        session_id,
-        "assistant",
-        content=text,
-        partial=False,
-    ))
-
-
-def _persist_message_if_needed(
-    store: Store,
-    session_id: str,
-    event_type: str,
-    data: dict[str, Any],
-) -> None:
-    """Persist select events as messages for history replay."""
-    if event_type == "message.delta":
-        # Deltas are transient; we accumulate them in the SSE stream.
-        # A full assistant message is persisted on 'done'.
-        return
-    if event_type == "tool.start":
-        store.append_message(Message.create(
-            session_id,
-            "tool",
-            content=str(data.get("input") or ""),
-            tool_name=data.get("name"),
-            tool_call_id=data.get("tool_call_id"),
-        ))
-    elif event_type == "tool.end":
-        output = data.get("output")
-        text = str(output) if output is not None else ""
-        store.append_message(Message.create(
-            session_id,
-            "tool",
-            content=text[:8000],
-            tool_name=data.get("name"),
-            tool_call_id=data.get("tool_call_id"),
-        ))
-    elif event_type == "error":
-        reason = data.get("reason") or "unknown error"
-        store.append_message(Message.create(
-            session_id,
-            "system",
-            content=f"❌ {reason}",
-        ))
