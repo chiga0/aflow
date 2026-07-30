@@ -1255,6 +1255,9 @@ class RunStore:
             with self._lock:
                 self._require_run(run_id)
                 events = self._events_from_db(run_id, last_sequence)
+                # End the read transaction so the ACCESS SHARE locks are not
+                # held across the sleep (avoid a long-lived idle transaction).
+                self._db.commit()
             if events:
                 return events
             remaining = deadline - time.monotonic()
@@ -1844,6 +1847,11 @@ class RunStore:
                     created_at=row["created_at"],
                 )
                 self._mission_events.setdefault(row["mission_id"], []).append(event)
+            # End the read transaction so the ACCESS SHARE locks taken by the
+            # SELECTs above are released; otherwise another replica's DDL
+            # (ALTER TABLE needs ACCESS EXCLUSIVE) blocks behind this idle
+            # transaction and hangs.
+            self._db.commit()
 
     def _persist_run(self, run: RunState) -> None:
         self._db.execute(
