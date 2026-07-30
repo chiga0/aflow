@@ -1,0 +1,88 @@
+name: aflow-lite probe (READ-ONLY)
+
+# READ-ONLY reconnaissance of the VPS behind the legacy RUNTIME_SSH_* secrets.
+#
+# This workflow does NOT deploy anything. It opens one SSH session and runs
+# only non-mutating commands (hostname, listening ports, `docker ps`, `free`,
+# `df`, directory `ls`) so we can see, with evidence, whether the host still
+# runs the classic aflow, which ports (8765/8766/443) are taken, and whether
+# Docker/qwen/node are present — i.e. whether a co-located aflow-lite is even
+# feasible and on which port.
+#
+# Safety guarantees (enforced by the remote script below):
+#   * no `cat`/read of any secret-bearing file (.env, settings.json, keys)
+#   * no `docker run/up/down/rm`, no package install, no file write on the host
+#   * `set +e` so a missing command never aborts the probe
+#   * the only host side-effect is the SSH login record itself
+#
+# It is gated to changes of THIS file only, so it runs solely when we
+# intentionally push an edit to it — never on unrelated pushes. It reuses the
+# legacy RUNTIME_SSH_* repo secrets (read-only use); it does not touch the
+# legacy runtime-production environment or deploy workflow.
+
+on:
+  push:
+    paths:
+      - ".github/workflows/lite-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: READ-ONLY probe banner
+        run: |
+          echo "READ-ONLY PROBE — no deploy, no remote writes, no secret cat."
+          echo "Target (redacted by GitHub if it were a secret): see RUNTIME_SSH_TARGET."
+
+      - name: SSH in and collect read-only facts
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          SSH_KEY: ${{ secrets.RUNTIME_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TARGET" || { echo "RUNTIME_SSH_TARGET not set"; exit 2; }
+          test -n "$SSH_KEY" || { echo "RUNTIME_SSH_KEY not set"; exit 2; }
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/ssh/k"
+          chmod 600 "$RUNNER_TEMP/ssh/k"
+          ssh -i "$RUNNER_TEMP/ssh/k" \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            "$TARGET" 'bash -s' <<'REMOTE'
+          set +e   # never abort: collect as much as possible
+          echo "=== host ==="; hostname; uname -a
+          echo "=== user ==="; whoami; id
+          echo "=== cpu / mem / disk ==="; nproc; free -h; df -h /
+          echo "=== target ports (80,443,4170,8765,8766) ==="
+          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) \
+            | grep -E ':(80|443|4170|8765|8766)\b' || echo "none-of-these-listening"
+          echo "=== listening ports (summary, first 40) ==="
+          (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | head -40
+          echo "=== docker / compose ==="
+          docker --version 2>/dev/null || echo "NO_DOCKER"
+          docker compose version 2>/dev/null || docker-compose version 2>/dev/null || echo "NO_COMPOSE"
+          echo "=== docker ps (running) ==="
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}' 2>/dev/null \
+            || echo "NO_DOCKER_ACCESS"
+          echo "=== docker ps -a (all) ==="
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || true
+          echo "=== legacy aflow dirs (ls only, NOT cat) ==="
+          ls -la /opt/agentflow 2>/dev/null | head -8 || echo "no-/opt/agentflow"
+          ls -la /var/lib/cloud-agents-runtime 2>/dev/null | head -8 || echo "no-state-dir"
+          echo "=== legacy env file (ls only, content NOT read) ==="
+          ls -la /etc/cloud-agents-runtime.env 2>/dev/null || echo "no-env-file"
+          echo "=== qwen on remote? ==="
+          command -v qwen && qwen --version 2>/dev/null || echo "NO_QWEN_ON_REMOTE"
+          echo "=== node / npm on remote? ==="
+          node --version 2>/dev/null || echo "NO_NODE"
+          npm --version 2>/dev/null || echo "NO_NPM"
+          echo "=== remote ~/.qwen (ls only, settings.json content NOT read) ==="
+          ls -la ~/.qwen 2>/dev/null | head -12 || echo "no-~/.qwen"
+          echo "=== PROBE DONE (read-only) ==="
+          REMOTE
