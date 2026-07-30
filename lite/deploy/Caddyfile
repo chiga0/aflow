@@ -1,0 +1,13 @@
+# Caddy reverse proxy with automatic HTTPS.
+#
+# Used by docker-compose.https.yml. Set AFLOW_DOMAIN to your public domain for
+# Let's Encrypt certs, or to a LAN hostname / IP for Caddy's internal CA
+# (browsers warn once on the internal CA — acceptable for self-hosted LAN use,
+# or install Caddy's root CA on your devices).
+#
+# HTTPS matters on mobile: a phone on the LAN needs a secure context for
+# microphone / clipboard / "add to home screen" PWA features.
+
+{$AFLOW_DOMAIN:localhost} {
+	reverse_proxy aflow:8765
+}

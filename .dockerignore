@@ -13,3 +13,15 @@ web/coverage
 web/playwright-report
 web/test-results
 web/*.tsbuildinfo
+
+# aflow-lite build context hygiene
+lite/web/node_modules
+lite/web/dist
+lite/web/coverage
+lite/web/playwright-report
+lite/web/test-results
+lite/web/e2e/smoke.png
+lite/**/data
+data
+*.db
+*.db-*
