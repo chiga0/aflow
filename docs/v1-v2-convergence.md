@@ -80,10 +80,21 @@ V1 的 `auth_users`/`auth_sessions`/`api_tokens`/`access_projects` 与 V2 的 `v
 - 兼容性：`row["column"]` 访问、`?` 占位符、`INSERT OR IGNORE`、`ON CONFLICT` upsert、`executescript` 均经 `RuntimeDatabase` 自动适配；257 个测试通过（sqlite 路径行为不变 + 5 个方言分支测试）。
 - **待验证**：postgres 路径需真实 Postgres 实例做集成测试（本环境无 Postgres，仅单测覆盖方言分支逻辑）。
 
-### 后续（A3/A4，未开始）
+### A3/A4 完成状态（run+event 子系统，已实现）
 
-- **A3**：进程内 `RLock`/`Condition` → DB 级协调（advisory lock + `SKIP LOCKED` + LISTEN/NOTIFY）。
-- **A4**：移除 `_load_from_db()` 全量内存镜像，改为按需查询。
+聚焦实时关键的 **run+event 子系统**，对 postgres 走 DB（sqlite 保持进程内缓存 + Condition 不变）：
+
+- **A3（跨副本事件等待）**：`wait_for_events` 在 postgres 下改为**轮询 DB**（释放锁避免阻塞，0.3s 间隔直至新事件或超时）；sqlite 仍用进程内 `Condition`。设计文档提到的 LISTEN/NOTIFY 作为后续优化，轮询是稳健的兜底实现。
+- **A4（按需读 DB）**：postgres 下 `events_since`/`max_sequence`/`is_terminal`/`get_run`/`_require_run` 从 DB 读取（新增 `_events_from_db`、`_load_run_from_db` 辅助方法），消除跨副本内存陈旧问题。
+- **事件序号防冲突**：`append_event` 在 postgres 下用 `task_lock(run_id)`（pg_advisory_xact_lock）串行化，序号从 DB `max(sequence)+1` 派生（而非内存 `len+1`），杜绝多副本序号冲突。
+- 测试：263 个测试通过（sqlite 行为不变 + 6 个 postgres 事件路径单测，用 mock 验证方言门控）。
+- **待验证**：postgres 路径仍需真实 Postgres 做集成/多副本冒烟（本环境仅 mock 单测）。
+
+### 后续（未开始）
+
+- **A4 剩余实体缓存**：`run_jobs`/`workers`/`missions`/`profiles`/`access` 等仍是进程内内存镜像，postgres 多副本下需同样改为按需读 DB（或缓存失效）。
+- **A3 优化**：事件通知从轮询升级为 Postgres `LISTEN/NOTIFY`（降低延迟与 DB 压力）。
+- **阶段 B**：身份/RBAC 统一到 V2。**阶段 C**：运行语义收敛（V1 run → V2 task 投影）。
 
 ## 验收标准
 

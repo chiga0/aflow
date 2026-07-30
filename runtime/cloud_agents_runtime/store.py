@@ -5,6 +5,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 import weakref
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -88,7 +89,10 @@ class RunStore:
 
     def get_run(self, run_id: str) -> RunState | None:
         with self._lock:
-            return self._runs.get(run_id)
+            run = self._runs.get(run_id)
+            if run is None and self._db.dialect == "postgres":
+                run = self._load_run_from_db(run_id)
+            return run
 
     def list_runs(self) -> list[RunState]:
         with self._lock:
@@ -1049,15 +1053,28 @@ class RunStore:
             elif run.status == "created" and event_type.startswith("input."):
                 run.status = "queued"
 
-            events = self._events[run_id]
+            events = self._events.setdefault(run_id, [])
+            if self._db.dialect == "postgres":
+                # Serialize per-run sequence assignment across replicas and
+                # derive the next sequence from the DB (the in-memory list only
+                # holds this process's events).
+                self._db.task_lock(run_id)
+                seq_row = self._db.execute(
+                    "select coalesce(max(sequence), 0) as max_seq "
+                    "from run_events where run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                next_sequence = (int(seq_row["max_seq"]) + 1) if seq_row else 1
+            else:
+                next_sequence = len(events) + 1
             event = RuntimeEvent(
                 type=event_type,
                 run_id=run_id,
-                sequence=len(events) + 1,
+                sequence=next_sequence,
                 data=data or {},
             )
             events.append(event)
-            run.event_count = len(events)
+            run.event_count = event.sequence
             run.updated_at = event.created_at
             self._append_jsonl(run_id, "events.jsonl", event.to_dict())
             self._insert_event(event)
@@ -1140,6 +1157,8 @@ class RunStore:
     def events_since(self, run_id: str, last_sequence: int = 0) -> list[RuntimeEvent]:
         with self._lock:
             self._require_run(run_id)
+            if self._db.dialect == "postgres":
+                return self._events_from_db(run_id, last_sequence)
             return [event for event in self._events[run_id] if event.sequence > last_sequence]
 
     def list_artifacts(self, run_id: str) -> list[dict[str, Any]]:
@@ -1181,6 +1200,13 @@ class RunStore:
     def max_sequence(self, run_id: str) -> int:
         with self._lock:
             self._require_run(run_id)
+            if self._db.dialect == "postgres":
+                row = self._db.execute(
+                    "select coalesce(max(sequence), 0) as max_seq "
+                    "from run_events where run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                return int(row["max_seq"]) if row else 0
             return len(self._events[run_id])
 
     def record_gap_if_needed(self, run_id: str, requested_last_sequence: int) -> int:
@@ -1201,6 +1227,8 @@ class RunStore:
     def wait_for_events(
         self, run_id: str, last_sequence: int, timeout: float
     ) -> list[RuntimeEvent]:
+        if self._db.dialect == "postgres":
+            return self._wait_for_events_polling(run_id, last_sequence, timeout)
         with self._lock:
             self._require_run(run_id)
             condition = self._conditions[run_id]
@@ -1208,10 +1236,39 @@ class RunStore:
                 condition.wait(timeout=timeout)
             return self.events_since(run_id, last_sequence)
 
+    def _wait_for_events_polling(
+        self, run_id: str, last_sequence: int, timeout: float
+    ) -> list[RuntimeEvent]:
+        """Cross-replica event wait for postgres: poll the DB.
+
+        The in-process Condition only notifies waiters in the same process, so
+        across replicas we poll run_events until new rows appear or the timeout
+        elapses. The lock is released between polls so other work can proceed.
+        """
+        deadline = time.monotonic() + timeout
+        poll_interval = 0.3
+        while True:
+            with self._lock:
+                self._require_run(run_id)
+                events = self._events_from_db(run_id, last_sequence)
+            if events:
+                return events
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return []
+            time.sleep(min(poll_interval, remaining))
+
     def is_terminal(self, run_id: str) -> bool:
         with self._lock:
             run = self._require_run(run_id)
-            return run.status in {"completed", "failed", "cancelled"} or any(
+            if run.status in {"completed", "failed", "cancelled"}:
+                return True
+            if self._db.dialect == "postgres":
+                return any(
+                    event.type in TERMINAL_RUN_EVENTS
+                    for event in self._events_from_db(run_id)
+                )
+            return any(
                 event.type in TERMINAL_RUN_EVENTS for event in self._events[run_id]
             )
 
@@ -1250,9 +1307,61 @@ class RunStore:
 
     def _require_run(self, run_id: str) -> RunState:
         run = self._runs.get(run_id)
+        if run is None and self._db.dialect == "postgres":
+            run = self._load_run_from_db(run_id)
         if run is None:
             raise KeyError(run_id)
         return run
+
+    def _load_run_from_db(self, run_id: str) -> RunState | None:
+        """Load (or refresh) a run from the DB into the in-memory cache.
+
+        Used on the postgres path so runs created by other replicas are
+        accessible and cached run metadata does not go stale.
+        """
+        row = self._db.execute(
+            "select * from runs where run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        run = RunState(
+            run_id=row["run_id"],
+            spec=RunSpec.from_payload(json.loads(row["spec_json"])),
+            status=row["status"],
+            adapter_run_id=row["adapter_run_id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            event_count=row["event_count"],
+            prompt_count=row["prompt_count"],
+        )
+        self._runs[run.run_id] = run
+        self._events.setdefault(run.run_id, [])
+        self._conditions.setdefault(run.run_id, threading.Condition(self._lock))
+        return run
+
+    def _events_from_db(
+        self, run_id: str, last_sequence: int = 0
+    ) -> list[RuntimeEvent]:
+        rows = self._db.execute(
+            """
+            select run_id, sequence, event_id, type, data_json, created_at
+            from run_events
+            where run_id = ? and sequence > ?
+            order by sequence
+            """,
+            (run_id, last_sequence),
+        ).fetchall()
+        return [
+            RuntimeEvent(
+                type=row["type"],
+                run_id=row["run_id"],
+                sequence=row["sequence"],
+                data=json.loads(row["data_json"]),
+                id=row["event_id"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
 
     def _require_mission(self, mission_id: str) -> MissionState:
         mission = self._missions.get(mission_id)
