@@ -39,6 +39,7 @@ nav:
       - 总览: research/index.md
       - 状态看板: research/dashboard.md
       - Durable Object Agent 运行时: research/durable-object-agent/README.md
+      - Agent 隔离、沙箱与持久化: research/agent-sandbox-isolation-persistence/README.md
 
 markdown_extensions:
   - admonition
