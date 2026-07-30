@@ -3554,7 +3554,7 @@ class V2ControlPlane:
             ")"
         )
         applied = {
-            row[0]
+            row["version"]
             for row in self._db.execute(
                 "SELECT version FROM v2_schema_migrations"
             ).fetchall()
