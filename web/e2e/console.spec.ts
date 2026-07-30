@@ -14,7 +14,7 @@ test("signs in from the responsive login page", async ({ page, isMobile }) => {
   await page.getByLabel("密码").fill("secret");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
 });
 
@@ -22,7 +22,7 @@ test("creates a task from the client workspace", async ({ page, isMobile }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
   await page
     .getByPlaceholder(
@@ -62,14 +62,14 @@ test("uses the client and admin control-plane surfaces", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
   await page
     .getByPlaceholder(
       "例如：审计这个仓库的部署链路，修复问题并给出可验证的交付产物",
     )
     .fill("Ship the control plane");
-  await page.getByText("设置", { exact: true }).click();
+  await page.locator('form[aria-label="New conversation"] summary').click();
   await page.getByLabel("Agent 模式").selectOption("multi-agent");
   await page.getByLabel("执行 Agent").selectOption("qwen");
   const createRequest = page.waitForRequest(
@@ -117,7 +117,7 @@ test("hides backend navigation for a member user", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: /管理后台/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /运行/ })).toHaveCount(0);
@@ -131,7 +131,7 @@ test("manages runs, permissions, profiles, and operations", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
   await page.getByRole("link", { name: /Admin|管理后台/ }).click();
   await expect(page.getByRole("heading", { name: "管理控制台" })).toBeVisible();
@@ -258,7 +258,7 @@ test("shows error state when the tasks API fails", async ({ page }) => {
   );
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "今天想完成什么？" }),
+    page.getByRole("form", { name: "New conversation" }),
   ).toBeVisible();
   const body = await page.textContent("body");
   expect(body).toBeTruthy();
