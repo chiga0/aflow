@@ -130,6 +130,12 @@ def make_handler(
         def do_GET(self) -> None:
             try:
                 path = urlparse(self.path).path
+                # Unified auth gate: every /api/* route that is not explicitly
+                # public (health, login, session probe) requires auth. This
+                # protects extension routes (missions/channels) automatically.
+                if path.startswith("/api/") and not _is_public_path(path):
+                    if self._require_auth():
+                        return
                 if path == "/api/health":
                     return self.handle_health()
                 if path == "/metrics":
@@ -161,9 +167,11 @@ def make_handler(
                     return self.handle_login()
                 if path == "/api/auth/logout":
                     return self.handle_logout()
-                if path == "/daemon" or path.startswith("/daemon/"):
+                # Unified auth gate for every other POST (daemon + /api/* ext).
+                if (path.startswith("/api/") or path == "/daemon" or path.startswith("/daemon/")):
                     if self._require_auth():
                         return
+                if path == "/daemon" or path.startswith("/daemon/"):
                     return self._proxy_post()
                 if path.startswith("/api/"):
                     body = self.read_body()
