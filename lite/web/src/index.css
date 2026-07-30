@@ -2,16 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Safe area for iOS bottom bar */
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-/* Hide scrollbar but keep scroll */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
 }

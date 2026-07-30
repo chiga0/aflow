@@ -1,38 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
-import { SessionList } from "./pages/session-list";
-import { ChatDetail } from "./pages/chat-detail";
-
-export type Route =
-  | { page: "list" }
-  | { page: "chat"; sessionId: string };
-
-function parseHash(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, "");
-  const match = hash.match(/^chat\/(.+)$/);
-  if (match) return { page: "chat", sessionId: match[1] };
-  return { page: "list" };
-}
+import { StandaloneWebShell } from "@qwen-code/web-shell";
 
 export function App() {
-  const [route, setRoute] = useState<Route>(parseHash);
-
-  useEffect(() => {
-    const onHash = () => setRoute(parseHash());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-
-  const navigate = useCallback((r: Route) => {
-    window.location.hash = r.page === "list" ? "/" : `/chat/${r.sessionId}`;
-  }, []);
-
-  if (route.page === "chat") {
-    return (
-      <ChatDetail
-        sessionId={route.sessionId}
-        onBack={() => navigate({ page: "list" })}
-      />
-    );
-  }
-  return <SessionList onOpen={(id) => navigate({ page: "chat", sessionId: id })} />;
+  return (
+    <StandaloneWebShell
+      baseUrl="/daemon"
+      language="zh"
+      style={{ height: "100vh", width: "100vw" }}
+      hiddenSlashCommands={[
+        "agents",
+        "auth",
+        "bug",
+        "docs",
+        "extensions",
+        "mcp",
+        "memory",
+        "release",
+        "settings",
+      ]}
+      sidebar={{
+        enabled: true,
+        branding: {
+          render: () => (
+            <div className="min-w-0 px-1">
+              <div className="text-sm font-semibold">aflow</div>
+              <div className="truncate text-xs opacity-70">lite</div>
+            </div>
+          ),
+        },
+        footer: false,
+      }}
+    />
+  );
 }

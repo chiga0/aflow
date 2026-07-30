@@ -7,6 +7,8 @@ import logging
 import os
 import threading
 import time
+import urllib.error
+import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -34,6 +36,10 @@ def make_handler(store: Store, adapter: QwenAdapter) -> type[BaseHTTPRequestHand
         def do_GET(self) -> None:
             path = urlparse(self.path).path
             parts = [p for p in path.split("/") if p]
+
+            # Proxy /daemon/* to qwen serve
+            if path.startswith("/daemon/") or path == "/daemon":
+                return self._proxy_get()
 
             if path == "/api/health":
                 return self.json({"ok": True, "version": __version__, "qwen": adapter.health()})
@@ -64,6 +70,11 @@ def make_handler(store: Store, adapter: QwenAdapter) -> type[BaseHTTPRequestHand
         def do_POST(self) -> None:
             path = urlparse(self.path).path
             parts = [p for p in path.split("/") if p]
+
+            # Proxy /daemon/* to qwen serve
+            if path.startswith("/daemon/") or path == "/daemon":
+                return self._proxy_post()
+
             body = self.read_body()
 
             if parts == ["api", "sessions"]:
@@ -294,8 +305,109 @@ def make_handler(store: Store, adapter: QwenAdapter) -> type[BaseHTTPRequestHand
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 
         def do_OPTIONS(self) -> None:
+            path = urlparse(self.path).path
+            if path.startswith("/daemon/") or path == "/daemon":
+                return self._proxy_options()
             self.send_response(HTTPStatus.NO_CONTENT)
             self._cors()
+            self.end_headers()
+
+        # ── Daemon proxy ─────────────────────────────────────
+
+        def _proxy_get(self) -> None:
+            """Proxy GET to qwen serve, including SSE streams."""
+            target_path = self.path.replace("/daemon", "", 1) or "/"
+            target_url = f"{adapter.base_url}{target_path}"
+            headers = {"accept": self.headers.get("accept", "*/*")}
+            if self.headers.get("Last-Event-ID"):
+                headers["Last-Event-ID"] = self.headers["Last-Event-ID"]
+            if adapter.token:
+                headers["authorization"] = f"Bearer {adapter.token}"
+
+            req = urllib.request.Request(target_url, headers=headers, method="GET")
+            accept = self.headers.get("accept", "")
+
+            if "text/event-stream" in accept:
+                # SSE streaming proxy
+                try:
+                    resp = urllib.request.urlopen(req, timeout=300)
+                except Exception as exc:
+                    self.error(HTTPStatus.BAD_GATEWAY, str(exc))
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self._cors()
+                self.end_headers()
+                try:
+                    while True:
+                        chunk = resp.read(4096)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    resp.close()
+            else:
+                # Normal GET
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        body = resp.read()
+                        ct = resp.headers.get("Content-Type", "application/json")
+                        self.send_response(resp.status)
+                        self.send_header("Content-Type", ct)
+                        self.send_header("Content-Length", str(len(body)))
+                        self._cors()
+                        self.end_headers()
+                        self.wfile.write(body)
+                except urllib.error.HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace")
+                    self.send_response(exc.code)
+                    self.send_header("Content-Type", "application/json")
+                    self._cors()
+                    self.end_headers()
+                    self.wfile.write(detail.encode("utf-8"))
+                except Exception as exc:
+                    self.error(HTTPStatus.BAD_GATEWAY, str(exc))
+
+        def _proxy_post(self) -> None:
+            """Proxy POST to qwen serve."""
+            target_path = self.path.replace("/daemon", "", 1) or "/"
+            target_url = f"{adapter.base_url}{target_path}"
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length > 0 else None
+            headers = {"content-type": self.headers.get("Content-Type", "application/json")}
+            if adapter.token:
+                headers["authorization"] = f"Bearer {adapter.token}"
+            req = urllib.request.Request(target_url, data=body, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    resp_body = resp.read()
+                    self.send_response(resp.status)
+                    self.send_header("Content-Type", resp.headers.get("Content-Type", "application/json"))
+                    self.send_header("Content-Length", str(len(resp_body)))
+                    self._cors()
+                    self.end_headers()
+                    self.wfile.write(resp_body)
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self.send_response(exc.code)
+                self.send_header("Content-Type", "application/json")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(detail.encode("utf-8"))
+            except Exception as exc:
+                self.error(HTTPStatus.BAD_GATEWAY, str(exc))
+
+        def _proxy_options(self) -> None:
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Last-Event-ID")
             self.end_headers()
 
         def log_message(self, fmt: str, *args: Any) -> None:

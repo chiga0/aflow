@@ -56,6 +56,9 @@ def pump_session(
     last_sse_id: str | None = None
     reconnects = 0
     max_reconnects = 3
+    # Accumulate agent text for final persistence
+    agent_text_buf: list[str] = []
+    thought_text_buf: list[str] = []
 
     while reconnects < max_reconnects:
         current = store.get_session(session.id)
@@ -75,10 +78,38 @@ def pump_session(
                 mapped = map_qwen_event(session.id, event_name, payload)
                 for event_type, data in mapped:
                     store.append_event(session.id, event_type, data)
+
+                    # Accumulate text for persistence
+                    if event_type == "message.delta":
+                        text = str(data.get("text") or "")
+                        if data.get("thought"):
+                            thought_text_buf.append(text)
+                        else:
+                            # Flush thought buffer when real text starts
+                            if thought_text_buf:
+                                _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
+                                thought_text_buf.clear()
+                            agent_text_buf.append(text)
+                    elif event_type == "tool.start":
+                        # Flush any accumulated text before tool call
+                        if thought_text_buf:
+                            _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
+                            thought_text_buf.clear()
+                        if agent_text_buf:
+                            _save_assistant_message(store, session.id, "".join(agent_text_buf))
+                            agent_text_buf.clear()
+
                     _persist_message_if_needed(store, session.id, event_type, data)
                     _notify(session.id)
 
                     if event_type in ("done", "error"):
+                        # Flush remaining buffers
+                        if thought_text_buf:
+                            _save_assistant_message(store, session.id, "".join(thought_text_buf), thought=True)
+                            thought_text_buf.clear()
+                        if agent_text_buf:
+                            _save_assistant_message(store, session.id, "".join(agent_text_buf))
+                            agent_text_buf.clear()
                         terminal_status = "completed" if event_type == "done" else "failed"
                         current = store.get_session(session.id)
                         if current and current.status not in ("cancelled",):
@@ -186,6 +217,24 @@ def map_qwen_event(
         return [("error", {"reason": qwen_type, "raw": payload})]
 
     return []
+
+
+def _save_assistant_message(
+    store: Store,
+    session_id: str,
+    text: str,
+    *,
+    thought: bool = False,
+) -> None:
+    """Persist accumulated assistant text as a message."""
+    if not text.strip():
+        return
+    store.append_message(Message.create(
+        session_id,
+        "assistant",
+        content=text,
+        partial=False,
+    ))
 
 
 def _persist_message_if_needed(
