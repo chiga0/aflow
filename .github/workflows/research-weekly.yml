@@ -10,8 +10,9 @@ permissions:
   contents: write
 
 jobs:
-  update-dashboard:
+  research:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,17 +24,45 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Generate research dashboard
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check API key
+        run: |
+          if [ -z "$DASHSCOPE_API_KEY" ]; then
+            echo "::error::DASHSCOPE_API_KEY secret is not configured."
+            echo "Add it via: gh secret set DASHSCOPE_API_KEY"
+            exit 1
+          fi
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+
+      - name: Install qwen-code
+        run: npm install -g @anthropic-ai/qwen-code
+        # TODO: 确认实际 npm 包名，可能是 @anthropic-ai/qwen-code 或 @anthropic/qwen-code
+        # 如果是内部源，需要配置 .npmrc
+
+      - name: Run research agent
+        run: |
+          qwen --print "$(cat .github/prompts/research-weekly.md)" \
+            --model qwen3-coder
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        timeout-minutes: 30
+
+      - name: Refresh dashboard
         run: python scripts/research_status.py
 
-      - name: Commit if changed
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/research/dashboard.md
+          git add docs/research/
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No research changes this week."
           else
-            git commit -m "chore(research): weekly dashboard update [skip ci]"
+            git commit -m "chore(research): weekly agent-driven update [skip ci]"
             git push
           fi

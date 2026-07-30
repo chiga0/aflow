@@ -4,6 +4,9 @@ status: draft          # draft | active | concluded | archived
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 tags: [tag1, tag2]
+search_queries:        # agent 每周按这些关键词搜索新动态
+  - "keyword phrase 1"
+  - "keyword phrase 2"
 sources:
   - url: https://example.com
     title: 来源标题

@@ -4,6 +4,11 @@ status: active
 created: 2026-07-30
 updated: 2026-07-30
 tags: [durable-object, cloudflare, agent-runtime, actor-model]
+search_queries:
+  - "cloudflare durable objects AI agent"
+  - "cloudflare agents sdk"
+  - "durable object stateful agent runtime"
+  - "actor model agent orchestration"
 sources:
   - url: https://x.com/Vercantez/status/2082138839888589200
     title: "Miguel Salinas — Agent on Durable Object with Agents SDK & Code Mode"
