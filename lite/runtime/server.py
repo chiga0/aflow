@@ -37,7 +37,7 @@ from .auth import (
 from .metrics import METRICS
 from .store import Store
 
-logger = logging.getLogger("aflow_lite.server")
+logger = logging.getLogger("lite.runtime.server")
 
 MAX_BODY = 4 * 1024 * 1024
 

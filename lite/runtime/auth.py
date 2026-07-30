@@ -21,7 +21,7 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("aflow_lite.auth")
+logger = logging.getLogger("lite.runtime.auth")
 
 COOKIE_NAME = "aflow_session"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # 14 days

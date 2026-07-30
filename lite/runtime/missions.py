@@ -29,7 +29,7 @@ from .relay import collect_turn
 from .store import Store
 from . import titles
 
-logger = logging.getLogger("aflow_lite.missions")
+logger = logging.getLogger("lite.runtime.missions")
 
 DEFAULT_STEP_TIMEOUT = 300.0
 

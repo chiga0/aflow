@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from .adapter import QwenAdapter
 
-logger = logging.getLogger("aflow_lite.relay")
+logger = logging.getLogger("lite.runtime.relay")
 
 EventCallback = Callable[[str, dict[str, Any]], None]
 

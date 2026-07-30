@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Generator
 
-logger = logging.getLogger("aflow_lite.adapter")
+logger = logging.getLogger("lite.runtime.adapter")
 
 DEFAULT_TIMEOUT = 120
 

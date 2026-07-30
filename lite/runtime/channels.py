@@ -43,7 +43,7 @@ from .models import new_id, utc_now
 from .relay import collect_turn
 from .store import Store
 
-logger = logging.getLogger("aflow_lite.channels")
+logger = logging.getLogger("lite.runtime.channels")
 
 SUPPORTED_TYPES = {"dingtalk", "feishu", "webhook"}
 _SKEW_MS = 3600 * 1000
