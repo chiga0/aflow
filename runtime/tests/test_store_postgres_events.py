@@ -133,9 +133,11 @@ class PostgresEventPathTest(unittest.TestCase):
         store, run_id = make_store_with_run(self)
         mock_db = Mock()
         mock_db.dialect = "postgres"
-        mock_db.task_lock = Mock()
+
+        executed_sql: list[str] = []
 
         def fake_execute(sql, params=()):
+            executed_sql.append(sql)
             result = Mock()
             if "max(sequence)" in sql:
                 result.fetchone.return_value = {"max_seq": 41}
@@ -150,7 +152,8 @@ class PostgresEventPathTest(unittest.TestCase):
         event = store.append_event(run_id, "agent.message", {"text": "hi"})
         # sequence derived from DB max (41) + 1, not the in-memory list length
         self.assertEqual(event.sequence, 42)
-        mock_db.task_lock.assert_called_with(run_id)
+        # per-run serialization via SELECT ... FOR UPDATE on the run row
+        self.assertTrue(any("for update" in sql for sql in executed_sql))
 
 
 if __name__ == "__main__":

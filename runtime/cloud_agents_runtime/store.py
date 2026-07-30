@@ -1055,10 +1055,14 @@ class RunStore:
 
             events = self._events.setdefault(run_id, [])
             if self._db.dialect == "postgres":
-                # Serialize per-run sequence assignment across replicas and
-                # derive the next sequence from the DB (the in-memory list only
-                # holds this process's events).
-                self._db.task_lock(run_id)
+                # Serialize per-run sequence assignment across replicas: lock
+                # the run row (held until _insert_event commits) and derive the
+                # next sequence from the DB (the in-memory list only holds this
+                # process's events).
+                self._db.execute(
+                    "select run_id from runs where run_id = ? for update",
+                    (run_id,),
+                )
                 seq_row = self._db.execute(
                     "select coalesce(max(sequence), 0) as max_seq "
                     "from run_events where run_id = ?",

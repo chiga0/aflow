@@ -40,7 +40,9 @@ def main() -> int:
             raise RuntimeError("expected postgres dialect")
 
         # A4: a run created by replica 1 is readable by replica 2 (via DB).
+        print("step: create_run", flush=True)
         run = first.create_run(spec("verify shared postgres run state"))
+        print("step: cross-replica get_run", flush=True)
         seen = second.get_run(run.run_id)
         if seen is None or seen.run_id != run.run_id:
             raise RuntimeError("second replica cannot read shared run")
@@ -51,8 +53,14 @@ def main() -> int:
             for i in range(n):
                 store.append_event(run.run_id, "agent.message", {"i": i})
 
+        print("step: concurrent appends", flush=True)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(lambda s: append_batch(s, 5), (first, second)))
+            futures = [
+                pool.submit(append_batch, store, 5) for store in (first, second)
+            ]
+            for future in futures:
+                future.result(timeout=30)
+        print("step: concurrent appends done", flush=True)
 
         sequences = sorted(
             e.sequence for e in first.events_since(run.run_id, 0)
