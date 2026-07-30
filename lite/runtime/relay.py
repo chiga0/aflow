@@ -217,3 +217,10 @@ def _persist_message_if_needed(
             tool_name=data.get("name"),
             tool_call_id=data.get("tool_call_id"),
         ))
+    elif event_type == "error":
+        reason = data.get("reason") or "unknown error"
+        store.append_message(Message.create(
+            session_id,
+            "system",
+            content=f"❌ {reason}",
+        ))

@@ -37,6 +37,8 @@ export function ChatDetail({
               toolName: m.tool_name ?? undefined,
               toolOutput: m.content || undefined,
             };
+          if (m.role === "system")
+            return { id: m.id, kind: "error" as const, text: m.content };
           return { id: m.id, kind: "agent" as const, text: m.content };
         });
         setItems(history);

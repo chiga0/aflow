@@ -222,7 +222,9 @@ def make_handler(store: Store, adapter: QwenAdapter) -> type[BaseHTTPRequestHand
                 if current and current.status == "running":
                     current.status = "failed"
                     store.update_session(current)
-                store.append_event(session_id, "error", {"reason": str(exc)})
+                reason = str(exc)
+                store.append_event(session_id, "error", {"reason": reason})
+                store.append_message(Message.create(session_id, "system", f"❌ {reason}"))
                 from .relay import _notify
                 _notify(session_id)
 

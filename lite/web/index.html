@@ -8,6 +8,22 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="/manifest.json" />
     <title>aflow</title>
+    <script>
+      window.onerror = function(msg, url, line, col, err) {
+        var el = document.getElementById("root");
+        if (el && !el.children.length) {
+          el.innerHTML = '<pre style="color:#f87171;padding:20px;white-space:pre-wrap;font-size:13px">'
+            + 'JS Error:\n' + msg + '\n\n' + (err && err.stack ? err.stack : '') + '</pre>';
+        }
+      };
+      window.addEventListener("unhandledrejection", function(e) {
+        var el = document.getElementById("root");
+        if (el && !el.children.length) {
+          el.innerHTML = '<pre style="color:#f87171;padding:20px;white-space:pre-wrap;font-size:13px">'
+            + 'Unhandled Promise:\n' + String(e.reason) + '</pre>';
+        }
+      });
+    </script>
   </head>
   <body class="bg-zinc-950 text-zinc-100 antialiased">
     <div id="root"></div>
