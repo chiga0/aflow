@@ -163,9 +163,21 @@ export function ClientHome() {
                     <option value="auto">{t("home.autoSelect")}</option>
                     {(
                       agentOptions ?? [
-                        { adapter: "qwen", label: "qwen-code", status: "available" },
-                        { adapter: "codex", label: "codex cli", status: "available" },
-                        { adapter: "opencode", label: "opencode", status: "available" },
+                        {
+                          adapter: "qwen",
+                          label: "qwen-code",
+                          status: "available",
+                        },
+                        {
+                          adapter: "codex",
+                          label: "codex cli",
+                          status: "available",
+                        },
+                        {
+                          adapter: "opencode",
+                          label: "opencode",
+                          status: "available",
+                        },
                       ]
                     ).map((item) => (
                       <option

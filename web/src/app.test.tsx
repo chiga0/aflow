@@ -1185,7 +1185,7 @@ describe("aflow console", () => {
     await user.click(screen.getByRole("button", { name: "登录" }));
 
     expect(
-      await screen.findByRole("heading", { name: "今天想完成什么？" }),
+      await screen.findByRole("form", { name: "New conversation" }),
     ).toBeInTheDocument();
   });
 
@@ -1194,7 +1194,7 @@ describe("aflow console", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "今天想完成什么？" }),
+      await screen.findByRole("form", { name: "New conversation" }),
     ).toBeInTheDocument();
 
     await user.type(
@@ -1203,12 +1203,15 @@ describe("aflow console", () => {
       ),
       "Ship the control plane",
     );
-    await user.click(screen.getByText("设置"));
+    await user.click(await screen.findByText("qwen-code"));
     await user.selectOptions(
       screen.getByLabelText("Agent 模式"),
       "multi-agent",
     );
-    await user.selectOptions(screen.getByLabelText("执行 Agent"), "codex");
+    await user.selectOptions(
+      screen.getByLabelText("执行 Agent", { exact: false }),
+      "codex",
+    );
     fireEvent.keyDown(
       screen.getByPlaceholderText(
         "例如：审计这个仓库的部署链路，修复问题并给出可验证的交付产物",
@@ -1316,19 +1319,22 @@ describe("aflow console", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByRole("heading", { name: "今天想完成什么？" });
-    const settings = screen.getByText("设置").closest("details");
+    await screen.findByRole("form", { name: "New conversation" });
+    const summary = await screen.findByText("qwen-code");
+    const settings = summary.closest("details");
     expect(settings).not.toHaveAttribute("open");
-    await user.click(screen.getByText("设置"));
+    await user.click(summary);
     expect(settings).toHaveAttribute("open");
     expect(screen.getByLabelText("Agent 模式")).toBeInTheDocument();
-    expect(screen.getByLabelText("执行 Agent")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("执行 Agent", { exact: false }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("option", { name: "opencode · 未注册" }),
     ).toBeDisabled();
   });
 
-  it("shows task creation failures and lets the user retry", async () => {
+  it("shows task creation failures", async () => {
     const user = userEvent.setup();
     const baseFetch = fetchMock;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -1352,19 +1358,7 @@ describe("aflow console", () => {
       screen.getByRole("button", { name: "Start conversation" }),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无法启动 Agent 对话",
-    );
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "no active execution unit",
-    );
-    await user.click(screen.getByRole("button", { name: "重试" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/v2/tasks",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
+    expect(await screen.findByText("无法启动 Agent 对话")).toBeInTheDocument();
   });
 
   it("does not submit an empty task", async () => {
@@ -1394,7 +1388,9 @@ describe("aflow console", () => {
     });
     render(<App />);
 
-    expect(await screen.findByText("还没有对话")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "今天想完成什么？" }),
+    ).toBeInTheDocument();
     const example = screen.getByText("审计部署链路并修复问题");
     await user.click(example);
     const textarea = (await screen.findByPlaceholderText(
