@@ -14,3 +14,12 @@ web/*.tsbuildinfo
 !*.env.example
 .aflow/
 .runtime/
+
+# aflow-lite runtime data (never commit the live SQLite / bootstrap secret)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+**/BOOTSTRAP_PASSWORD.txt
+*.log
