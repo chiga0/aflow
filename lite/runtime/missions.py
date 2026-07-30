@@ -188,6 +188,7 @@ def handle_post(
     handler: Any,
     path: str,
     body: dict[str, Any],
+    raw: bytes,
     store: Store,
     adapter: QwenAdapter,
     auth: AuthConfig,

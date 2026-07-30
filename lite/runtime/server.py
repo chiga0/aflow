@@ -63,6 +63,10 @@ def _is_public_path(path: str) -> bool:
         return True
     if path.startswith("/icon-") or path.startswith("/apple-touch-icon") or path.startswith("/favicon-"):
         return True
+    # Inbound webhooks carry no browser cookie; they authenticate via a
+    # per-channel signature verified inside the handler.
+    if path.startswith("/api/channels/") and path.endswith("/inbound"):
+        return True
     return False
 
 
@@ -162,6 +166,9 @@ def make_handler(
 
         def do_POST(self) -> None:
             try:
+                # Read the raw body exactly once: webhook signature verification
+                # and the /daemon proxy both need the original bytes.
+                self._raw_body = self._read_raw()
                 path = urlparse(self.path).path
                 if path == "/api/auth/login":
                     return self.handle_login()
@@ -176,7 +183,9 @@ def make_handler(
                 if path.startswith("/api/"):
                     body = self.read_body()
                     from . import routes_extra
-                    if routes_extra.handle_post(self, path, body, store, adapter, auth_config):
+                    if routes_extra.handle_post(
+                        self, path, body, self._raw_body, store, adapter, auth_config
+                    ):
                         return
                 self.error(HTTPStatus.NOT_FOUND, "not found")
             finally:
@@ -360,8 +369,7 @@ def make_handler(
         def _proxy_post(self) -> None:
             target_path = self.path.replace("/daemon", "", 1) or "/"
             target_url = f"{adapter.base_url}{target_path}"
-            length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(length) if length > 0 else None
+            body = self._raw_body if getattr(self, "_raw_body", b"") else None
             headers = {"content-type": self.headers.get("Content-Type", "application/json")}
             if adapter.token:
                 headers["authorization"] = f"Bearer {adapter.token}"
@@ -428,10 +436,18 @@ def make_handler(
             self.wfile.write(body)
 
         def read_body(self) -> dict[str, Any]:
+            return self._parse_body(getattr(self, "_raw_body", b""))
+
+        def _read_raw(self) -> bytes:
             length = int(self.headers.get("Content-Length") or 0)
             if length <= 0 or length > MAX_BODY:
+                return b""
+            return self.rfile.read(length)
+
+        @staticmethod
+        def _parse_body(raw: bytes) -> dict[str, Any]:
+            if not raw:
                 return {}
-            raw = self.rfile.read(length)
             try:
                 parsed = json.loads(raw.decode("utf-8"))
                 return parsed if isinstance(parsed, dict) else {}

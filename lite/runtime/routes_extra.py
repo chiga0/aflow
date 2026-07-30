@@ -33,10 +33,16 @@ def handle_get(handler: Any, path: str, store: Any, adapter: Any, auth: Any) -> 
 
 
 def handle_post(
-    handler: Any, path: str, body: dict[str, Any], store: Any, adapter: Any, auth: Any
+    handler: Any,
+    path: str,
+    body: dict[str, Any],
+    raw: bytes,
+    store: Any,
+    adapter: Any,
+    auth: Any,
 ) -> bool:
-    if _missions is not None and _missions.handle_post(handler, path, body, store, adapter, auth):
+    if _missions is not None and _missions.handle_post(handler, path, body, raw, store, adapter, auth):
         return True
-    if _channels is not None and _channels.handle_post(handler, path, body, store, adapter, auth):
+    if _channels is not None and _channels.handle_post(handler, path, body, raw, store, adapter, auth):
         return True
     return False
