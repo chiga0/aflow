@@ -33,14 +33,35 @@ def main() -> int:
     if not database_url:
         raise SystemExit("RUNTIME_DATABASE_URL is required")
 
+    def create_with_timeout(label: str, artifact_root: Path) -> RunStore:
+        """Create a RunStore on a daemon thread so a hang fails fast.
+
+        The _init_db/_load_from_db INFO logs printed before the hang surface
+        in the CI log once this raises and the job completes.
+        """
+        print(f"step: create {label} RunStore", flush=True)
+        holder: dict[str, object] = {}
+
+        def target() -> None:
+            holder["store"] = RunStore(artifact_root, database_url)
+
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        thread.join(timeout=60)
+        if thread.is_alive():
+            raise RuntimeError(
+                f"{label} RunStore creation hung (see init_db logs above)"
+            )
+        if "error" in holder:
+            raise holder["error"]  # type: ignore[misc]
+        print(f"step: {label} RunStore ready", flush=True)
+        return holder["store"]  # type: ignore[return-value]
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         # Two replicas: same Postgres, separate local artifact roots.
-        print("step: create first RunStore", flush=True)
-        first = RunStore(root / "first", database_url)
-        print("step: first RunStore ready", flush=True)
-        second = RunStore(root / "second", database_url)
-        print("step: second RunStore ready", flush=True)
+        first = create_with_timeout("first", root / "first")
+        second = create_with_timeout("second", root / "second")
         if first._db.dialect != "postgres":
             raise RuntimeError("expected postgres dialect")
 
