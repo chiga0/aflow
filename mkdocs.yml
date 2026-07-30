@@ -35,6 +35,10 @@ nav:
       - Temporal 适配方案: implementation/temporal-evaluation.md
       - 事件溯源与回放: implementation/event-sourcing-and-replay.md
       - Qwen WebShell Chat 渲染: implementation/qwen-webshell-chat-rendering.md
+  - 预研与调研:
+      - 总览: research/index.md
+      - 状态看板: research/dashboard.md
+      - Durable Object Agent 运行时: research/durable-object-agent/README.md
 
 markdown_extensions:
   - admonition
