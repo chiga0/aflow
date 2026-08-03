@@ -20,7 +20,7 @@ AFLOW_PORT="${AFLOW_PORT:-8765}"
 echo "==> sync lite/ -> ${TARGET}:${REMOTE_DIR}/lite/"
 ssh "$TARGET" "mkdir -p '${REMOTE_DIR}'"
 rsync -az --delete \
-  --exclude node_modules --exclude dist --exclude data \
+  --exclude node_modules --exclude data \
   --exclude '*.db' --exclude '*.db-*' --exclude BOOTSTRAP_PASSWORD.txt --exclude .git \
   --exclude qwen-settings.json --exclude .env \
   "$LITE_DIR/" "$TARGET:$REMOTE_DIR/lite/"

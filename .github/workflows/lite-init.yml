@@ -71,6 +71,16 @@ jobs:
           mkdir -p lite/deploy
           cp "$RUNNER_TEMP/lite/.env" lite/deploy/.env
 
+      - name: Build web on runner (VPS may be low-memory; avoid vite OOM on-host)
+        working-directory: lite/web
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          test -f dist/index.html
+
       - name: Deploy (bare-metal, no Docker) via deploy_baremetal.sh
         env:
           TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
