@@ -111,3 +111,5 @@ jobs:
             [ "$i" = 15 ] && { echo "login never 200"; exit 1; }
           done
           ssh "$TARGET" "bash /opt/aflow-lite/lite/scripts/remote_mission_smoke.sh '$EMAIL' '$AUTH_PASSWORD'"
+
+# re-deploy to pick up HEAD-support server.py
