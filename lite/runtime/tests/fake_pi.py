@@ -30,6 +30,13 @@ for line in sys.stdin:
         print(json.dumps({"id": cmd["id"], "type": "response",
                           "command": ctype, "success": True}), flush=True)
     if ctype == "prompt":
+        message = str(cmd.get("message") or "")
+        if "FORCE_FAIL" in message:
+            print(json.dumps({"type": "turn_end", "message": {
+                "role": "assistant", "stopReason": "error",
+                "errorMessage": "demo error: model rejected the request"}}), flush=True)
+            print(json.dumps({"type": "agent_settled"}), flush=True)
+            continue
         if delay_s:
             time.sleep(delay_s)
         for frame in frames:

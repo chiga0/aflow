@@ -24,3 +24,4 @@ data/
 **/BOOTSTRAP_PASSWORD.txt
 *.log
 lite/deploy/qwen-settings.json
+lite/web/e2e/screenshots/
