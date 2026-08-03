@@ -204,8 +204,29 @@ const LOADING_PHRASES = [
 
 /* ── App ────────────────────────────────────────────────── */
 
+// Stable per-browser client id so the qwen daemon can tag the prompt's
+// originator and the WebShell suppresses re-rendering its own echoed user
+// message (fixes the duplicate user bubble on mobile).
+function useClientId(): string {
+  const [id] = useState(() => {
+    try {
+      const KEY = "aflow-client-id";
+      let v = localStorage.getItem(KEY);
+      if (!v) {
+        v = `aflow-${Math.random().toString(36).slice(2, 10)}`;
+        localStorage.setItem(KEY, v);
+      }
+      return v;
+    } catch {
+      return "aflow-anon";
+    }
+  });
+  return id;
+}
+
 export function App() {
   const auth = useAuth();
+  const clientId = useClientId();
 
   return (
     <>
@@ -216,6 +237,7 @@ export function App() {
         <StandaloneWebShell
           baseUrl="/daemon"
           language="zh"
+          clientId={clientId}
           style={{ height: "100vh", width: "100vw" }}
           renderWelcomeHeader={AflowWelcomeHeader}
           renderWelcomeFooter={AflowWelcomeFooter}
