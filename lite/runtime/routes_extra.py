@@ -23,8 +23,25 @@ try:
 except Exception:
     _channels = None  # type: ignore[assignment]
 
+try:
+    from . import chat as _chat  # type: ignore[attr-defined]
+except Exception:
+    _chat = None  # type: ignore[assignment]
+
+_hub_instance: Any = None
+
+
+def _get_hub(store: Any, adapter: Any) -> Any:
+    """One ChatHub per process, built lazily on first /api/chat request."""
+    global _hub_instance
+    if _hub_instance is None and _chat is not None:
+        _hub_instance = _chat.ChatHub(adapter, store)
+    return _hub_instance
+
 
 def handle_get(handler: Any, path: str, store: Any, adapter: Any, auth: Any) -> bool:
+    if _chat is not None and path.startswith("/api/chat/"):
+        return _chat.handle_get(handler, path, _get_hub(store, adapter))
     if _missions is not None and _missions.handle_get(handler, path, store, adapter, auth):
         return True
     if _channels is not None and _channels.handle_get(handler, path, store, adapter, auth):
@@ -45,4 +62,12 @@ def handle_post(
         return True
     if _channels is not None and _channels.handle_post(handler, path, body, raw, store, adapter, auth):
         return True
+    if _chat is not None and path.startswith("/api/chat/"):
+        return _chat.handle_post(handler, path, body, _get_hub(store, adapter))
+    return False
+
+
+def handle_delete(handler: Any, path: str, store: Any, adapter: Any, auth: Any) -> bool:
+    if _chat is not None and path.startswith("/api/chat/"):
+        return _chat.handle_delete(handler, path, _get_hub(store, adapter))
     return False

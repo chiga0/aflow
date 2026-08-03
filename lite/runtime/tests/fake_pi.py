@@ -14,10 +14,11 @@ import tempfile
 from typing import Any
 
 _SCRIPT = r"""#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 
 frames = json.loads(os.environ.get("FAKE_PI_FRAMES", "[]"))
 exit_after_prompt = os.environ.get("FAKE_PI_EXIT_AFTER") == "1"
+delay_s = float(os.environ.get("FAKE_PI_DELAY_MS", "0")) / 1000.0
 
 for line in sys.stdin:
     try:
@@ -29,6 +30,8 @@ for line in sys.stdin:
         print(json.dumps({"id": cmd["id"], "type": "response",
                           "command": ctype, "success": True}), flush=True)
     if ctype == "prompt":
+        if delay_s:
+            time.sleep(delay_s)
         for frame in frames:
             print(json.dumps(frame), flush=True)
         if exit_after_prompt:
@@ -38,7 +41,8 @@ for line in sys.stdin:
 """
 
 
-def make_fake_pi(frames: list[dict[str, Any]], *, exit_after: bool = False) -> tuple[str, dict[str, str]]:
+def make_fake_pi(frames: list[dict[str, Any]], *, exit_after: bool = False,
+                 delay_ms: int = 0) -> tuple[str, dict[str, str]]:
     """Write the fake binary; return (path, extra_env) for PiAdapter tests."""
     fd, path = tempfile.mkstemp(prefix="fake-pi-", suffix=".py")
     with os.fdopen(fd, "w") as f:
@@ -47,4 +51,6 @@ def make_fake_pi(frames: list[dict[str, Any]], *, exit_after: bool = False) -> t
     env = {"FAKE_PI_FRAMES": json.dumps(frames)}
     if exit_after:
         env["FAKE_PI_EXIT_AFTER"] = "1"
+    if delay_ms:
+        env["FAKE_PI_DELAY_MS"] = str(delay_ms)
     return path, env

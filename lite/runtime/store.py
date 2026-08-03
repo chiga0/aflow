@@ -74,6 +74,24 @@ CREATE TABLE IF NOT EXISTS channels (
     updated_at  TEXT NOT NULL,
     metadata    TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role       TEXT NOT NULL,
+    content    TEXT NOT NULL DEFAULT '',
+    tools      TEXT NOT NULL DEFAULT '[]',
+    status     TEXT NOT NULL DEFAULT 'completed',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
 """
 
 
@@ -188,6 +206,83 @@ class Store:
         return [dict(r) for r in rows]
 
     # ── Channels ──────────────────────────────────────────────
+
+    # ── Chat sessions & messages ───────────────────────
+
+    def create_chat_session(self, session_id: str, now: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO chat_sessions (id, title, created_at, updated_at)"
+                " VALUES (?, '', ?, ?)",
+                (session_id, now, now),
+            )
+            self._conn.commit()
+
+    def touch_chat_session(self, session_id: str, now: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (now, session_id)
+            )
+            self._conn.commit()
+
+    def set_chat_session_title(self, session_id: str, title: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE chat_sessions SET title = ? WHERE id = ?", (title, session_id)
+            )
+            self._conn.commit()
+
+    def get_chat_session(self, session_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_chat_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM chat_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_chat_session(self, session_id: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+            self._conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+            self._conn.commit()
+
+    def add_chat_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        now: str,
+        tools: str = "[]",
+        status: str = "completed",
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO chat_messages (session_id, role, content, tools, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, role, content, tools, status, now),
+            )
+            self._conn.commit()
+
+    def list_chat_messages(self, session_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY id", (session_id,)
+            ).fetchall()
+        out = []
+        for r in rows:
+            item = dict(r)
+            try:
+                item["tools"] = json.loads(item.get("tools") or "[]")
+            except Exception:
+                item["tools"] = []
+            out.append(item)
+        return out
 
     def upsert_channel(self, channel: dict[str, Any]) -> None:
         with self._lock:

@@ -193,6 +193,20 @@ def make_handler(
             finally:
                 self._record_metric("POST")
 
+        def do_DELETE(self) -> None:
+            try:
+                path = urlparse(self.path).path
+                if path.startswith("/api/") and not _is_public_path(path):
+                    if self._require_auth():
+                        return
+                if path.startswith("/api/"):
+                    from . import routes_extra
+                    if routes_extra.handle_delete(self, path, store, adapter, auth_config):
+                        return
+                self.error(HTTPStatus.NOT_FOUND, "not found")
+            finally:
+                self._record_metric("DELETE")
+
         def do_OPTIONS(self) -> None:
             try:
                 path = urlparse(self.path).path
