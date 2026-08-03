@@ -119,9 +119,11 @@ def make_handler(
         def do_HEAD(self) -> None:
             try:
                 path = urlparse(self.path).path
-                if path == "/api/health":
+                # HEAD is used by Cloudflare/monitors; answer 200 for health and
+                # any non-API (SPA/static) path, 405 only for unknown API routes.
+                if path == "/api/health" or not path.startswith("/api/"):
                     self.send_response(HTTPStatus.OK)
-                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
