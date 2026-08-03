@@ -27,6 +27,7 @@ Configuration (environment):
     PI_ENGINE_MAX_TOKENS       default 32768
     PI_ENGINE_REASONING        "1"/"0" (default: 1)
     PI_ENGINE_IDLE_TTL         seconds before an idle process is reaped (default 900)
+    PI_ENGINE_CWD              default working directory for sessions (e.g. /workspace)
 """
 
 from __future__ import annotations
@@ -84,6 +85,7 @@ class PiAdapter:
         self.max_tokens = int(_env("PI_ENGINE_MAX_TOKENS", "32768"))
         self.reasoning = _env("PI_ENGINE_REASONING", "1") != "0"
         self.idle_ttl = float(_env("PI_ENGINE_IDLE_TTL", "900"))
+        self.default_cwd = os.environ.get("PI_ENGINE_CWD") or ""
         self._sessions: dict[str, _PiSession] = {}
         self._lock = threading.Lock()
 
@@ -108,7 +110,7 @@ class PiAdapter:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                cwd=cwd or None,
+                cwd=cwd or self.default_cwd or None,
                 env=env,
             )
         except Exception:

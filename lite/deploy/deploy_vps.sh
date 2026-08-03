@@ -4,13 +4,16 @@
 #
 #   lite/deploy/deploy_vps.sh user@host [/opt/aflow-lite]
 #
-# It syncs the lite/ tree, optionally uploads lite/deploy/.env, then builds and
-# starts the stack remotely. Model credentials come from the *remote* user's
-# ~/.qwen (mounted by compose); make sure that file exists on the VPS first.
+# Engine selection: AFLOW_ENGINE=pi (default) uses the lightweight pi RPC
+# engine baked into the runtime image; AFLOW_ENGINE=qwen keeps the qwen serve
+# daemon. For qwen, model credentials come from the remote ~/.qwen (mounted by
+# compose); for pi, the key is injected as PI_ENGINE_API_KEY into the remote
+# .env (extracted from the local qwen settings file).
 set -euo pipefail
 
 TARGET="${1:?usage: deploy_vps.sh user@host [remote_dir]}"
 REMOTE_DIR="${2:-/opt/aflow-lite}"
+ENGINE="${AFLOW_ENGINE:-pi}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LITE_DIR="$(cd "$HERE/.." && pwd)"
 
@@ -39,8 +42,29 @@ else
   echo "   place one at lite/deploy/qwen-settings.json or set QWEN_SETTINGS_FILE."
 fi
 
-echo "==> build & start on remote"
-ssh "$TARGET" "cd '${REMOTE_DIR}' && docker compose -f lite/deploy/docker-compose.yml up -d --build"
+echo "==> build & start on remote (engine: ${ENGINE})"
+if [ "$ENGINE" = "pi" ]; then
+  COMPOSE_FILE="lite/deploy/docker-compose.pi.yml"
+  # Inject the model key for pi, extracted from the remote ~/.qwen settings
+  # (the VPS already holds a valid key there).
+  echo "==> inject PI_ENGINE_API_KEY into remote .env (from remote ~/.qwen)"
+  ssh "$TARGET" REMOTE_DIR="$REMOTE_DIR" bash -s <<'EOS'
+set -e
+KEY=$(python3 - <<'PY'
+import json, os
+print(json.load(open(os.path.expanduser("~/.qwen/settings.json")))["env"]["BAILIAN_TOKEN_PLAN_API_KEY"])
+PY
+)
+ENVF="${REMOTE_DIR}/lite/deploy/.env"
+touch "$ENVF"
+sed -i '/^PI_ENGINE_API_KEY=/d' "$ENVF"
+printf 'PI_ENGINE_API_KEY=%s\n' "$KEY" >> "$ENVF"
+chmod 600 "$ENVF"
+EOS
+else
+  COMPOSE_FILE="lite/deploy/docker-compose.yml"
+fi
+ssh "$TARGET" "cd '${REMOTE_DIR}' && AFLOW_ENGINE='${ENGINE}' docker compose -f '${COMPOSE_FILE}' up -d --build"
 
 echo "==> wait for health"
 ssh "$TARGET" 'for i in $(seq 1 30); do
