@@ -53,7 +53,7 @@ command -v node    >/dev/null || { echo "ERROR: node not found on remote"; exit 
 # build web bundle if not present
 if [ ! -f lite/web/dist/index.html ]; then
   echo "-- building web (npm install + vite build) --"
-  ( cd lite/web && npm install --no-audit --no-fund && npm run build )
+  ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund && npm run build )
 fi
 
 # install qwen CLI if missing

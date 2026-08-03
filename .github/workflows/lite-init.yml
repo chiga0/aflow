@@ -1,0 +1,93 @@
+name: aflow-lite init+deploy (bare-metal)
+
+# One-shot bootstrap of a FRESH host (e.g. just-reinstalled VPS) using the
+# legacy RUNTIME_* secrets, executed from a GitHub runner (local outbound
+# networking to the host is unreliable; runners reach it fine).
+#
+# It is bare-metal (no Docker): installs python3/node/npm via apt, syncs the
+# lite tree, writes ~/.qwen/settings.json + the runtime .env from secrets,
+# builds the web bundle, installs qwen via npm, and starts qwen serve + the
+# runtime. Then verifies /api/health and the login flow over 127.0.0.1.
+#
+# Gated to edits of THIS file only, so it runs solely when we intentionally
+# push a change to it. Reuses legacy secrets (read/use only):
+#   RUNTIME_SSH_TARGET, RUNTIME_SSH_KEY, QWEN_SETTINGS_JSON,
+#   RUNTIME_AUTH_EMAIL, RUNTIME_AUTH_PASSWORD.
+
+on:
+  push:
+    paths:
+      - ".github/workflows/lite-init.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare credentials
+        env:
+          SSH_KEY: ${{ secrets.RUNTIME_SSH_KEY }}
+          QWEN_SETTINGS_JSON: ${{ secrets.QWEN_SETTINGS_JSON }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "missing RUNTIME_SSH_KEY"; exit 2; }
+          install -d -m 700 "$RUNNER_TEMP/lite"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/lite/key"; chmod 600 "$RUNNER_TEMP/lite/key"
+          printf '%s\n' "$QWEN_SETTINGS_JSON" > "$RUNNER_TEMP/lite/qwen-settings.json"; chmod 600 "$RUNNER_TEMP/lite/qwen-settings.json"
+          eval "$(ssh-agent -s)"; ssh-add "$RUNNER_TEMP/lite/key"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          echo "QWEN_SETTINGS_FILE=$RUNNER_TEMP/lite/qwen-settings.json" >> "$GITHUB_ENV"
+
+      - name: Install base deps on host (apt)
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" \
+            'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 nodejs npm git curl rsync ca-certificates'
+          ssh "$TARGET" 'python3 --version && node --version && npm --version'
+
+      - name: Write runtime .env (auth from legacy secrets)
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          AUTH_EMAIL: ${{ secrets.RUNTIME_AUTH_EMAIL }}
+          AUTH_PASSWORD: ${{ secrets.RUNTIME_AUTH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          {
+            echo "AFLOW_AUTH_EMAIL=${AUTH_EMAIL:-admin@aflow.local}"
+            echo "AFLOW_AUTH_PASSWORD=${AUTH_PASSWORD:-}"
+            echo "QWEN_SERVE_TOKEN=aflow-internal-token-$(date +%s)"
+            echo "QWEN_VERSION=0.21.1"
+          } > "$RUNNER_TEMP/lite/.env"
+          chmod 600 "$RUNNER_TEMP/lite/.env"
+          # place where deploy_vps.sh expects it
+          mkdir -p lite/deploy
+          cp "$RUNNER_TEMP/lite/.env" lite/deploy/.env
+
+      - name: Deploy (bare-metal, no Docker) via deploy_baremetal.sh
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+        run: |
+          set -euo pipefail
+          bash lite/deploy/deploy_baremetal.sh "$TARGET" /opt/aflow-lite
+
+      - name: Verify health + login over loopback
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          AUTH_EMAIL: ${{ secrets.RUNTIME_AUTH_EMAIL }}
+          AUTH_PASSWORD: ${{ secrets.RUNTIME_AUTH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ssh "$TARGET" 'curl -fsS http://127.0.0.1:8765/api/health'
+          ssh "$TARGET" 'curl -fsS -X POST -H "content-type: application/json" \
+            -d "{\"email\":\"${AUTH_EMAIL:-admin@aflow.local}\",\"password\":\"$AUTH_PASSWORD\"}" \
+            http://127.0.0.1:8765/api/auth/login' | head -c 200
+          echo
+          echo "INIT+DEPLOY OK"
