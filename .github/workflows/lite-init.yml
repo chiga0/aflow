@@ -124,3 +124,5 @@ jobs:
           ssh "$TARGET" "bash /opt/aflow-lite/lite/scripts/remote_mission_smoke.sh '$EMAIL' '$AUTH_PASSWORD'"
 
 # re-deploy to pick up HEAD-support server.py
+
+# redeploy: web clientId dedup fix
