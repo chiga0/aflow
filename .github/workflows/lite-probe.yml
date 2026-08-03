@@ -1,5 +1,7 @@
 name: aflow-lite probe (READ-ONLY)
 
+# retry: re-run connectivity probe after possible security-group / instance change
+
 # READ-ONLY reconnaissance of the VPS behind the legacy RUNTIME_SSH_* secrets.
 #
 # This workflow does NOT deploy anything. It opens one SSH session and runs
