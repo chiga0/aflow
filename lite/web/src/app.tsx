@@ -204,6 +204,28 @@ const LOADING_PHRASES = [
 
 /* ── App ────────────────────────────────────────────────── */
 
+// Mobile keyboards (IME) do not shrink `100vh`, so a fixed-height shell
+// hides the composer behind the keyboard. Track the real visual viewport
+// (which does shrink) and size the shell to it, with `100dvh` as fallback.
+function useViewportHeight(): number | null {
+  const [height, setHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setHeight(Math.round(vv.height));
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("orientationchange", update);
+    window.addEventListener("resize", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("orientationchange", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  return height;
+}
+
 // Stable per-browser client id so the qwen daemon can tag the prompt's
 // originator and the WebShell suppresses re-rendering its own echoed user
 // message (fixes the duplicate user bubble on mobile).
@@ -227,6 +249,7 @@ function useClientId(): string {
 export function App() {
   const auth = useAuth();
   const clientId = useClientId();
+  const viewportHeight = useViewportHeight();
 
   return (
     <>
@@ -238,7 +261,10 @@ export function App() {
           baseUrl="/daemon"
           language="zh"
           clientId={clientId}
-          style={{ height: "100vh", width: "100vw" }}
+          style={{
+            height: viewportHeight ? `${viewportHeight}px` : "100dvh",
+            width: "100vw",
+          }}
           renderWelcomeHeader={AflowWelcomeHeader}
           renderWelcomeFooter={AflowWelcomeFooter}
           composerPlaceholders={{
