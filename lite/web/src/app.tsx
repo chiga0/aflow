@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { StandaloneWebShell } from "@qwen-code/web-shell";
 import type { WelcomeHeaderProps } from "@qwen-code/web-shell";
+import { ChatApp, chatStyles } from "./chat-ui";
 
 /* ── Brand mark (shared by login + welcome) ─────────────── */
 
@@ -246,17 +247,47 @@ function useClientId(): string {
   return id;
 }
 
+// Which execution engine the runtime is using; decides the UI surface:
+// the pi engine gets the mobile-first ChatApp, qwen keeps the WebShell.
+type Engine = "checking" | "pi" | "qwen";
+
+function useEngine(auth: AuthState): Engine {
+  const [engine, setEngine] = useState<Engine>("checking");
+  useEffect(() => {
+    if (auth !== "authed" && auth !== "disabled") return;
+    let alive = true;
+    fetch("/api/health", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => alive && setEngine(d.engine === "pi" ? "pi" : "qwen"))
+      .catch(() => alive && setEngine("qwen"));
+    return () => {
+      alive = false;
+    };
+  }, [auth]);
+  return engine;
+}
+
 export function App() {
   const auth = useAuth();
   const clientId = useClientId();
   const viewportHeight = useViewportHeight();
+  const engine = useEngine(auth);
 
   return (
     <>
       <style>{aflowStyles}</style>
       {auth === "checking" && <CheckingScreen />}
       {auth === "unauthed" && <LoginScreen onDone={() => window.location.reload()} />}
-      {(auth === "authed" || auth === "disabled") && (
+      {(auth === "authed" || auth === "disabled") && engine === "checking" && (
+        <CheckingScreen />
+      )}
+      {(auth === "authed" || auth === "disabled") && engine === "pi" && (
+        <>
+          <style>{chatStyles}</style>
+          <ChatApp height={viewportHeight} />
+        </>
+      )}
+      {(auth === "authed" || auth === "disabled") && engine === "qwen" && (
         <StandaloneWebShell
           baseUrl="/daemon"
           language="zh"
