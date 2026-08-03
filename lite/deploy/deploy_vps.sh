@@ -26,6 +26,19 @@ if [ -f "$HERE/.env" ]; then
   rsync -az --chmod=0600 "$HERE/.env" "$TARGET:$REMOTE_DIR/lite/deploy/.env"
 fi
 
+# qwen model credentials: upload a local settings.json (never committed) to the
+# remote ~/.qwen so the qwen container can authenticate. Provide it via
+# QWEN_SETTINGS_FILE or by placing lite/deploy/qwen-settings.json (git-ignored).
+QWEN_SETTINGS="${QWEN_SETTINGS_FILE:-$HERE/qwen-settings.json}"
+if [ -f "$QWEN_SETTINGS" ]; then
+  echo "==> upload qwen settings (model creds) -> remote ~/.qwen/settings.json"
+  ssh "$TARGET" "mkdir -p ~/.qwen"
+  rsync -az --chmod=0600 "$QWEN_SETTINGS" "$TARGET:~/.qwen/settings.json"
+else
+  echo "!! no qwen-settings.json found; the qwen container will have no model creds."
+  echo "   place one at lite/deploy/qwen-settings.json or set QWEN_SETTINGS_FILE."
+fi
+
 echo "==> build & start on remote"
 ssh "$TARGET" "cd '${REMOTE_DIR}' && docker compose -f lite/deploy/docker-compose.yml up -d --build"
 
