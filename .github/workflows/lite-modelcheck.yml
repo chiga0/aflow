@@ -40,8 +40,9 @@ jobs:
           set -euo pipefail
           EMAIL="${AUTH_EMAIL:-admin@aflow.local}"
           BODY=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$AUTH_PASSWORD")
-          # push renewed settings to the host
-          scp -o StrictHostKeyChecking=accept-new "$RUNNER_TEMP/ssh/settings.json" "$TARGET:/root/.qwen/settings.json"
+          # push renewed settings to the host (via ssh stdin, no scp)
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'mkdir -p /root/.qwen'
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'cat > /root/.qwen/settings.json && chmod 600 /root/.qwen/settings.json' < "$RUNNER_TEMP/ssh/settings.json"
           ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'chmod 600 /root/.qwen/settings.json
             pkill -f "qwen serve" || true; sleep 2
             cd /opt/aflow-lite
