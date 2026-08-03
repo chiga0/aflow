@@ -4,10 +4,11 @@ name: aflow-lite init+deploy (bare-metal)
 # legacy RUNTIME_* secrets, executed from a GitHub runner (local outbound
 # networking to the host is unreliable; runners reach it fine).
 #
-# It is bare-metal (no Docker): installs python3/node/npm via apt, syncs the
-# lite tree, writes ~/.qwen/settings.json + the runtime .env from secrets,
-# builds the web bundle, installs qwen via npm, and starts qwen serve + the
-# runtime. Then verifies /api/health and the login flow over 127.0.0.1.
+# Bare-metal (no Docker): installs python3 + NodeSource node 24, syncs the lite
+# tree (with a runner-built web dist to avoid on-host vite OOM), writes
+# ~/.qwen/settings.json + the runtime .env from secrets, installs qwen via npm,
+# starts qwen serve + the runtime, then verifies health + login + a REAL
+# mission (remote_mission_smoke.sh) so a model/plan outage fails the run.
 #
 # Gated to edits of THIS file only, so it runs solely when we intentionally
 # push a change to it. Reuses legacy secrets (read/use only):
@@ -44,7 +45,7 @@ jobs:
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
           echo "QWEN_SETTINGS_FILE=$RUNNER_TEMP/lite/qwen-settings.json" >> "$GITHUB_ENV"
 
-      - name: Install base deps on host (apt; NodeSource node 20 — qwen needs >=20)
+      - name: Install base deps on host (apt; NodeSource node 24 — qwen needs >=20)
         env:
           TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
         run: |
@@ -73,7 +74,6 @@ jobs:
             echo "QWEN_VERSION=0.21.1"
           } > "$RUNNER_TEMP/lite/.env"
           chmod 600 "$RUNNER_TEMP/lite/.env"
-          # place where deploy_vps.sh expects it
           mkdir -p lite/deploy
           cp "$RUNNER_TEMP/lite/.env" lite/deploy/.env
 
@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           bash lite/deploy/deploy_baremetal.sh "$TARGET" /opt/aflow-lite
 
-      - name: Verify health + login over loopback
+      - name: Verify health + login + real mission over loopback
         env:
           TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
           AUTH_EMAIL: ${{ secrets.RUNTIME_AUTH_EMAIL }}
@@ -102,16 +102,12 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$TARGET" 'curl -fsS http://127.0.0.1:8765/api/health'
-          # Build the login body on the RUNNER (secrets live here, not on the host),
-          # then pass the finished JSON to the remote curl. GitHub redacts secret
-          # values in logs.
           EMAIL="${AUTH_EMAIL:-admin@aflow.local}"
           BODY=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$AUTH_PASSWORD")
           for i in $(seq 1 15); do
             code=$(ssh "$TARGET" "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '$BODY' http://127.0.0.1:8765/api/auth/login")
-            [ "$code" = 200 ] && { echo "login ok"; exit 0; }
+            [ "$code" = 200 ] && { echo "login ok"; break; }
             sleep 2
+            [ "$i" = 15 ] && { echo "login never 200"; exit 1; }
           done
-          echo "login never returned 200"; exit 1
-
-# retry: full re-run so .env picks up the newly-set auth password
+          ssh "$TARGET" "bash /opt/aflow-lite/lite/scripts/remote_mission_smoke.sh '$EMAIL' '$AUTH_PASSWORD'"
