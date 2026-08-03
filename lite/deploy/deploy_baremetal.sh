@@ -29,14 +29,16 @@ rsync -az --delete \
 
 if [ -f "$HERE/.env" ]; then
   echo "==> upload .env"
-  rsync -az --chmod=0600 "$HERE/.env" "$TARGET:$REMOTE_DIR/lite/deploy/.env"
+  rsync -az "$HERE/.env" "$TARGET:$REMOTE_DIR/lite/deploy/.env"
+  ssh "$TARGET" "chmod 600 '$REMOTE_DIR/lite/deploy/.env'"
 fi
 
 QWEN_SETTINGS="${QWEN_SETTINGS_FILE:-$HERE/qwen-settings.json}"
 if [ -f "$QWEN_SETTINGS" ]; then
   echo "==> upload qwen settings -> remote ~/.qwen/settings.json"
   ssh "$TARGET" "mkdir -p ~/.qwen"
-  rsync -az --chmod=0600 "$QWEN_SETTINGS" "$TARGET:~/.qwen/settings.json"
+  rsync -az "$QWEN_SETTINGS" "$TARGET:~/.qwen/settings.json"
+  ssh "$TARGET" "chmod 600 ~/.qwen/settings.json"
 else
   echo "!! no qwen-settings.json; qwen will have no model creds."
 fi
@@ -51,12 +53,6 @@ command -v node    >/dev/null || { echo "ERROR: node not found on remote"; exit 
 
 # optional npm mirror for mainland hosts (uncomment if npmjs is slow/blocked):
 # npm config set registry https://registry.npmmirror.com
-
-# build web bundle (always: deploys must ship the current UI)
-if [ ! -d lite/web/node_modules ]; then
-  ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund )
-fi
-( cd lite/web && npm run build )
 
 # install qwen CLI if missing (qwen engine only)
 if [ "$ENGINE" = qwen ] && ! command -v qwen >/dev/null; then
@@ -100,6 +96,14 @@ else
     for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4170/health >/dev/null 2>&1 && break; sleep 1; done
   fi
 fi
+
+# build web bundle (always: deploys must ship the current UI).
+# Runs AFTER the qwen daemon is stopped on pi deploys: vite needs ~800MB and
+# 1.6GB VPSes OOM when both run at once.
+if [ ! -d lite/web/node_modules ]; then
+  ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund )
+fi
+( cd lite/web && NODE_OPTIONS=--max-old-space-size=1024 npm run build )
 
 # (re)start runtime
 pkill -f "lite.runtime" 2>/dev/null || true

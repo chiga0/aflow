@@ -26,7 +26,8 @@ rsync -az --delete \
 
 if [ -f "$HERE/.env" ]; then
   echo "==> upload .env"
-  rsync -az --chmod=0600 "$HERE/.env" "$TARGET:$REMOTE_DIR/lite/deploy/.env"
+  rsync -az "$HERE/.env" "$TARGET:$REMOTE_DIR/lite/deploy/.env"
+  ssh "$TARGET" "chmod 600 '$REMOTE_DIR/lite/deploy/.env'"
 fi
 
 # qwen model credentials: upload a local settings.json (never committed) to the
@@ -36,7 +37,8 @@ QWEN_SETTINGS="${QWEN_SETTINGS_FILE:-$HERE/qwen-settings.json}"
 if [ -f "$QWEN_SETTINGS" ]; then
   echo "==> upload qwen settings (model creds) -> remote ~/.qwen/settings.json"
   ssh "$TARGET" "mkdir -p ~/.qwen"
-  rsync -az --chmod=0600 "$QWEN_SETTINGS" "$TARGET:~/.qwen/settings.json"
+  rsync -az "$QWEN_SETTINGS" "$TARGET:~/.qwen/settings.json"
+  ssh "$TARGET" "chmod 600 ~/.qwen/settings.json"
 else
   echo "!! no qwen-settings.json found; the qwen container will have no model creds."
   echo "   place one at lite/deploy/qwen-settings.json or set QWEN_SETTINGS_FILE."
