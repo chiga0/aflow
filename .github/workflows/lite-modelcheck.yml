@@ -1,0 +1,68 @@
+name: aflow-lite model check
+
+# One-off diagnostic/fix: the deployed qwen returns 403 "Access to model denied"
+# for qwen3.8-max-preview (preview models are often allowlisted). This switches
+# the remote ~/.qwen model to a stable one (qwen3.7-plus), restarts qwen serve,
+# and re-runs a mission to confirm the agent produces a real reply.
+# Gated to edits of THIS file only.
+
+on:
+  push:
+    paths:
+      - ".github/workflows/lite-modelcheck.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  modelcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare credentials
+        env:
+          SSH_KEY: ${{ secrets.RUNTIME_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/ssh/k"; chmod 600 "$RUNNER_TEMP/ssh/k"
+          eval "$(ssh-agent -s)"; ssh-add "$RUNNER_TEMP/ssh/k"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+
+      - name: Switch model + restart qwen + run mission
+        env:
+          TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
+          AUTH_EMAIL: ${{ secrets.RUNTIME_AUTH_EMAIL }}
+          AUTH_PASSWORD: ${{ secrets.RUNTIME_AUTH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          EMAIL="${AUTH_EMAIL:-admin@aflow.local}"
+          BODY=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$AUTH_PASSWORD")
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'bash -s' <<'REMOTE'
+          set -e
+          python3 - <<PY
+          import json
+          p="/root/.qwen/settings.json"
+          d=json.load(open(p))
+          print("old model:", d.get("model",{}).get("name"))
+          d.setdefault("model",{})["name"]="qwen3.7-plus"
+          json.dump(d,open(p,"w"),indent=2)
+          print("new model: qwen3.7-plus")
+          PY
+          pkill -f "qwen serve" || true; sleep 2
+          cd /opt/aflow-lite
+          set -a; . lite/deploy/.env; set +a
+          export QWEN_SERVE_URL=http://127.0.0.1:4170
+          nohup qwen serve --hostname 127.0.0.1 --port 4170 > /tmp/qwen-serve.log 2>&1 &
+          for k in $(seq 1 20); do curl -fsS http://127.0.0.1:4170/health >/dev/null 2>&1 && break; sleep 1; done
+          echo "qwen health: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4170/health)"
+          REMOTE
+          # run a mission from the runner against loopback via ssh
+          ssh "$TARGET" "curl -s -c /tmp/cj -X POST -H 'content-type: application/json' -d '$BODY' http://127.0.0.1:8765/api/auth/login >/dev/null
+          mid=\$(curl -s -b /tmp/cj -X POST -H 'content-type: application/json' -d '{\"goal\":\"只回复六个字：部署验证成功\"}' http://127.0.0.1:8765/api/missions | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"id\"])')
+          echo mission=\$mid
+          for k in \$(seq 1 30); do
+            st=\$(curl -s -b /tmp/cj http://127.0.0.1:8765/api/missions/\$mid | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"mission\"][\"status\"])')
+            [ \"\$st\" != pending ] && [ \"\$st\" != running ] && break; sleep 2
+          done
+          curl -s -b /tmp/cj http://127.0.0.1:8765/api/missions/\$mid | python3 -c 'import sys,json;d=json.load(sys.stdin);print(\"mission_status=\",d[\"mission\"][\"status\"]);print(\"agent_reply=\",(d[\"steps\"][0][\"result_text\"] or \"\")[:80])'"
