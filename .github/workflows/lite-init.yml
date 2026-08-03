@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           {
             echo "AFLOW_AUTH_EMAIL=${AUTH_EMAIL:-admin@aflow.local}"
-            echo "AFLOW_AUTH_PASSWORD=${AUTH_PASSWORD:-}"
+            echo "AFLOW_AUTH_PASSWORD=\"${AUTH_PASSWORD:-}\""
             echo "QWEN_SERVE_TOKEN=aflow-internal-token-$(date +%s)"
             echo "QWEN_VERSION=0.21.1"
           } > "$RUNNER_TEMP/lite/.env"
