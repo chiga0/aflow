@@ -15,7 +15,9 @@ services:
       context: ../..
       dockerfile: lite/deploy/Dockerfile
     ports:
-      - "8765:8765"
+      # Host port is configurable (mainland-CN VPS often block 80/443 without an
+      # ICP filing; a high port like 8765 needs only a security-group rule).
+      - "${AFLOW_PORT:-8765}:8765"
     environment:
       QWEN_SERVE_URL: http://qwen:4170
       QWEN_SERVE_TOKEN: ${QWEN_SERVE_TOKEN:-aflow-internal-token-change-me}
