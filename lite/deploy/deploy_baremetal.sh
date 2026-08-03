@@ -52,11 +52,11 @@ command -v node    >/dev/null || { echo "ERROR: node not found on remote"; exit 
 # optional npm mirror for mainland hosts (uncomment if npmjs is slow/blocked):
 # npm config set registry https://registry.npmmirror.com
 
-# build web bundle if not present
-if [ ! -f lite/web/dist/index.html ]; then
-  echo "-- building web (npm install + vite build) --"
-  ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund && npm run build )
+# build web bundle (always: deploys must ship the current UI)
+if [ ! -d lite/web/node_modules ]; then
+  ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund )
 fi
+( cd lite/web && npm run build )
 
 # install qwen CLI if missing (qwen engine only)
 if [ "$ENGINE" = qwen ] && ! command -v qwen >/dev/null; then
