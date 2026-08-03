@@ -52,8 +52,8 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$TARGET" '
             apt-get update -qq
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 git curl rsync ca-certificates
-            if ! node --version 2>/dev/null | grep -qE "v(2[0-9]|[3-9][0-9])"; then
-              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            if ! node --version 2>/dev/null | grep -qE "v24"; then
+              curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
               DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
             fi
             node --version && npm --version
@@ -102,10 +102,13 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$TARGET" 'curl -fsS http://127.0.0.1:8765/api/health'
-          ssh "$TARGET" 'curl -fsS -X POST -H "content-type: application/json" \
-            -d "{\"email\":\"${AUTH_EMAIL:-admin@aflow.local}\",\"password\":\"$AUTH_PASSWORD\"}" \
-            http://127.0.0.1:8765/api/auth/login' | head -c 200
-          echo
-          echo "INIT+DEPLOY OK"
+          # login with retry: the runtime may still be restarting right after deploy
+          ssh "$TARGET" 'for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" \
+              -d "{\"email\":\"${AUTH_EMAIL:-admin@aflow.local}\",\"password\":\"$AUTH_PASSWORD\"}" \
+              http://127.0.0.1:8765/api/auth/login)
+            [ "$code" = 200 ] && { echo "login ok"; exit 0; }
+            sleep 2
+          done; echo "login never returned 200"; exit 1'
 
 # retry: full re-run so .env picks up the newly-set auth password
