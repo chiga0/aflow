@@ -44,14 +44,20 @@ jobs:
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
           echo "QWEN_SETTINGS_FILE=$RUNNER_TEMP/lite/qwen-settings.json" >> "$GITHUB_ENV"
 
-      - name: Install base deps on host (apt)
+      - name: Install base deps on host (apt; NodeSource node 20 — qwen needs >=20)
         env:
           TARGET: ${{ secrets.RUNTIME_SSH_TARGET }}
         run: |
           set -euo pipefail
-          ssh -o StrictHostKeyChecking=accept-new "$TARGET" \
-            'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 nodejs npm git curl rsync ca-certificates'
-          ssh "$TARGET" 'python3 --version && node --version && npm --version'
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" '
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 git curl rsync ca-certificates
+            if ! node --version 2>/dev/null | grep -qE "v(2[0-9]|[3-9][0-9])"; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
+            fi
+            node --version && npm --version
+          '
 
       - name: Write runtime .env (auth from legacy secrets)
         env:
