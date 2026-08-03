@@ -97,13 +97,16 @@ else
   fi
 fi
 
-# build web bundle (always: deploys must ship the current UI).
-# Runs AFTER the qwen daemon is stopped on pi deploys: vite needs ~800MB and
-# 1.6GB VPSes OOM when both run at once.
+# build web bundle when missing or stale (src newer than dist)
 if [ ! -d lite/web/node_modules ]; then
   ( cd lite/web && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund )
 fi
-( cd lite/web && NODE_OPTIONS=--max-old-space-size=1024 npm run build )
+if [ ! -f lite/web/dist/index.html ] || [ -n "$(find lite/web/src lite/web/index.html -newer lite/web/dist/index.html 2>/dev/null | head -1)" ]; then
+  echo "-- building web --"
+  ( cd lite/web && NODE_OPTIONS=--max-old-space-size=1024 npm run build )
+else
+  echo "-- web bundle up to date --"
+fi
 
 # (re)start runtime
 pkill -f "lite.runtime" 2>/dev/null || true
