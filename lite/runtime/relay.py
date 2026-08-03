@@ -172,5 +172,7 @@ def _map_qwen_event(payload: Any) -> list[tuple[str, dict[str, Any]]]:
     if qwen_type == "turn_complete":
         return [("done", {"raw_type": qwen_type})]
     if qwen_type in ("turn_error", "session_died", "client_evicted"):
-        return [("error", {"reason": qwen_type, "raw": payload})]
+        inner = data.get("reason") if isinstance(data, dict) else None
+        reason = str(inner) if isinstance(inner, str) and inner.strip() else qwen_type
+        return [("error", {"reason": reason, "raw": payload})]
     return []

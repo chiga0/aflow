@@ -18,6 +18,8 @@ DEFAULT_TIMEOUT = 120
 class QwenAdapter:
     """Thin client for qwen serve REST + SSE endpoints."""
 
+    engine = "qwen"
+
     def __init__(
         self,
         base_url: str | None = None,

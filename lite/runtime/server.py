@@ -256,6 +256,7 @@ def make_handler(
             self.json({
                 "ok": True,
                 "version": __version__,
+                "engine": getattr(adapter, "engine", "qwen"),
                 "qwen": qwen_up,
                 "qwen_latency_ms": latency_ms,
                 "uptime_seconds": round(METRICS.uptime_seconds(), 3),
@@ -502,7 +503,15 @@ def run_server(
     db_path: str = "data/aflow.db",
 ) -> None:
     store = Store(db_path)
-    adapter = QwenAdapter()
+    engine = os.environ.get("AFLOW_ENGINE", "qwen").strip().lower()
+    if engine == "pi":
+        from .pi_adapter import PiAdapter
+
+        adapter: Any = PiAdapter()
+        logger.info("execution engine: pi (%s %s)", adapter.pi_bin, adapter.model)
+    else:
+        adapter = QwenAdapter()
+        logger.info("execution engine: qwen serve (%s)", adapter.base_url)
     auth_config = AuthConfig.from_env(data_dir=str(__import__("pathlib").Path(db_path).parent))
     METRICS.set_gauge("aflow_up", 1.0)
 
@@ -514,7 +523,6 @@ def run_server(
     handler = make_handler(store, adapter, auth_config)
     server = ThreadingHTTPServer((host, port), handler)
     logger.info("aflow-lite %s listening on %s:%d", __version__, host, port)
-    logger.info("qwen serve: %s", adapter.base_url)
     logger.info("auth enabled: %s (password_login=%s, token=%s)",
                 auth_config.enabled, auth_config.password_login_enabled, auth_config.token_enabled)
     try:
@@ -522,3 +530,6 @@ def run_server(
     except KeyboardInterrupt:
         logger.info("shutting down")
         server.shutdown()
+    finally:
+        if hasattr(adapter, "shutdown"):
+            adapter.shutdown()
