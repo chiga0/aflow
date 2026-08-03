@@ -102,13 +102,16 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$TARGET" 'curl -fsS http://127.0.0.1:8765/api/health'
-          # login with retry: the runtime may still be restarting right after deploy
-          ssh "$TARGET" 'for i in $(seq 1 15); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" \
-              -d "{\"email\":\"${AUTH_EMAIL:-admin@aflow.local}\",\"password\":\"$AUTH_PASSWORD\"}" \
-              http://127.0.0.1:8765/api/auth/login)
+          # Build the login body on the RUNNER (secrets live here, not on the host),
+          # then pass the finished JSON to the remote curl. GitHub redacts secret
+          # values in logs.
+          EMAIL="${AUTH_EMAIL:-admin@aflow.local}"
+          BODY=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$AUTH_PASSWORD")
+          for i in $(seq 1 15); do
+            code=$(ssh "$TARGET" "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '$BODY' http://127.0.0.1:8765/api/auth/login")
             [ "$code" = 200 ] && { echo "login ok"; exit 0; }
             sleep 2
-          done; echo "login never returned 200"; exit 1'
+          done
+          echo "login never returned 200"; exit 1
 
 # retry: full re-run so .env picks up the newly-set auth password
