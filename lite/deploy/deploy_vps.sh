@@ -60,7 +60,7 @@ PY
 ENVF="${REMOTE_DIR}/lite/deploy/.env"
 touch "$ENVF"
 sed -i '/^PI_ENGINE_API_KEY=/d' "$ENVF"
-printf 'PI_ENGINE_API_KEY=%s\n' "$KEY" >> "$ENVF"
+printf '\nPI_ENGINE_API_KEY="%s"\n' "$KEY" >> "$ENVF"
 chmod 600 "$ENVF"
 EOS
 else

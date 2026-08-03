@@ -43,6 +43,17 @@ else
   echo "!! no qwen-settings.json; qwen will have no model creds."
 fi
 
+# Ensure the pi model key lands in the remote .env (deduped), extracted from
+# the local settings template — survives .env overwrites on later deploys.
+PI_KEY="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('env',{}).get('BAILIAN_TOKEN_PLAN_API_KEY',''))" "$QWEN_SETTINGS" 2>/dev/null || true)"
+if [ -n "$PI_KEY" ]; then
+  ssh "$TARGET" "touch '${REMOTE_DIR}/lite/deploy/.env' && sed -i '/^PI_ENGINE_API_KEY=/d' '${REMOTE_DIR}/lite/deploy/.env'"
+  printf '\nPI_ENGINE_API_KEY="%s"\n' "$PI_KEY" | ssh "$TARGET" \
+    "cat >> '${REMOTE_DIR}/lite/deploy/.env' && chmod 600 '${REMOTE_DIR}/lite/deploy/.env'"
+else
+  echo "!! qwen-settings.json has no env.BAILIAN_TOKEN_PLAN_API_KEY; pi will lack a model key"
+fi
+
 echo "==> setup + start on remote (no docker, engine: ${ENGINE})"
 ssh "$TARGET" "REMOTE_DIR='${REMOTE_DIR}' QWEN_VERSION='${QWEN_VERSION}' PI_VERSION='${PI_VERSION}' AFLOW_PORT='${AFLOW_PORT}' ENGINE='${ENGINE}' bash -s" <<'REMOTE'
 set -euo pipefail
