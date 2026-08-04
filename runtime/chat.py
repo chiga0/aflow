@@ -90,6 +90,7 @@ class _SessionState:
     pi_sid: str | None = None
     model: str = ""
     current_model: str = ""
+    tokens: int = 0
     gate_mode: str = "strict"
     running: bool = False
     seq: int = 0
@@ -299,6 +300,11 @@ class ChatHub:
                         if rec:
                             rec["output"] = data.get("output")
                             rec["is_error"] = bool(data.get("is_error"))
+                    elif etype == "usage":
+                        state.tokens += int(data.get("input") or 0) + int(
+                            data.get("output") or 0
+                        )
+                        self._broadcast(state, "usage", {"total": state.tokens})
                     elif etype == "done":
                         result.status = "completed"
                     elif etype == "error":

@@ -513,12 +513,19 @@ def _map_pi_event(event: dict[str, Any]) -> list[dict[str, Any]]:
 
     if etype == "turn_end":
         message = event.get("message") or {}
+        out: list[dict[str, Any]] = []
         if message.get("stopReason") == "error":
-            return [{"type": "turn_error", "data": {
+            out.append({"type": "turn_error", "data": {
                 "reason": str(message.get("errorMessage") or "model error"),
                 "raw": {"stopReason": "error"},
-            }}]
-        return []
+            }})
+        usage = message.get("usage") or {}
+        if usage.get("input") or usage.get("output"):
+            out.append({"type": "usage", "data": {
+                "input": int(usage.get("input") or 0),
+                "output": int(usage.get("output") or 0),
+            }})
+        return out
 
     if etype == "agent_settled":
         return [{"type": "turn_complete", "data": {"raw_type": "agent_settled"}}]

@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
+  Download,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -840,6 +841,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
   const [liveArtifacts, setLiveArtifacts] = useState<{ path: string; size: number }[]>([]);
+  const [liveTokens, setLiveTokens] = useState(0);
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
   const liveTextRef = useRef("");
   const liveThinkingRef = useRef("");
@@ -1004,6 +1006,9 @@ export function ChatApp({ height }: { height: number | null }) {
             );
             setLiveTools(liveToolsRef.current);
             break;
+          case "usage":
+            setLiveTokens(Number(data.total) || 0);
+            break;
           case "artifacts":
             setLiveArtifacts((data.files as { path: string; size: number }[]) || []);
             break;
@@ -1059,6 +1064,7 @@ export function ChatApp({ height }: { height: number | null }) {
             setLiveThinking("");
             setLiveTools([]);
             setLiveArtifacts([]);
+    setLiveTokens(0);
             refreshSessions();
             if (typeof document !== "undefined" && document.hidden) {
               try {
@@ -1319,6 +1325,27 @@ export function ChatApp({ height }: { height: number | null }) {
     [activeId],
   );
 
+  const exportSession = useCallback(async (id: string) => {
+    try {
+      const d = await api<SessionDetail>("GET", `/api/chat/sessions/${id}`);
+      const md: string[] = [`# ${d.title || "AFlow session"}`, ""];
+      for (const m of d.messages) {
+        md.push(`## ${m.role === "user" ? "用户" : "Agent"}`, "", m.content, "");
+        for (const t of m.tools || []) md.push(`- tool: ${t.name}`);
+        for (const a of m.artifacts || []) md.push(`- artifact: ${a.path}`);
+        md.push("");
+      }
+      const blob = new Blob([md.join("\n")], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(d.title || "session").slice(0, 20).replace(/[^\w\u4e00-\u9fff-]+/g, "_")}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const decideApproval = useCallback(
     async (requestId: string, approved: boolean) => {
       if (!activeId) return;
@@ -1468,6 +1495,17 @@ export function ChatApp({ height }: { height: number | null }) {
                   </div>
                   <button
                     type="button"
+                    aria-label="导出 Markdown"
+                    className="absolute right-8 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-muted-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportSession(s.id);
+                    }}
+                  >
+                    <Download size={13} />
+                  </button>
+                  <button
+                    type="button"
                     aria-label="删除会话"
                     className={cn(
                       "absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5",
@@ -1488,6 +1526,15 @@ export function ChatApp({ height }: { height: number | null }) {
               </>
             )}
             <div className="flex gap-1 border-t border-border p-3">
+              <button
+                type="button"
+                className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs text-muted-foreground hover:bg-secondary/60"
+                onClick={() => window.open("/api/backup", "_blank")}
+                title="下载 SQLite 备份（每日自动，保留 7 份）"
+              >
+                🗄 备份
+              </button>
+              <div className="flex-1" />
               {(
                 [
                   ["system", Monitor, "跟随系统"],
@@ -1519,6 +1566,11 @@ export function ChatApp({ height }: { height: number | null }) {
           <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
             {engine}
           </span>
+          {liveTokens > 0 && (
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {(liveTokens / 1000).toFixed(1)}k tok
+            </span>
+          )}
         </div>
 
         <Button variant="ghost" size="icon" aria-label="新会话" onClick={() => newSession()}>

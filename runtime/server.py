@@ -76,6 +76,8 @@ def make_handler(
     auth_config: AuthConfig,
 ) -> type[BaseHTTPRequestHandler]:
 
+    login_failures: dict[str, list[float]] = {}
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = f"aflow-lite/{__version__}"
@@ -161,6 +163,8 @@ def make_handler(
                 # Unknown /api/* — mission & channel routes are mounted below.
                 if path == "/api/files" or path.startswith("/api/files/"):
                     return self.handle_files(path)
+                if path == "/api/backup":
+                    return self.handle_backup()
                 from . import routes_extra  # noqa: F401  (optional extension point)
                 if routes_extra.handle_get(self, path, store, adapter, auth_config):
                     return
@@ -233,6 +237,16 @@ def make_handler(
             body = self.read_body()
             email = str(body.get("email") or "").strip()
             password = str(body.get("password") or "")
+            # brute-force throttle: 5 failures per 10min per IP
+            ip = self.headers.get("X-Real-IP") or self.client_address[0]
+            now = time.monotonic()
+            recent = [t for t in login_failures.get(ip, []) if now - t < 600]
+            if len(recent) >= 5:
+                return self.json(
+                    {"error": "too many attempts, try later"},
+                    status=HTTPStatus.TOO_MANY_REQUESTS,
+                )
+            login_failures[ip] = recent
             ok = (
                 auth_config.password_login_enabled
                 and email.lower() == auth_config.email.lower()
@@ -240,7 +254,9 @@ def make_handler(
             )
             if not ok:
                 METRICS.inc("aflow_auth_failures_total")
+                login_failures[ip] = recent + [now]
                 return self.json({"error": "invalid credentials"}, status=HTTPStatus.UNAUTHORIZED)
+            login_failures.pop(ip, None)
             sid = secrets.token_urlsafe(32)
             expires = datetime.now(timezone.utc) + timedelta(seconds=auth_config.session_ttl)
             store.create_auth_session(sid, email, expires.isoformat(timespec="milliseconds"))
@@ -282,6 +298,23 @@ def make_handler(
                     "token": auth_config.token_enabled,
                 },
             })
+
+        def handle_backup(self) -> None:
+            """On-demand sqlite backup; also prunes to the last 7."""
+            try:
+                dest = backup_now(store)
+            except Exception as exc:
+                return self.error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            with open(dest, "rb") as f:
+                body = f.read()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{os.path.basename(dest)}"'
+            )
+            self.end_headers()
+            self.wfile.write(body)
 
         def handle_files(self, path: str) -> None:
             """Workspace browser: ?dir=<rel> lists, /api/files/<rel> downloads."""
@@ -549,6 +582,54 @@ def make_handler(
     return Handler
 
 
+def backup_now(store: Store) -> str:
+    """SQLite online backup into data/backups/; keeps the last 7."""
+    import sqlite3
+
+    data_dir = os.path.dirname(str(store._path)) or "data"
+    bdir = os.path.join(data_dir, "backups")
+    os.makedirs(bdir, exist_ok=True)
+    dest = os.path.join(bdir, f"aflow-{time.strftime('%Y%m%d-%H%M%S')}.db")
+    src = sqlite3.connect(str(store._path))
+    try:
+        dst = sqlite3.connect(dest)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    files = sorted(
+        (os.path.join(bdir, n) for n in os.listdir(bdir) if n.endswith(".db")),
+        key=os.path.getmtime,
+    )
+    for old in files[:-7]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    logger.info("backup written: %s", dest)
+    return dest
+
+
+def _backup_loop(store: Store) -> None:
+    """Daily auto-backup (checked hourly)."""
+    while True:
+        try:
+            data_dir = os.path.dirname(str(store._path)) or "data"
+            bdir = os.path.join(data_dir, "backups")
+            latest = 0.0
+            if os.path.isdir(bdir):
+                for n in os.listdir(bdir):
+                    if n.endswith(".db"):
+                        latest = max(latest, os.path.getmtime(os.path.join(bdir, n)))
+            if time.time() - latest > 24 * 3600:
+                backup_now(store)
+        except Exception:
+            logger.warning("auto backup failed", exc_info=True)
+        time.sleep(3600)
+
+
 def _qwen_probe(adapter: QwenAdapter) -> tuple[bool, int]:
     start = time.monotonic()
     up = adapter.health()
@@ -588,6 +669,9 @@ def run_server(
         target=_qwen_watchdog, args=(adapter,), daemon=True, name="qwen-watchdog"
     )
     watchdog.start()
+    threading.Thread(
+        target=_backup_loop, args=(store,), daemon=True, name="auto-backup"
+    ).start()
 
     handler = make_handler(store, adapter, auth_config)
     server = ThreadingHTTPServer((host, port), handler)
