@@ -73,6 +73,14 @@ class ChatHub:
         self.store.create_chat_session(chat_id, now)
         with self._lock:
             self._states[chat_id] = _SessionState(chat_id=chat_id)
+        # Prewarm the engine process in the background so the first message
+        # does not pay the cold-start cost (mobile users feel every second).
+        if getattr(self.adapter, "engine", "") == "pi":
+            state = self._states[chat_id]
+            threading.Thread(
+                target=self._ensure_pi, args=(state,), daemon=True,
+                name=f"chat-prewarm-{chat_id}",
+            ).start()
         return self.store.get_chat_session(chat_id) or {"id": chat_id}
 
     def delete_session(self, chat_id: str) -> bool:

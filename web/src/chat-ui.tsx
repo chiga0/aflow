@@ -265,6 +265,10 @@ export function ChatApp({ height }: { height: number | null }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
+  // Refs mirror the live buffers so the turn.finished handler can finalize
+  // the assistant message locally without stale-closure state.
+  const liveTextRef = useRef("");
+  const liveToolsRef = useRef<ToolRecord[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -290,6 +294,8 @@ export function ChatApp({ height }: { height: number | null }) {
     setError(null);
     setLiveText("");
     setLiveTools([]);
+    liveTextRef.current = "";
+    liveToolsRef.current = [];
     setLiveRunning(false);
     if (!id) {
       setDetail(null);
@@ -325,57 +331,86 @@ export function ChatApp({ height }: { height: number | null }) {
         const data = ev.data || {};
         switch (ev.type) {
           case "message.delta":
-            if (!data.thought) setLiveText((t) => t + String(data.text || ""));
+            if (!data.thought) {
+              liveTextRef.current += String(data.text || "");
+              setLiveText(liveTextRef.current);
+            }
             setLiveRunning(true);
             break;
           case "tool.start":
             setLiveRunning(true);
-            setLiveTools((ts) => [
-              ...ts,
+            liveToolsRef.current = [
+              ...liveToolsRef.current,
               {
                 id: String(data.tool_call_id || ""),
                 name: String(data.name || "tool"),
                 input: data.input,
                 running: true,
               },
-            ]);
+            ];
+            setLiveTools(liveToolsRef.current);
             break;
           case "tool.update":
-            setLiveTools((ts) =>
-              ts.map((t) =>
-                t.id === String(data.tool_call_id || "")
-                  ? { ...t, output: String(data.partial_output ?? t.output ?? "") }
-                  : t,
-              ),
+            liveToolsRef.current = liveToolsRef.current.map((t) =>
+              t.id === String(data.tool_call_id || "")
+                ? { ...t, output: String(data.partial_output ?? t.output ?? "") }
+                : t,
             );
+            setLiveTools(liveToolsRef.current);
             break;
           case "tool.end":
-            setLiveTools((ts) =>
-              ts.map((t) =>
-                t.id === String(data.tool_call_id || "")
-                  ? {
-                      ...t,
-                      running: false,
-                      output: String(data.output ?? ""),
-                      is_error: Boolean(data.is_error),
-                    }
-                  : t,
-              ),
+            liveToolsRef.current = liveToolsRef.current.map((t) =>
+              t.id === String(data.tool_call_id || "")
+                ? {
+                    ...t,
+                    running: false,
+                    output: String(data.output ?? ""),
+                    is_error: Boolean(data.is_error),
+                  }
+                : t,
             );
+            setLiveTools(liveToolsRef.current);
             break;
           case "error":
             setError(String(data.reason || "执行出错"));
             break;
-          case "turn.finished":
+          case "turn.finished": {
             setLiveRunning(false);
-            // Flush: reload the persisted transcript and clear live buffers.
-            api<SessionDetail>("GET", `/api/chat/sessions/${activeId}`)
-              .then(setDetail)
-              .catch(() => undefined);
+            // Finalize the assistant message locally from the live buffers so
+            // the reply never disappears even when the reconcile fetch is
+            // blocked (WAF / flaky mobile network).
+            const content = liveTextRef.current;
+            const tools = liveToolsRef.current;
+            setDetail((d) =>
+              d
+                ? {
+                    ...d,
+                    running: false,
+                    messages: [
+                      ...d.messages,
+                      {
+                        id: Date.now(),
+                        role: "assistant",
+                        content,
+                        tools,
+                        status: String(data.status || "completed"),
+                        created_at: new Date().toISOString(),
+                      },
+                    ],
+                  }
+                : d,
+            );
+            liveTextRef.current = "";
+            liveToolsRef.current = [];
             setLiveText("");
             setLiveTools([]);
             refreshSessions();
+            // Best-effort reconcile with the persisted transcript.
+            api<SessionDetail>("GET", `/api/chat/sessions/${activeId}`)
+              .then(setDetail)
+              .catch(() => undefined);
             break;
+          }
           default:
             break;
         }
@@ -436,6 +471,8 @@ export function ChatApp({ height }: { height: number | null }) {
         );
         setLiveRunning(true);
         setError(null);
+        liveTextRef.current = "";
+        liveToolsRef.current = [];
         stickToBottom.current = true;
         await api("POST", `/api/chat/sessions/${id}/messages`, { text });
         refreshSessions();
