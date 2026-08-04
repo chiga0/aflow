@@ -80,9 +80,10 @@ class _SessionState:
 class ChatHub:
     """Owns live chat sessions on top of an execution adapter."""
 
-    def __init__(self, adapter: Any, store: Store) -> None:
+    def __init__(self, adapter: Any, store: Store, push: Any = None) -> None:
         self.adapter = adapter
         self.store = store
+        self.push = push
         self._states: dict[str, _SessionState] = {}
         self._lock = threading.Lock()
 
@@ -250,6 +251,12 @@ class ChatHub:
                     break
                 for etype, data in _map_qwen_event(payload):
                     self._broadcast(state, etype, data)
+                    if etype == "permission.request" and self.push:
+                        self.push.notify(
+                            "🛡️ AFlow · 需要审批",
+                            str(data.get("message") or data.get("title") or "危险命令等待确认"),
+                            tag="approval",
+                        )
                     if etype == "message.delta" and not data.get("thought"):
                         text_buf.append(str(data.get("text") or ""))
                     elif etype == "tool.start":
@@ -313,6 +320,17 @@ class ChatHub:
         self._broadcast(state, "turn.finished", {
             "status": result.status, "error": result.error,
         })
+        if self.push:
+            if result.status == "completed":
+                self.push.notify(
+                    "✅ AFlow · 任务完成", result.text or "任务已完成",
+                    tag=f"done-{state.chat_id}",
+                )
+            else:
+                self.push.notify(
+                    "⚠️ AFlow · 任务失败", result.error or "turn failed",
+                    tag=f"done-{state.chat_id}",
+                )
         # The turn is persisted; late/reconnecting subscribers must not
         # replay it as live events (that rendered duplicate replies).
         with state.lock:
@@ -375,14 +393,22 @@ class ChatHub:
         state = self._get_state(chat_id)
         if state is None:
             raise KeyError(chat_id)
-        if state.running:
-            raise RuntimeError("cannot change options while a turn is running")
-        if model:
+        if state.running and gate_mode and gate_mode != state.gate_mode:
+            raise RuntimeError("cannot change approval mode while a turn is running")
+        if model and model != state.model:
             state.model = model
+            state.current_model = model
+            # Mid-turn model switch: hot-swap on the live process so queued
+            # prompts and the next turn use the new model without killing
+            # the running turn (set_options would recycle the process).
+            if state.running and state.pi_sid:
+                setm = getattr(self.adapter, "set_model", None)
+                if setm:
+                    setm(state.pi_sid, model)
         if gate_mode in ("strict", "auto"):
             state.gate_mode = gate_mode
         setter = getattr(self.adapter, "set_options", None)
-        if setter and state.pi_sid:
+        if setter and state.pi_sid and not state.running:
             setter(state.pi_sid, model=state.model or None, gate_mode=state.gate_mode)
         return {"ok": True, "model": state.model, "gate_mode": state.gate_mode}
 

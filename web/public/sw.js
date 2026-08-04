@@ -55,6 +55,47 @@ function isStaticAsset(pathname) {
   );
 }
 
+// ── Web Push: wake-up ping; render text from /api/push/peek ──
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    (async () => {
+      let notice = {};
+      try {
+        const res = await fetch("/api/push/peek", { credentials: "same-origin" });
+        if (res.ok) notice = await res.json();
+      } catch {
+        /* offline or auth lapsed: fall back to a generic nudge */
+      }
+      const title = notice.title || "AFlow";
+      const body = notice.body || "有新动态，点开查看";
+      return self.registration.showNotification(title, {
+        body,
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: notice.tag || "aflow",
+        renotify: true,
+        data: { url: notice.url || "/" },
+      });
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ("focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      return clients.openWindow(url);
+    }),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;

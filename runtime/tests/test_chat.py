@@ -107,6 +107,46 @@ class ChatHubTests(unittest.TestCase):
             slow_adapter.shutdown()
             slow_patcher.stop()
 
+    def test_model_switch_mid_turn_hot_swaps_without_killing_turn(self):
+        slow_adapter, slow_patcher = make_pi_adapter(FRAMES, delay_ms=800)
+        try:
+            hub = ChatHub(slow_adapter, self.store)
+            session = hub.create_session()
+            chat_id = session["id"]
+            hub.send_message(chat_id, "slow turn")
+            self.assertTrue(_wait(lambda: hub._get_state(chat_id).running))
+
+            # Mid-turn model switch is allowed and hot-swaps the live process
+            out = hub.set_options(chat_id, model="qwen3.6-flash", gate_mode=None)
+            self.assertEqual(out["model"], "qwen3.6-flash")
+            state = hub._get_state(chat_id)
+            self.assertEqual(state.current_model, "qwen3.6-flash")
+
+            # The running turn survives (process was not recycled)
+            self.assertTrue(
+                _wait(lambda: not hub._get_state(chat_id).running, timeout=15)
+            )
+            detail = hub.session_detail(chat_id)
+            self.assertEqual(detail["messages"][-1]["status"], "completed")
+        finally:
+            slow_adapter.shutdown()
+            slow_patcher.stop()
+
+    def test_gate_mode_change_mid_turn_rejected(self):
+        slow_adapter, slow_patcher = make_pi_adapter(FRAMES, delay_ms=800)
+        try:
+            hub = ChatHub(slow_adapter, self.store)
+            session = hub.create_session()
+            chat_id = session["id"]
+            hub.send_message(chat_id, "turn")
+            self.assertTrue(_wait(lambda: hub._get_state(chat_id).running))
+            with self.assertRaises(RuntimeError):
+                hub.set_options(chat_id, model=None, gate_mode="auto")
+            _wait(lambda: not hub._get_state(chat_id).running, timeout=15)
+        finally:
+            slow_adapter.shutdown()
+            slow_patcher.stop()
+
     def test_approval_flow(self):
         session = self.hub.create_session()
         chat_id = session["id"]

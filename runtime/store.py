@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    p256dh     TEXT NOT NULL DEFAULT '',
+    auth       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -219,6 +226,34 @@ class Store:
         return [dict(r) for r in rows]
 
     # ── Channels ──────────────────────────────────────────────
+
+    # ── Push subscriptions ────────────────────────
+
+    def add_push_subscription(self, endpoint: str, p256dh: str = "", auth: str = "") -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(endpoint) DO UPDATE SET"
+                " p256dh=excluded.p256dh, auth=excluded.auth",
+                (endpoint, p256dh, auth, utc_now()),
+            )
+            self._conn.commit()
+
+    def list_push_subscriptions(self) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT endpoint, p256dh, auth FROM push_subscriptions"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_push_subscription(self, endpoint: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,)
+            )
+            self._conn.commit()
+            return bool(cursor.rowcount)
 
     # ── Chat sessions & messages ───────────────────────
 

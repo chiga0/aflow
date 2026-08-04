@@ -89,6 +89,14 @@ export interface PendingImage {
 
 /* ── api helpers ───────────────────────────────────────── */
 
+function urlB64ToUint8Array(b64: string): Uint8Array {
+  const padded = b64.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b64.length / 4) * 4, "=");
+  const raw = atob(padded);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
 async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   const resp = await fetch(path, {
     method,
@@ -489,7 +497,7 @@ function Chatbox(p: ChatboxProps) {
                 variant="ghost"
                 size="sm"
                 aria-label="切换模型"
-                disabled={p.running}
+                title={p.running ? "切换后对排队消息与下一轮生效" : undefined}
                 className="h-8 max-w-32 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
               >
                 <Cpu size={14} className="min-[420px]:hidden" />
@@ -847,11 +855,39 @@ export function ChatApp({ height }: { height: number | null }) {
       .catch(() => undefined);
   }, []);
 
-  /* request notification permission once */
+  /* request notification permission once, then subscribe for background push */
   useEffect(() => {
     if (typeof Notification === "undefined") return;
-    if (Notification.permission === "default") {
-      Notification.requestPermission().catch(() => undefined);
+    const subscribePush = async () => {
+      try {
+        if (!("serviceWorker" in navigator)) return;
+        const reg = await navigator.serviceWorker.ready;
+        if (!reg.pushManager) return;
+        const meta = await api<{ publicKey: string }>("GET", "/api/push/publickey");
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlB64ToUint8Array(meta.publicKey),
+          });
+        }
+        const json = sub.toJSON();
+        await api("POST", "/api/push/subscribe", {
+          endpoint: json.endpoint,
+          keys: json.keys,
+        });
+      } catch {
+        /* push unsupported (e.g. iOS webview) — in-tab notifications still work */
+      }
+    };
+    if (Notification.permission === "granted") {
+      subscribePush();
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission()
+        .then((p) => {
+          if (p === "granted") subscribePush();
+        })
+        .catch(() => undefined);
     }
   }, []);
 
