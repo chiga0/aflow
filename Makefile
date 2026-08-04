@@ -1,10 +1,13 @@
-.PHONY: test e2e screenshots up deploy
+.PHONY: test e2e smoke screenshots up deploy
 
 test:
 	bash scripts/test.sh
 
 e2e:
 	cd web && npm run test:e2e
+
+smoke:
+	python3 scripts/e2e_smoke.py
 
 screenshots:
 	python3 scripts/ui_matrix.py

@@ -58,3 +58,9 @@ jobs:
           ENGINE: ${{ inputs.engine }}
           AFLOW_DEPLOY_TARGET: ${{ vars.AFLOW_DEPLOY_TARGET }}
           AFLOW_PI_API_KEY: ${{ secrets.AFLOW_PI_API_KEY }}
+
+      - name: e2e smoke (post-deploy)
+        run: python3 scripts/e2e_smoke.py --base https://aflow.dev
+        env:
+          AFLOW_AUTH_EMAIL: ${{ secrets.AFLOW_AUTH_EMAIL || vars.AFLOW_AUTH_EMAIL }}
+          AFLOW_AUTH_PASSWORD: ${{ secrets.AFLOW_AUTH_PASSWORD }}
