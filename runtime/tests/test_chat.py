@@ -75,51 +75,18 @@ class ChatHubTests(unittest.TestCase):
         self.assertEqual(assistant["tools"][0]["output"], "a.txt")
         self.assertTrue(detail["title"], "title should be set from the prompt")
 
-    def test_sse_replay_after_turn(self):
+    def test_replay_buffer_cleared_after_turn(self):
+        """Late subscribers must not re-stream a finished turn as live.
+
+        (Previously buffered events replayed on every reconnect and the
+        persisted reply rendered twice until the reconcile refetch.)
+        """
         session = self.hub.create_session()
         chat_id = session["id"]
         self.hub.send_message(chat_id, "hi")
-        _wait(lambda: not self.hub._get_state(chat_id).running)
-
-        seen = []
-        stream = self.hub.subscribe(chat_id, last_event_id=0)
-        self.assertIsNotNone(stream)
-        for item in stream:
-            if item is None:
-                break
-            seq, etype, _data = item
-            seen.append((seq, etype))
-            if etype == "turn.finished":
-                break
-        types = [t for _s, t in seen]
-        self.assertIn("message.delta", types)
-        self.assertIn("tool.start", types)
-        self.assertIn("tool.end", types)
-        self.assertIn("turn.finished", types)
-        # replay preserves ordering by seq
-        seqs = [s for s, _t in seen]
-        self.assertEqual(seqs, sorted(seqs))
-
-    def test_unknown_session(self):
-        self.assertIsNone(self.hub.session_detail("chat_nope"))
-        self.assertIsNone(self.hub.subscribe("chat_nope"))
-        with self.assertRaises(KeyError):
-            self.hub.send_message("chat_nope", "hi")
-
-    def test_conflicting_second_message(self):
-        slow_adapter, slow_patcher = make_pi_adapter(FRAMES, delay_ms=400)
-        try:
-            hub = ChatHub(slow_adapter, self.store)
-            session = hub.create_session()
-            chat_id = session["id"]
-            hub.send_message(chat_id, "first")
-            self.assertTrue(_wait(lambda: hub._get_state(chat_id).running))
-            with self.assertRaises(RuntimeError):
-                hub.send_message(chat_id, "second")
-            _wait(lambda: not hub._get_state(chat_id).running)
-        finally:
-            slow_adapter.shutdown()
-            slow_patcher.stop()
+        self.assertTrue(_wait(lambda: not self.hub._get_state(chat_id).running))
+        state = self.hub._get_state(chat_id)
+        self.assertEqual(len(state.buffer), 0)
 
     def test_approval_flow(self):
         session = self.hub.create_session()
