@@ -121,6 +121,35 @@ class ChatHubTests(unittest.TestCase):
             slow_adapter.shutdown()
             slow_patcher.stop()
 
+    def test_approval_flow(self):
+        session = self.hub.create_session()
+        chat_id = session["id"]
+        stream = self.hub.subscribe(chat_id)
+        self.hub.send_message(chat_id, "DANGEROUS rm -rf /tmp/x")
+
+        request_id = None
+        for item in stream:
+            if item is None:
+                break
+            _seq, etype, data = item
+            if etype == "permission.request":
+                request_id = data["request_id"]
+                break
+        self.assertIsNotNone(request_id, "approval card event missing")
+
+        self.assertTrue(self.hub.respond_approval(chat_id, request_id, True))
+
+        seen = []
+        for item in stream:
+            if item is None:
+                break
+            _seq, etype, data = item
+            seen.append(etype)
+            if etype == "turn.finished":
+                break
+        self.assertIn("permission.resolved", seen)
+        self.assertIn("turn.finished", seen)
+
     def test_images_persist_metadata_and_validate(self):
         session = self.hub.create_session()
         chat_id = session["id"]

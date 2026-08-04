@@ -182,6 +182,20 @@ class ChatHub:
         state.pi_sid = None  # aborted process is closed by adapter.cancel
         return True
 
+    def respond_approval(
+        self, chat_id: str, request_id: str, approved: bool
+    ) -> bool:
+        """Forward an approval-card decision to the engine (pi RPC)."""
+        state = self._get_state(chat_id)
+        if state is None or not state.pi_sid:
+            return False
+        respond = getattr(self.adapter, "respond_ui", None)
+        ok = bool(respond and respond(state.pi_sid, request_id, approved))
+        self._broadcast(state, "permission.resolved", {
+            "request_id": request_id, "approved": approved,
+        })
+        return ok
+
     def _drive_turn(
         self, state: _SessionState, prompt: str, images: list | None = None
     ) -> None:
@@ -221,6 +235,14 @@ class ChatHub:
                     elif etype == "error":
                         result.status = "failed"
                         result.error = str(data.get("reason") or "turn error")
+                    elif etype == "permission.autocancel":
+                        # Unsupported dialog kind: never let the agent block.
+                        try:
+                            self.adapter.respond_ui(
+                                pi_sid, str(data.get("request_id") or ""), False
+                            )
+                        except Exception:
+                            logger.debug("autocancel failed", exc_info=True)
                 if result.status in ("completed", "failed", "timeout"):
                     break
         except Exception as exc:
@@ -381,6 +403,14 @@ def handle_post(handler: Any, path: str, body: dict[str, Any], hub: ChatHub) -> 
             return True
         if parts[4] == "cancel":
             handler.json({"ok": hub.cancel(chat_id)})
+            return True
+        if parts[4] == "approvals":
+            request_id = str(body.get("request_id") or "")
+            approved = bool(body.get("approved"))
+            if not request_id:
+                handler.error(HTTPStatus.BAD_REQUEST, "request_id is required")
+                return True
+            handler.json({"ok": hub.respond_approval(chat_id, request_id, approved)})
             return True
     return False
 

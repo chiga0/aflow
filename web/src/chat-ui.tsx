@@ -333,6 +333,9 @@ export function ChatApp({ height }: { height: number | null }) {
   const [liveRunning, setLiveRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [approvals, setApprovals] = useState<
+    { request_id: string; title: string; message: string }[]
+  >([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   // Scroll etiquette: only auto-scroll when the user is already near the
@@ -359,6 +362,7 @@ export function ChatApp({ height }: { height: number | null }) {
     liveTextRef.current = "";
     liveToolsRef.current = [];
     setLiveRunning(false);
+    setApprovals([]);
     if (!id) {
       setDetail(null);
       return;
@@ -435,6 +439,22 @@ export function ChatApp({ height }: { height: number | null }) {
             break;
           case "error":
             setError(String(data.reason || "执行出错"));
+            break;
+          case "permission.request":
+            setLiveRunning(true);
+            setApprovals((as) => [
+              ...as,
+              {
+                request_id: String(data.request_id || ""),
+                title: String(data.title || "需要审批"),
+                message: String(data.message || ""),
+              },
+            ]);
+            break;
+          case "permission.resolved":
+            setApprovals((as) =>
+              as.filter((a) => a.request_id !== String(data.request_id || "")),
+            );
             break;
           case "turn.finished": {
             setLiveRunning(false);
@@ -550,6 +570,22 @@ export function ChatApp({ height }: { height: number | null }) {
       }
     },
     [activeId, refreshSessions],
+  );
+
+  const decideApproval = useCallback(
+    async (requestId: string, approved: boolean) => {
+      if (!activeId) return;
+      setApprovals((as) => as.filter((a) => a.request_id !== requestId));
+      try {
+        await api("POST", `/api/chat/sessions/${activeId}/approvals`, {
+          request_id: requestId,
+          approved,
+        });
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      }
+    },
+    [activeId],
   );
 
   const pickImage = useCallback((file: File) => {
@@ -728,6 +764,32 @@ export function ChatApp({ height }: { height: number | null }) {
       </div>
 
       {/* composer */}
+      {approvals.length > 0 && (
+        <div className="ac-approvals">
+          {approvals.map((a) => (
+            <div key={a.request_id} className="ac-approval">
+              <div className="ac-approval-title">⚠️ {a.title}</div>
+              <div className="ac-approval-msg">{a.message}</div>
+              <div className="ac-approval-actions">
+                <button
+                  type="button"
+                  className="ac-approve-ok"
+                  onClick={() => decideApproval(a.request_id, true)}
+                >
+                  允许
+                </button>
+                <button
+                  type="button"
+                  className="ac-approve-no"
+                  onClick={() => decideApproval(a.request_id, false)}
+                >
+                  拒绝
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <InputBar
         running={running}
         images={pendingImages}
@@ -863,6 +925,29 @@ export const chatStyles = `
 }
 .ac-chip:active { background: rgba(99,102,241,0.15); color: #e0e7ff; }
 
+.ac-approvals {
+  padding: 0.5rem 0.75rem 0;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  background: rgba(9,9,11,0.92);
+}
+.ac-approval {
+  border: 1px solid rgba(245,158,11,0.4); background: rgba(245,158,11,0.08);
+  border-radius: 12px; padding: 0.6rem 0.75rem;
+  animation: aflow-fade-in 0.25s ease-out both;
+}
+.ac-approval-title { font-size: 0.85rem; font-weight: 600; color: #fbbf24; }
+.ac-approval-msg {
+  font-size: 0.78rem; color: #d4d4d8; margin-top: 0.3rem;
+  white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  max-height: 120px; overflow-y: auto;
+}
+.ac-approval-actions { display: flex; gap: 0.5rem; margin-top: 0.55rem; }
+.ac-approve-ok, .ac-approve-no {
+  flex: 1; height: 38px; border-radius: 9px; border: none; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600;
+}
+.ac-approve-ok { background: #16a34a; color: #fff; }
+.ac-approve-no { background: rgba(239,68,68,0.85); color: #fff; }
 .ac-inputbar-wrap {
   border-top: 1px solid rgba(255,255,255,0.07);
   background: rgba(9,9,11,0.92); backdrop-filter: blur(10px);

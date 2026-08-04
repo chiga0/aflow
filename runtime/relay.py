@@ -166,7 +166,13 @@ def _map_qwen_event(payload: Any) -> list[tuple[str, dict[str, Any]]]:
         return []
 
     if qwen_type == "permission_request":
-        return [("permission.request", {"raw": payload})]
+        inner = data if isinstance(data, dict) else {}
+        return [("permission.request", {
+            "request_id": str(inner.get("request_id") or ""),
+            "title": str(inner.get("title") or ""),
+            "message": str(inner.get("message") or ""),
+            "raw": payload,
+        })]
     if qwen_type == "permission_resolved":
         return [("permission.resolved", {"raw": payload})]
     if qwen_type == "turn_complete":

@@ -50,6 +50,40 @@ logger = logging.getLogger("runtime.pi_adapter")
 DEFAULT_BASE_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _KEY_ENV_REF = "$QWENCLOUD_TOKEN_PLAN_API_KEY"
 
+# Bundled pi extension: gates dangerous bash commands behind an AFlow
+# approval card (ctx.ui.confirm -> extension_ui_request over RPC).
+GATE_EXTENSION = """
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const DANGEROUS = [
+  /\\brm\\s+(-rf?|--recursive)/i,
+  /\\bsudo\\b/i,
+  /\\b(chmod|chown)\\b.*777/i,
+  /\\bmkfs\\b/i,
+  /\\bdd\\s+if=/i,
+  /\\b(shutdown|reboot)\\b/i,
+  /curl[^|]*\\|\\s*(sh|bash)/i,
+  />\\s*\\/dev\\/sd/i,
+  /git\\s+push\\s+(-f|--force)/i,
+];
+
+export default function (pi: ExtensionAPI) {
+  pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName !== "bash") return undefined;
+    const command = String((event.input as any)?.command ?? "");
+    if (!DANGEROUS.some((p) => p.test(command))) return undefined;
+    if (!ctx.hasUI) return { block: true, reason: "dangerous command blocked (no UI)" };
+    const ok = await ctx.ui.confirm(
+      "AFlow 审批",
+      "Agent 想执行危险命令：\\n" + command + "\\n\\n允许执行吗？",
+      { timeout: 600000 },
+    );
+    if (!ok) return { block: true, reason: "用户在 AFlow 中拒绝了该命令" };
+    return undefined;
+  });
+}
+"""
+
 # Terminal qwen-shaped payload types (mirror relay._map_qwen_event contract).
 _TERMINAL = ("turn_complete", "turn_error", "session_died", "client_evicted")
 
@@ -97,6 +131,7 @@ class PiAdapter:
         cfg_dir = tempfile.mkdtemp(prefix="aflow-pi-")
         os.chmod(cfg_dir, 0o700)
         self._write_models_json(cfg_dir)
+        self._write_gate_extension(cfg_dir)
 
         cmd = [
             self.pi_bin, "--mode", "rpc", "--no-session",
@@ -265,6 +300,28 @@ class PiAdapter:
             logger.info("reaping idle pi session %s", sid)
             self.close_session(sid)
 
+    def respond_ui(self, session_id: str, request_id: str, confirmed: bool) -> bool:
+        """Answer an extension_ui_request (approval card) from the client."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return False
+        try:
+            self._send(session, {
+                "type": "extension_ui_response",
+                "id": request_id,
+                "confirmed": bool(confirmed),
+            })
+            return True
+        except Exception:
+            logger.debug("respond_ui failed for %s", session_id, exc_info=True)
+            return False
+
+    def _write_gate_extension(self, cfg_dir: str) -> None:
+        ext_dir = os.path.join(cfg_dir, "extensions")
+        os.makedirs(ext_dir, exist_ok=True)
+        with open(os.path.join(ext_dir, "aflow-gate.ts"), "w") as f:
+            f.write(GATE_EXTENSION.lstrip("\n"))
+
     def _write_models_json(self, cfg_dir: str) -> None:
         models = {
             "providers": {
@@ -301,6 +358,20 @@ class PiAdapter:
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
+                    continue
+                # Unsupported dialog kinds must never block the agent.
+                if (
+                    event.get("type") == "extension_ui_request"
+                    and event.get("method") != "confirm"
+                ):
+                    try:
+                        self._send(session, {
+                            "type": "extension_ui_response",
+                            "id": str(event.get("id") or ""),
+                            "cancelled": True,
+                        })
+                    except Exception:
+                        logger.debug("autocancel failed", exc_info=True)
                     continue
                 for payload in _map_pi_event(event):
                     session.events.put(payload)
@@ -374,6 +445,16 @@ def _map_pi_event(event: dict[str, Any]) -> list[dict[str, Any]]:
 
     if etype == "agent_settled":
         return [{"type": "turn_complete", "data": {"raw_type": "agent_settled"}}]
+
+    if etype == "extension_ui_request":
+        if event.get("method") == "confirm":
+            # qwen-shaped so relay._map_qwen_event forwards it.
+            return [{"type": "permission_request", "data": {
+                "request_id": str(event.get("id") or ""),
+                "title": str(event.get("title") or ""),
+                "message": str(event.get("message") or ""),
+            }}]
+        return []
 
     return []
 

@@ -37,12 +37,19 @@ for line in sys.stdin:
                 "errorMessage": "demo error: model rejected the request"}}), flush=True)
             print(json.dumps({"type": "agent_settled"}), flush=True)
             continue
+        if "DANGEROUS" in message:
+            print(json.dumps({"type": "extension_ui_request", "id": "req-1",
+                              "method": "confirm", "title": "AFlow 审批",
+                              "message": "rm -rf /tmp/x"}), flush=True)
+            continue
         if delay_s:
             time.sleep(delay_s)
         for frame in frames:
             print(json.dumps(frame), flush=True)
         if exit_after_prompt:
             break
+    elif ctype == "extension_ui_response":
+        print(json.dumps({"type": "agent_settled"}), flush=True)
     elif ctype == "exit":
         break
 """

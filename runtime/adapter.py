@@ -58,6 +58,10 @@ class QwenAdapter:
         except Exception as exc:
             logger.warning("cancel failed for %s: %s", session_id, exc)
 
+    def respond_ui(self, session_id: str, request_id: str, confirmed: bool) -> bool:
+        """Approval dialogs are pi-engine only; qwen serve self-manages."""
+        return False
+
     def health(self) -> bool:
         try:
             req = urllib.request.Request(f"{self.base_url}/health", method="GET")
