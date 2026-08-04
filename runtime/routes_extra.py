@@ -36,11 +36,30 @@ except Exception:
 _hub_instance: Any = None
 
 
+def _make_notify(store: Any, push: Any) -> Any:
+    """Composite notifier: lock-screen web push + IM channel fan-out."""
+    url = __import__("os").environ.get("AFLOW_PUBLIC_URL", "https://aflow.dev")
+
+    def _notify(title: str, body: str, tag: str = "aflow") -> None:
+        if push is not None:
+            try:
+                push.notify(title, body, tag=tag)
+            except Exception:
+                pass
+        if _channels is not None:
+            try:
+                _channels.notify_channels(store, title, body, url=url)
+            except Exception:
+                pass
+
+    return _notify
+
+
 def _get_hub(store: Any, adapter: Any) -> Any:
     """One ChatHub per process, built lazily on first /api/chat request."""
     global _hub_instance
     if _hub_instance is None and _chat is not None:
-        _hub_instance = _chat.ChatHub(adapter, store, push=_get_push(store))
+        _hub_instance = _chat.ChatHub(adapter, store, notify=_make_notify(store, _get_push(store)))
     return _hub_instance
 
 

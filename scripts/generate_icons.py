@@ -21,13 +21,17 @@ SIZES = {
     "icon-512.png": 512,
     "icon-maskable-512.png": 512,
     "icon-192.png": 192,
-    "logo.png": 256,
     "apple-touch-icon.png": 180,
-    "logo-128.png": 128,
-    "logo-64.png": 64,
     "favicon-48.png": 48,
     "favicon-32.png": 32,
     "favicon-16.png": 16,
+}
+# in-app logos sit on the dark UI -> transparent glyph, no light plate.
+# (icon-*/apple-touch-icon/favicons keep the plate: home screens want a full tile.)
+TRANSPARENT_SIZES = {
+    "logo.png": 256,
+    "logo-128.png": 128,
+    "logo-64.png": 64,
 }
 
 def load_glyph(master_path):
@@ -39,12 +43,16 @@ def load_glyph(master_path):
     diff = np.abs(a[:, :, :3].astype(int) - bg.astype(int)).sum(axis=2)
     mask = diff > 30
     ys, xs = np.nonzero(mask)
+    # knock the plate out: soft alpha ramp keeps anti-aliased edges smooth
+    alpha = np.clip((diff.astype(float) - 30) / 50 * 255, 0, 255).astype(np.uint8)
+    a[:, :, 3] = alpha
+    im = Image.fromarray(a)
     glyph = im.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
     return glyph, tuple(int(c) for c in bg)
 
-def render(glyph, bg, size, occupancy):
+def render(glyph, bg, size, occupancy, transparent=False):
     s = int(size)
-    canvas = Image.new("RGBA", (s, s), (*bg, 255))
+    canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0) if transparent else (*bg, 255))
     gw, gh = glyph.size
     scale = (occupancy * s) / max(gw, gh)
     nw, nh = max(1, round(gw * scale)), max(1, round(gh * scale))
@@ -77,6 +85,8 @@ def main():
             continue
         for name, s in SIZES.items():
             render(glyph, bg, s, args.occupancy).save(os.path.join(d, name))
+        for name, s in TRANSPARENT_SIZES.items():
+            render(glyph, bg, s, args.occupancy, transparent=True).save(os.path.join(d, name))
         render(glyph, bg, 16, args.occupancy).save(
             os.path.join(d, "favicon.ico"), sizes=[(16, 16), (32, 32), (48, 48)]
         )

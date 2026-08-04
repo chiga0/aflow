@@ -45,7 +45,7 @@ from .store import Store
 
 logger = logging.getLogger("runtime.channels")
 
-SUPPORTED_TYPES = {"dingtalk", "feishu", "webhook"}
+SUPPORTED_TYPES = {"dingtalk", "feishu", "webhook", "wecom"}
 _SKEW_MS = 3600 * 1000
 
 
@@ -166,6 +166,9 @@ def post_reply(channel: dict[str, Any], text: str) -> None:
         payload: dict[str, Any] = {"msgtype": "text", "text": {"content": snippet}}
     elif ctype == "feishu":
         payload = {"msg_type": "text", "content": {"text": snippet}}
+    elif ctype == "wecom":
+        # 企业微信群机器人：markdown 消息，secret 在 webhook key 里，无需签名
+        payload = {"msgtype": "markdown", "markdown": {"content": snippet}}
     else:
         payload = {"text": snippet, "channel_id": channel.get("id")}
     try:
@@ -177,6 +180,30 @@ def post_reply(channel: dict[str, Any], text: str) -> None:
             resp.read()
     except Exception:
         logger.warning("channel reply failed for %s", channel.get("id"), exc_info=True)
+
+
+def notify_channels(store: Store, title: str, body: str, url: str = "") -> int:
+    """Fan a notification out to every enabled channel (fire-and-forget).
+
+    Returns the number of channels delivered to. Used by the ChatHub notify
+    hook so turn completion / approvals also land in DingTalk / Feishu /
+    WeCom groups.
+    """
+    text = f"**{title}**\n{body}"
+    if url:
+        text += f"\n[打开 AFlow]({url})"
+    sent = 0
+    for channel in store.list_channels():
+        if not int(channel.get("enabled", 1)):
+            continue
+        if not (channel.get("reply_url") or "").strip():
+            continue
+        try:
+            post_reply(channel, text)
+            sent += 1
+        except Exception:
+            logger.warning("channel notify failed for %s", channel.get("id"), exc_info=True)
+    return sent
 
 
 def _run_inbound(channel: dict[str, Any], text: str, adapter: QwenAdapter) -> None:
@@ -247,6 +274,17 @@ def handle_post(
         return _inbound(handler, parts[2], body, raw, handler.headers, store, adapter)
     if len(parts) == 4 and parts[:2] == ["api", "channels"] and parts[3] == "delete":
         return _delete(handler, parts[2], store)
+    if len(parts) == 4 and parts[:2] == ["api", "channels"] and parts[3] == "test":
+        channel = store.get_channel(parts[2])
+        if not channel:
+            handler.error(__import__("http").HTTPStatus.NOT_FOUND, "channel not found")
+            return True
+        try:
+            post_reply(channel, "✅ AFlow 测试消息：渠道配置成功")
+            handler.json({"ok": True})
+        except Exception as exc:
+            handler.error(__import__("http").HTTPStatus.BAD_GATEWAY, str(exc))
+        return True
     return False
 
 

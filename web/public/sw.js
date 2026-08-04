@@ -126,10 +126,23 @@ self.addEventListener("fetch", (event) => {
   // launch (network-first left the webview transparent while the round trip
   // ran, flashing the Android launcher / iOS homescreen through). The copy
   // revalidates in the background; new deploys surface via the update toast
-  // or pull-to-refresh on the next foreground.
+  // on the next foreground.
+  // Exception: an explicit reload / pull-to-refresh (request cache mode
+  // no-cache or reload) bypasses the shell cache, so a forced refresh always
+  // pulls the live deploy instead of re-serving the cached placeholder shell.
   event.respondWith(
     (async () => {
       const cache = await caches.open(VERSION);
+      const forced = req.cache === "no-cache" || req.cache === "reload";
+      if (forced) {
+        try {
+          const res = await fetch(req, { cache: "no-store" });
+          if (res && res.status === 200) cache.put("/", res.clone());
+          return res;
+        } catch {
+          /* offline: fall through to the cached shell */
+        }
+      }
       const hit = await cache.match("/");
       const refresh = fetch(req, { cache: "no-store" })
         .then((res) => {
@@ -137,7 +150,7 @@ self.addEventListener("fetch", (event) => {
           return res;
         })
         .catch(() => undefined);
-      if (hit) {
+      if (hit && !forced) {
         event.waitUntil(refresh);
         return hit;
       }

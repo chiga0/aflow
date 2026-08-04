@@ -596,6 +596,118 @@ function Chatbox(p: ChatboxProps) {
   );
 }
 
+/* ── channels management (drawer panel) ───────────────── */
+
+const CHANNEL_LABELS: Record<string, string> = {
+  dingtalk: "钉钉",
+  feishu: "飞书",
+  wecom: "企业微信",
+  webhook: "Webhook",
+};
+
+function ChannelsPanel() {
+  const [channels, setChannels] = useState<
+    { id: string; type: string; name: string; reply_url: string; enabled: number }[]
+  >([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ type: "dingtalk", name: "", reply_url: "", secret: "" });
+
+  const load = useCallback(() => {
+    api<{ channels: typeof channels }>("GET", "/api/channels")
+      .then((d) => setChannels(d.channels))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async () => {
+    if (!form.reply_url.trim()) return;
+    try {
+      await api("POST", "/api/channels", form);
+      setAdding(false);
+      setForm({ type: "dingtalk", name: "", reply_url: "", secret: "" });
+      load();
+    } catch {
+      /* surface via list not updating */
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 pb-4">
+      <div className="mb-2 text-xs text-muted-foreground">
+        任务完成 / 审批 / 失败会同时推送到已启用的渠道
+      </div>
+      {channels.map((c) => (
+        <div key={c.id} className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm">{c.name || CHANNEL_LABELS[c.type] || c.type}</div>
+            <div className="text-[11px] text-muted-foreground">{CHANNEL_LABELS[c.type] || c.type}</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={async () => { await api("POST", `/api/channels/${c.id}/test`, {}); }}>
+            测试
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="删除渠道" onClick={async () => { await api("POST", `/api/channels/${c.id}/delete`, {}); load(); }}>
+            <Trash2 size={13} />
+          </Button>
+        </div>
+      ))}
+      {channels.length === 0 && !adding && (
+        <div className="py-6 text-center text-sm text-muted-foreground">暂无渠道</div>
+      )}
+      {adding ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
+          <div className="flex gap-1">
+            {Object.entries(CHANNEL_LABELS).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "flex-1 cursor-pointer rounded-lg py-1.5 text-xs",
+                  form.type === value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary/60",
+                )}
+                onClick={() => setForm((f) => ({ ...f, type: value }))}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+            placeholder="名称（如：部署群）"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+            placeholder="Webhook URL"
+            value={form.reply_url}
+            onChange={(e) => setForm((f) => ({ ...f, reply_url: e.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+            placeholder="签名 Secret（可选）"
+            value={form.secret}
+            onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <Button size="sm" className="flex-1" onClick={save} disabled={!form.reply_url.trim()}>
+              保存
+            </Button>
+            <Button size="sm" variant="ghost" className="flex-1" onClick={() => setAdding(false)}>
+              取消
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="w-full" onClick={() => setAdding(true)}>
+          ＋ 添加渠道
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /* ── theme (system / light / dark, persisted) ─────────── */
 
 type ThemePref = "system" | "light" | "dark";
@@ -658,6 +770,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [query, setQuery] = useState("");
+  const [drawerView, setDrawerView] = useState<"sessions" | "channels">("sessions");
   const [themePref, setThemePref] = useTheme();
   const [pullPx, setPullPx] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -1184,6 +1297,27 @@ export function ChatApp({ height }: { height: number | null }) {
                 </Button>
               </SheetClose>
             </SheetHeader>
+            <div className="flex gap-1 px-4 pb-2">
+              {([["sessions", "会话"], ["channels", "通知渠道"]] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={cn(
+                    "flex-1 cursor-pointer rounded-lg py-1.5 text-xs",
+                    drawerView === value
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-secondary/60",
+                  )}
+                  onClick={() => setDrawerView(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {drawerView === "channels" ? (
+              <ChannelsPanel />
+            ) : (
+              <>
             <div className="px-4 pb-2">
               <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/50 px-3 py-2">
                 <Search size={14} className="shrink-0 text-muted-foreground" />
@@ -1255,6 +1389,8 @@ export function ChatApp({ height }: { height: number | null }) {
                 </div>
               ))}
             </div>
+              </>
+            )}
             <div className="flex gap-1 border-t border-border p-3">
               {(
                 [

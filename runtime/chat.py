@@ -80,10 +80,11 @@ class _SessionState:
 class ChatHub:
     """Owns live chat sessions on top of an execution adapter."""
 
-    def __init__(self, adapter: Any, store: Store, push: Any = None) -> None:
+    def __init__(self, adapter: Any, store: Store, notify: Any = None) -> None:
         self.adapter = adapter
         self.store = store
-        self.push = push
+        # notify(title, body, tag=...) — composite of web push + IM channels
+        self.notify = notify
         self._states: dict[str, _SessionState] = {}
         self._lock = threading.Lock()
 
@@ -251,8 +252,8 @@ class ChatHub:
                     break
                 for etype, data in _map_qwen_event(payload):
                     self._broadcast(state, etype, data)
-                    if etype == "permission.request" and self.push:
-                        self.push.notify(
+                    if etype == "permission.request" and self.notify:
+                        self.notify(
                             "🛡️ AFlow · 需要审批",
                             str(data.get("message") or data.get("title") or "危险命令等待确认"),
                             tag="approval",
@@ -320,14 +321,14 @@ class ChatHub:
         self._broadcast(state, "turn.finished", {
             "status": result.status, "error": result.error,
         })
-        if self.push:
+        if self.notify:
             if result.status == "completed":
-                self.push.notify(
+                self.notify(
                     "✅ AFlow · 任务完成", result.text or "任务已完成",
                     tag=f"done-{state.chat_id}",
                 )
             else:
-                self.push.notify(
+                self.notify(
                     "⚠️ AFlow · 任务失败", result.error or "turn failed",
                     tag=f"done-{state.chat_id}",
                 )
