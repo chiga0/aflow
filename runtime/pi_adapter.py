@@ -117,7 +117,11 @@ class PiAdapter:
     def __init__(self) -> None:
         self.pi_bin = _env("PI_BIN", "pi")
         self.provider = _env("PI_ENGINE_PROVIDER", "bailian-token-plan")
-        self.model = _env("PI_ENGINE_MODEL", "qwen3.6-flash")
+        self.model = _env("PI_ENGINE_MODEL", "qwen3.8-max")
+        # Vision turns are routed to a fast multimodal model (measured:
+        # 3.8-max ~60-90s per image vs 3.6-flash ~5s); text stays on the
+        # stronger model. Manual model selection always wins.
+        self.vision_model = _env("PI_ENGINE_VISION_MODEL", "qwen3.6-flash")
         self.base_url = _env("PI_ENGINE_BASE_URL", DEFAULT_BASE_URL)
         self.api_key = os.environ.get("PI_ENGINE_API_KEY") or ""
         self.context_window = int(_env("PI_ENGINE_CONTEXT_WINDOW", "1000000"))
@@ -126,7 +130,7 @@ class PiAdapter:
         self.thinking = _env("PI_ENGINE_THINKING", "off")
         self.vision = _env("PI_ENGINE_VISION", "1") != "0"
         self.models = [
-            m.strip() for m in _env("PI_ENGINE_MODELS", "qwen3.6-flash,qwen3.8-max").split(",")
+            m.strip() for m in _env("PI_ENGINE_MODELS", "qwen3.8-max,qwen3.6-flash").split(",")
             if m.strip()
         ]
         self.idle_ttl = float(_env("PI_ENGINE_IDLE_TTL", "900"))
@@ -340,6 +344,21 @@ class PiAdapter:
     def alive(self, session_id: str) -> bool:
         session = self._sessions.get(session_id)
         return bool(session and session.proc.poll() is None)
+
+    def set_model(self, session_id: str, model: str) -> bool:
+        """Switch model mid-session (keeps conversation context)."""
+        session = self._sessions.get(session_id)
+        if not session or model not in self.models:
+            return False
+        try:
+            self._send(session, {
+                "type": "set_model", "provider": self.provider, "modelId": model,
+            })
+            session.model = model
+            return True
+        except Exception:
+            logger.debug("set_model failed for %s", session_id, exc_info=True)
+            return False
 
     def respond_ui(self, session_id: str, request_id: str, confirmed: bool) -> bool:
         """Answer an extension_ui_request (approval card) from the client."""

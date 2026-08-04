@@ -64,6 +64,7 @@ class _SessionState:
     chat_id: str
     pi_sid: str | None = None
     model: str = ""
+    current_model: str = ""
     gate_mode: str = "strict"
     running: bool = False
     seq: int = 0
@@ -144,6 +145,7 @@ class ChatHub:
             )
         except TypeError:
             state.pi_sid = create()
+        state.current_model = state.model or getattr(self.adapter, "model", "")
         return state.pi_sid
 
     def _close_pi(self, state: _SessionState) -> None:
@@ -218,6 +220,16 @@ class ChatHub:
         deadline = time.monotonic() + TURN_TIMEOUT
         try:
             pi_sid = self._ensure_pi(state)
+            # Auto model routing: images go to the fast vision model, text to
+            # the strong one — unless the user picked a model explicitly.
+            setm = getattr(self.adapter, "set_model", None)
+            if setm and not state.model:
+                want = (
+                    getattr(self.adapter, "vision_model", "") if images
+                    else getattr(self.adapter, "model", "")
+                )
+                if want and want != state.current_model and setm(pi_sid, want):
+                    state.current_model = want
             self.adapter.send_prompt(pi_sid, prompt, images=images or None)
             for _i, _n, payload in self.adapter.stream_events(pi_sid, timeout=60.0):
                 if time.monotonic() > deadline:
