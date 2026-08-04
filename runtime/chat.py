@@ -39,6 +39,31 @@ logger = logging.getLogger("runtime.chat")
 TURN_TIMEOUT = float(__import__("os").environ.get("AFLOW_CHAT_TURN_TIMEOUT", "1800"))
 REPLAY_BUFFER = 500
 HEARTBEAT_S = 15.0
+def _scan_artifacts(root: str, since: float, limit: int = 20) -> list[dict[str, Any]]:
+    """Files created/modified in the workspace during a turn."""
+    from pathlib import Path
+
+    base = Path(root)
+    if not base.is_dir():
+        return []
+    skip = {".git", "node_modules", "__pycache__", ".pi", ".venv"}
+    found: list[tuple[float, str, int]] = []
+    try:
+        for p in base.rglob("*"):
+            try:
+                if not p.is_file() or any(part in skip for part in p.parts):
+                    continue
+                st = p.stat()
+                if st.st_mtime >= since and st.st_size <= 20 * 1024 * 1024:
+                    found.append((st.st_mtime, str(p.relative_to(base)), st.st_size))
+            except OSError:
+                continue
+    except OSError:
+        return []
+    found.sort(key=lambda t: -t[0])
+    return [{"path": p, "size": sz} for _mt, p, sz in found[:limit]]
+
+
 MAX_IMAGES = 3
 MAX_IMAGE_B64 = 4 * 1024 * 1024  # ~3MB raw
 
@@ -231,6 +256,7 @@ class ChatHub:
         tools: list[dict[str, Any]] = []
         tools_by_id: dict[str, dict[str, Any]] = {}
         deadline = time.monotonic() + TURN_TIMEOUT
+        turn_epoch = time.time()
         try:
             pi_sid = self._ensure_pi(state)
             # Auto model routing: images go to the fast vision model, text to
@@ -294,10 +320,16 @@ class ChatHub:
                 result.status = "failed"
                 result.error = str(exc)
         finally:
+            artifacts: list[dict[str, Any]] = []
+            root = getattr(self.adapter, "default_cwd", "") or ""
+            if root and getattr(self.adapter, "engine", "") == "pi":
+                artifacts = _scan_artifacts(root, turn_epoch)
+                if artifacts:
+                    self._broadcast(state, "artifacts", {"files": artifacts})
             result.text = "".join(text_buf)
             if result.status == "running":
                 result.status = "completed"
-            self._finish_turn(state, prompt, result, tools)
+            self._finish_turn(state, prompt, result, tools, artifacts)
 
     def _finish_turn(
         self,
@@ -305,13 +337,16 @@ class ChatHub:
         prompt: str,
         result: TurnResult,
         tools: list[dict[str, Any]],
+        artifacts: list[dict[str, Any]] | None = None,
     ) -> None:
+        artifacts = artifacts or []
         now = utc_now()
         text = result.text or (result.error or "")
         self.store.add_chat_message(
             state.chat_id, "assistant", text, now,
             tools=json.dumps(tools, ensure_ascii=False, default=str),
             status=result.status,
+            artifacts=json.dumps(artifacts, ensure_ascii=False),
         )
         self.store.touch_chat_session(state.chat_id, now)
         session = self.store.get_chat_session(state.chat_id)

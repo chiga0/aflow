@@ -124,6 +124,11 @@ class Store:
                 "ALTER TABLE chat_messages ADD COLUMN images TEXT NOT NULL DEFAULT '[]'"
             )
             self._conn.commit()
+        if cols and "artifacts" not in cols:
+            self._conn.execute(
+                "ALTER TABLE chat_messages ADD COLUMN artifacts TEXT NOT NULL DEFAULT '[]'"
+            )
+            self._conn.commit()
 
     # ── Auth sessions ─────────────────────────────────────────
 
@@ -318,13 +323,14 @@ class Store:
         tools: str = "[]",
         images: str = "[]",
         status: str = "completed",
+        artifacts: str = "[]",
     ) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO chat_messages"
-                " (session_id, role, content, tools, images, status, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, role, content, tools, images, status, now),
+                " (session_id, role, content, tools, images, artifacts, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, role, content, tools, images, artifacts, status, now),
             )
             self._conn.commit()
 
@@ -344,6 +350,10 @@ class Store:
                 item["images"] = json.loads(item.get("images") or "[]")
             except Exception:
                 item["images"] = []
+            try:
+                item["artifacts"] = json.loads(item.get("artifacts") or "[]")
+            except Exception:
+                item["artifacts"] = []
             out.append(item)
         return out
 

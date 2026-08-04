@@ -76,8 +76,32 @@ interface Message {
   content: string;
   tools: ToolRecord[];
   images?: { mimeType?: string; bytes?: number; dataUrl?: string }[];
+  artifacts?: { path: string; size: number }[];
   status: string;
   created_at: string;
+}
+
+const fmtSize = (n: number) =>
+  n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : n > 1024 ? `${Math.round(n / 1024)}KB` : `${n}B`;
+
+function ArtifactChips({ files }: { files: { path: string; size: number }[] }) {
+  if (!files.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {files.map((f) => (
+        <button
+          key={f.path}
+          type="button"
+          className="flex cursor-pointer items-center gap-1 rounded-lg border border-border bg-secondary/50 px-2 py-1 text-[11px] text-foreground/85"
+          onClick={() => window.open(`/api/files/${encodeURIComponent(f.path)}`, "_blank")}
+        >
+          <FileText size={11} className="shrink-0 text-primary" />
+          <span className="max-w-40 truncate">{f.path}</span>
+          <span className="text-muted-foreground">{fmtSize(f.size)}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 interface SessionDetail extends SessionMeta {
@@ -255,12 +279,14 @@ function AssistantBubble({
   text,
   thinking,
   tools,
+  artifacts,
   status,
   streaming,
 }: {
   text: string;
   thinking?: string;
   tools: ToolRecord[];
+  artifacts?: { path: string; size: number }[];
   status?: string;
   streaming?: boolean;
 }) {
@@ -295,6 +321,7 @@ function AssistantBubble({
         {tools.map((t) => (
           <ToolCard key={t.id || t.name} tool={t} />
         ))}
+        {artifacts && artifacts.length > 0 && <ArtifactChips files={artifacts} />}
         {shown && <RichText text={shown} />}
         {long && (
           <button
@@ -596,6 +623,68 @@ function Chatbox(p: ChatboxProps) {
   );
 }
 
+/* ── workspace browser (drawer panel) ─────────────────── */
+
+function FilesPanel() {
+  const [dir, setDir] = useState("");
+  const [entries, setEntries] = useState<{ name: string; type: string; size: number }[]>([]);
+  const load = useCallback((d: string) => {
+    setDir(d);
+    api<{ entries: typeof entries }>("GET", `/api/files?dir=${encodeURIComponent(d)}`)
+      .then((r) => setEntries(r.entries))
+      .catch(() => setEntries([]));
+  }, []);
+  useEffect(() => {
+    load("");
+  }, [load]);
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 pb-4">
+      <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+        <button type="button" className="cursor-pointer text-primary" onClick={() => load("")}>
+          workspace
+        </button>
+        {dir.split("/").filter(Boolean).map((part, i, arr) => (
+          <span key={i} className="flex items-center gap-1">
+            /
+            <button
+              type="button"
+              className="cursor-pointer text-primary"
+              onClick={() => load(arr.slice(0, i + 1).join("/"))}
+            >
+              {part}
+            </button>
+          </span>
+        ))}
+      </div>
+      {entries.map((e) => (
+        <button
+          key={e.name}
+          type="button"
+          className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm"
+          onClick={() =>
+            e.type === "dir"
+              ? load(dir ? `${dir}/${e.name}` : e.name)
+              : window.open(
+                  `/api/files/${encodeURIComponent(dir ? `${dir}/${e.name}` : e.name)}`,
+                  "_blank",
+                )
+          }
+        >
+          {e.type === "dir" ? "📁" : "📄"}
+          <span className="min-w-0 flex-1 truncate">{e.name}</span>
+          {e.type === "file" && (
+            <span className="text-[11px] text-muted-foreground">{fmtSize(e.size)}</span>
+          )}
+        </button>
+      ))}
+      {entries.length === 0 && (
+        <div className="py-6 text-center text-sm text-muted-foreground">空目录</div>
+      )}
+    </div>
+  );
+}
+
 /* ── channels management (drawer panel) ───────────────── */
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -750,6 +839,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
+  const [liveArtifacts, setLiveArtifacts] = useState<{ path: string; size: number }[]>([]);
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
   const liveTextRef = useRef("");
   const liveThinkingRef = useRef("");
@@ -770,7 +860,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [query, setQuery] = useState("");
-  const [drawerView, setDrawerView] = useState<"sessions" | "channels">("sessions");
+  const [drawerView, setDrawerView] = useState<"sessions" | "channels" | "files">("sessions");
   const [themePref, setThemePref] = useTheme();
   const [pullPx, setPullPx] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -914,6 +1004,9 @@ export function ChatApp({ height }: { height: number | null }) {
             );
             setLiveTools(liveToolsRef.current);
             break;
+          case "artifacts":
+            setLiveArtifacts((data.files as { path: string; size: number }[]) || []);
+            break;
           case "error":
             setError(String(data.reason || "执行出错"));
             break;
@@ -965,6 +1058,7 @@ export function ChatApp({ height }: { height: number | null }) {
             setLiveText("");
             setLiveThinking("");
             setLiveTools([]);
+            setLiveArtifacts([]);
             refreshSessions();
             if (typeof document !== "undefined" && document.hidden) {
               try {
@@ -1298,7 +1392,7 @@ export function ChatApp({ height }: { height: number | null }) {
               </SheetClose>
             </SheetHeader>
             <div className="flex gap-1 px-4 pb-2">
-              {([["sessions", "会话"], ["channels", "通知渠道"]] as const).map(([value, label]) => (
+              {([["sessions", "会话"], ["channels", "通知渠道"], ["files", "文件"]] as const).map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -1316,6 +1410,8 @@ export function ChatApp({ height }: { height: number | null }) {
             </div>
             {drawerView === "channels" ? (
               <ChannelsPanel />
+            ) : drawerView === "files" ? (
+              <FilesPanel />
             ) : (
               <>
             <div className="px-4 pb-2">
@@ -1497,7 +1593,13 @@ export function ChatApp({ height }: { height: number | null }) {
           m.role === "user" ? (
             <UserBubble key={m.id} text={m.content} images={m.images} />
           ) : (
-            <AssistantBubble key={m.id} text={m.content} tools={m.tools || []} status={m.status} />
+            <AssistantBubble
+              key={m.id}
+              text={m.content}
+              tools={m.tools || []}
+              artifacts={m.artifacts || []}
+              status={m.status}
+            />
           ),
         )}
         {running && (
@@ -1505,6 +1607,7 @@ export function ChatApp({ height }: { height: number | null }) {
             text={liveText}
             thinking={liveThinking}
             tools={liveTools}
+            artifacts={liveArtifacts}
             streaming
           />
         )}

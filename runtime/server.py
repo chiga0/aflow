@@ -159,6 +159,8 @@ def make_handler(
                 if not path.startswith("/api/"):
                     return self.serve_spa()
                 # Unknown /api/* — mission & channel routes are mounted below.
+                if path == "/api/files" or path.startswith("/api/files/"):
+                    return self.handle_files(path)
                 from . import routes_extra  # noqa: F401  (optional extension point)
                 if routes_extra.handle_get(self, path, store, adapter, auth_config):
                     return
@@ -280,6 +282,52 @@ def make_handler(
                     "token": auth_config.token_enabled,
                 },
             })
+
+        def handle_files(self, path: str) -> None:
+            """Workspace browser: ?dir=<rel> lists, /api/files/<rel> downloads."""
+            from urllib.parse import parse_qs, unquote
+
+            root = getattr(adapter, "default_cwd", "") or os.environ.get(
+                "AFLOW_WORKSPACE", ""
+            )
+            if not root:
+                return self.error(HTTPStatus.NOT_FOUND, "no workspace configured")
+            base = os.path.realpath(root)
+            qs = parse_qs(urlparse(self.path).query)
+            rel = qs.get("dir", [""])[0] if path == "/api/files" else unquote(
+                path[len("/api/files/"):]
+            )
+            target = os.path.realpath(os.path.join(base, rel))
+            if not (target == base or target.startswith(base + os.sep)):
+                return self.error(HTTPStatus.FORBIDDEN, "outside workspace")
+            if os.path.isdir(target):
+                entries = []
+                for name in sorted(os.listdir(target)):
+                    if name.startswith(".") or name == "node_modules":
+                        continue
+                    fp = os.path.join(target, name)
+                    entries.append({
+                        "name": name,
+                        "type": "dir" if os.path.isdir(fp) else "file",
+                        "size": 0 if os.path.isdir(fp) else os.path.getsize(fp),
+                    })
+                return self.json({"dir": rel, "entries": entries})
+            if not os.path.isfile(target):
+                return self.error(HTTPStatus.NOT_FOUND, "not found")
+            import mimetypes
+
+            with open(target, "rb") as f:
+                body = f.read()
+            self.send_response(HTTPStatus.OK)
+            self.send_header(
+                "Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream"
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header(
+                "Content-Disposition", f'inline; filename="{os.path.basename(target)}"'
+            )
+            self.end_headers()
+            self.wfile.write(body)
 
         def handle_metrics(self) -> None:
             body = METRICS.render().encode("utf-8")
