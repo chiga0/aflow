@@ -26,6 +26,7 @@ Configuration (environment):
     PI_ENGINE_CONTEXT_WINDOW   default 1000000
     PI_ENGINE_MAX_TOKENS       default 32768
     PI_ENGINE_REASONING        "1"/"0" (default: 1)
+    PI_ENGINE_VISION           "1"/"0" declare image input modality (default: 1)
     PI_ENGINE_IDLE_TTL         seconds before an idle process is reaped (default 900)
     PI_ENGINE_CWD              default working directory for sessions (e.g. /workspace)
 """
@@ -118,6 +119,7 @@ class PiAdapter:
         self.context_window = int(_env("PI_ENGINE_CONTEXT_WINDOW", "1000000"))
         self.max_tokens = int(_env("PI_ENGINE_MAX_TOKENS", "32768"))
         self.reasoning = _env("PI_ENGINE_REASONING", "1") != "0"
+        self.vision = _env("PI_ENGINE_VISION", "1") != "0"
         self.idle_ttl = float(_env("PI_ENGINE_IDLE_TTL", "900"))
         self.default_cwd = os.environ.get("PI_ENGINE_CWD") or ""
         self._sessions: dict[str, _PiSession] = {}
@@ -338,6 +340,7 @@ class PiAdapter:
                             "id": self.model,
                             "name": self.model,
                             "reasoning": self.reasoning,
+                            "input": ["text", "image"] if self.vision else ["text"],
                             "contextWindow": self.context_window,
                             "maxTokens": self.max_tokens,
                         }
