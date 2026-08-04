@@ -13,11 +13,12 @@ const SHELL = [
   "/",
   "/index.html",
   "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/icon-maskable-512.png",
-  "/apple-touch-icon.png",
-  "/favicon.ico",
+  // versioned: busts browser HTTP cache so reinstalls pick fresh bytes
+  "/icon-192.png?v=3",
+  "/icon-512.png?v=3",
+  "/icon-maskable-512.png?v=3",
+  "/apple-touch-icon.png?v=3",
+  "/favicon.ico?v=3",
 ];
 
 self.addEventListener("install", (event) => {
