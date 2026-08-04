@@ -1,4 +1,12 @@
-# aflow
+<p align="center">
+  <img src="web/public/logo-128.png" alt="AFlow" width="96" />
+</p>
+
+<h1 align="center">aflow</h1>
+
+<p align="center">自托管的轻量 Agent 运行时 —— 描述目标，Agent 规划、执行、交付。</p>
+
+---
 
 aflow 是一个**自托管的轻量 Agent 运行时**：在浏览器或手机上描述目标，
 云端的执行 Agent（默认 [pi](https://pi.dev)）规划、执行、交付，全程实时可见。
