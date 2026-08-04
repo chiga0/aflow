@@ -52,6 +52,15 @@ make screenshots     # 确定性 UI 状态矩阵截图（fake pi）
 python3 -m unittest discover -s runtime/tests
 ```
 
+## GitHub 仓库配置（secrets / variables）
+
+| 名称 | 类型 | 用途 |
+|---|---|---|
+| `AFLOW_AUTH_PASSWORD` | secret | Web 登录密码 |
+| `AFLOW_DEPLOY_SSH_KEY` | secret | VPS 部署私钥 |
+| `AFLOW_AUTH_EMAIL` | variable | Web 登录邮箱 |
+| `AFLOW_DEPLOY_TARGET` | variable | VPS 部署目标（user@host） |
+
 ## 目录
 
 ```

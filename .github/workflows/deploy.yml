@@ -1,0 +1,60 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: execution engine
+        default: pi
+        type: choice
+        options: [pi, qwen]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build web bundle
+        working-directory: web
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: compose .env from GitHub secrets
+        run: |
+          {
+            echo "AFLOW_AUTH_EMAIL=${AFLOW_AUTH_EMAIL}"
+            echo "AFLOW_AUTH_PASSWORD=${AFLOW_AUTH_PASSWORD}"
+          } > deploy/.env
+          chmod 600 deploy/.env
+        env:
+          AFLOW_AUTH_EMAIL: ${{ vars.AFLOW_AUTH_EMAIL }}
+          AFLOW_AUTH_PASSWORD: ${{ secrets.AFLOW_AUTH_PASSWORD }}
+
+      - name: install ssh key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${AFLOW_DEPLOY_SSH_KEY}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          {
+            echo "Host *"
+            echo "  IdentityFile ~/.ssh/id_deploy"
+            echo "  StrictHostKeyChecking accept-new"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+        env:
+          AFLOW_DEPLOY_SSH_KEY: ${{ secrets.AFLOW_DEPLOY_SSH_KEY }}
+
+      - name: deploy (bare-metal)
+        run: |
+          AFLOW_ENGINE="${ENGINE}" \
+          PI_ENGINE_API_KEY="${AFLOW_PI_API_KEY}" \
+          QWEN_SETTINGS_FILE=/dev/null \
+          bash deploy/deploy_baremetal.sh "${AFLOW_DEPLOY_TARGET}"
+        env:
+          ENGINE: ${{ inputs.engine }}
+          AFLOW_DEPLOY_TARGET: ${{ vars.AFLOW_DEPLOY_TARGET }}
+          AFLOW_PI_API_KEY: ${{ secrets.AFLOW_PI_API_KEY }}
