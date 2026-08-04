@@ -9,6 +9,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Cpu,
   FileText,
   Image as ImageIcon,
   Menu,
@@ -123,9 +124,9 @@ function RichText({ text }: { text: string }) {
           const lang = nl >= 0 ? part.slice(0, nl).trim() : part.trim();
           const code = nl >= 0 ? part.slice(nl + 1) : "";
           return (
-            <div key={i} className="overflow-hidden rounded-lg border border-border bg-black/40 text-xs">
+            <div key={i} className="overflow-hidden rounded-lg border border-[rgba(255,255,255,0.09)] bg-black/40 text-xs">
               {lang && (
-                <div className="border-b border-border px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="border-b border-[rgba(255,255,255,0.09)] px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                   {lang}
                 </div>
               )}
@@ -135,9 +136,10 @@ function RichText({ text }: { text: string }) {
             </div>
           );
         }
-        return part.trim() ? (
+        const clean = part.replace(/^\n+|\n+$/g, "");
+        return clean ? (
           <p key={i} className="m-0 whitespace-pre-wrap">
-            {part}
+            {clean}
           </p>
         ) : null;
       })}
@@ -163,7 +165,7 @@ function ToolCard({ tool }: { tool: ToolRecord }) {
       data-testid="tool-card"
       className={cn(
         "overflow-hidden rounded-lg border",
-        tool.is_error ? "border-destructive/50" : "border-border",
+        tool.is_error ? "border-destructive/50" : "border-[rgba(255,255,255,0.09)]",
       )}
     >
       <button
@@ -212,7 +214,7 @@ function UserBubble({ text, images }: { text: string; images?: Message["images"]
                   key={i}
                   src={im.dataUrl}
                   alt="attached"
-                  className="max-h-28 max-w-40 rounded-lg border border-white/25"
+                  className="max-h-28 max-w-40 rounded-lg border border-[rgba(255,255,255,0.25)]"
                 />
               ) : (
                 <span key={i} className="rounded-md bg-white/15 px-2 py-0.5 text-xs">
@@ -252,7 +254,7 @@ function AssistantBubble({
     <div className="flex">
       <div
         data-testid="assistant-bubble"
-        className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-border bg-secondary/30 px-3.5 py-2.5 text-[15px] leading-relaxed"
+        className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.04)] px-3.5 py-2.5 text-[15px] leading-relaxed"
       >
         {tools.map((t) => (
           <ToolCard key={t.id || t.name} tool={t} />
@@ -362,12 +364,12 @@ function Chatbox(p: ChatboxProps) {
     );
 
   return (
-    <div className="shrink-0 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <div className="shrink-0 border-t border-[rgba(255,255,255,0.09)] bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       {(p.images.length > 0 || p.files.length > 0) && (
         <div className="flex gap-2 px-3 pt-2.5">
           {p.images.map((im, i) => (
             <div key={`i${i}`} className="relative">
-              <img src={im.dataUrl} alt="" className="h-13 w-13 rounded-lg border border-border object-cover" />
+              <img src={im.dataUrl} alt="" className="h-13 w-13 rounded-lg border border-[rgba(255,255,255,0.09)] object-cover" />
               <button
                 type="button"
                 aria-label="移除图片"
@@ -398,7 +400,7 @@ function Chatbox(p: ChatboxProps) {
         </div>
       )}
 
-      <div className="mx-3 my-2.5 rounded-2xl border border-border bg-secondary/25 focus-within:border-primary">
+      <div className="mx-3 my-2.5 rounded-2xl border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.05)] shadow-xl shadow-black/30 focus-within:border-[rgba(99,102,241,0.7)]">
         <Textarea
           ref={ref}
           data-testid="composer-input"
@@ -460,13 +462,14 @@ function Chatbox(p: ChatboxProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 aria-label="切换模型"
-                className="h-7 max-w-28 gap-1 rounded-lg bg-primary/15 px-2 text-[11px] text-primary hover:bg-primary/25"
+                className="h-8 max-w-32 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
-                <span className="truncate">{p.model}</span>
-                <ChevronDown size={11} />
+                <Cpu size={14} className="min-[420px]:hidden" />
+                <span className="hidden truncate min-[420px]:inline">{p.model}</span>
+                <ChevronDown size={12} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="end">
@@ -486,20 +489,22 @@ function Chatbox(p: ChatboxProps) {
 
           {/* approval mode */}
           <Button
-            variant="secondary"
+            variant="ghost"
             size="sm"
             aria-label="审批模式"
             title={p.gateMode === "strict" ? "危险命令需审批" : "自动执行（免审批）"}
             className={cn(
-              "h-7 gap-1 rounded-lg px-2 text-[11px]",
+              "h-8 gap-1 px-1.5 text-xs",
               p.gateMode === "strict"
-                ? "bg-primary/15 text-primary hover:bg-primary/25"
-                : "bg-warning/15 text-warning hover:bg-warning/25",
+                ? "text-muted-foreground hover:text-foreground"
+                : "text-warning hover:brightness-110",
             )}
             onClick={() => p.onGateMode(p.gateMode === "strict" ? "auto" : "strict")}
           >
-            {p.gateMode === "strict" ? <ShieldCheck size={12} /> : <Zap size={12} />}
-            {p.gateMode === "strict" ? "审批" : "自动"}
+            {p.gateMode === "strict" ? <ShieldCheck size={14} /> : <Zap size={14} />}
+            <span className="hidden min-[420px]:inline">
+              {p.gateMode === "strict" ? "审批" : "自动"}
+            </span>
           </Button>
 
           {p.running ? (
@@ -518,7 +523,7 @@ function Chatbox(p: ChatboxProps) {
               data-testid="composer-send"
               size="icon"
               aria-label="发送"
-              className="rounded-full bg-gradient-to-br from-primary to-accent"
+              className="rounded-full bg-foreground text-background hover:opacity-90"
               disabled={!canSend}
               onClick={submit}
             >
@@ -955,7 +960,7 @@ export function ChatApp({ height }: { height: number | null }) {
       style={{ height: height ? `${height}px` : "100dvh" }}
     >
       {/* header */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-border bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
+      <header className="flex shrink-0 items-center gap-2 border-b border-[rgba(255,255,255,0.09)] bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" data-testid="drawer-open" aria-label="会话列表">
@@ -1062,7 +1067,7 @@ export function ChatApp({ height }: { height: number | null }) {
                 <button
                   key={s}
                   type="button"
-                  className="cursor-pointer rounded-xl border border-border bg-secondary/30 px-3 py-2.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground active:bg-primary/15"
+                  className="cursor-pointer rounded-xl border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.04)] px-3 py-2.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground active:bg-primary/15"
                   onClick={() => send(s)}
                 >
                   {s}

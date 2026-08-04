@@ -273,6 +273,15 @@ export function App() {
   const viewportHeight = useViewportHeight();
   const engine = useEngine(auth);
 
+  // WebShell (qwen engine) ships its own global stylesheet; load it only when
+  // needed — being unlayered, it overrides the tailwind utilities of the pi
+  // ChatApp (e.g. forces light-gray button borders).
+  useEffect(() => {
+    if (engine === "qwen") {
+      import("@qwen-code/webui/styles.css").catch(() => undefined);
+    }
+  }, [engine]);
+
   return (
     <>
       <style>{aflowStyles}</style>

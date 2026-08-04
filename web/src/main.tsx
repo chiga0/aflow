@@ -1,4 +1,3 @@
-import "@qwen-code/webui/styles.css";
 import "./index.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
