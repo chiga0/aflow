@@ -6,32 +6,13 @@ import { ChatApp } from "./chat-ui";
 
 function BrandMark({ size = 48 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden>
-      <rect width="48" height="48" rx="12" fill="url(#aflow-grad)" />
-      <path
-        d="M16 34 L24 14 L32 34"
-        stroke="#fff"
-        strokeOpacity="0.96"
-        strokeWidth="4.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path
-        d="M18.8 27 L29.2 27"
-        stroke="#fff"
-        strokeOpacity="0.96"
-        strokeWidth="4.5"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <defs>
-        <linearGradient id="aflow-grad" x1="0" y1="0" x2="48" y2="48">
-          <stop stopColor="#6366f1" />
-          <stop offset="1" stopColor="#06b6d4" />
-        </linearGradient>
-      </defs>
-    </svg>
+    <img
+      src="/logo-128.png"
+      width={size}
+      height={size}
+      alt="AFlow"
+      style={{ borderRadius: size / 4, filter: "drop-shadow(0 4px 24px rgba(99,102,241,0.3))" }}
+    />
   );
 }
 

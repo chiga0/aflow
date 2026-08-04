@@ -238,16 +238,19 @@ function collapsePreview(text: string): string {
 
 function AssistantBubble({
   text,
+  thinking,
   tools,
   status,
   streaming,
 }: {
   text: string;
+  thinking?: string;
   tools: ToolRecord[];
   status?: string;
   streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [thinkOpen, setThinkOpen] = useState(false);
   const long = text.length > 500 || text.split("\n").length > 12;
   const shown = long && !expanded ? collapsePreview(text) : text;
   return (
@@ -256,6 +259,24 @@ function AssistantBubble({
         data-testid="assistant-bubble"
         className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.04)] px-3.5 py-2.5 text-[15px] leading-relaxed"
       >
+        {streaming && thinking && (
+          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] px-2.5 py-1.5">
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+              onClick={() => setThinkOpen(!thinkOpen)}
+            >
+              <span className="[animation:aflow-pulse_1.2s_ease-in-out_infinite]">💭</span>
+              思考中…
+              {thinkOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            </button>
+            {thinkOpen && (
+              <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">
+                {thinking.slice(-2000)}
+              </div>
+            )}
+          </div>
+        )}
         {tools.map((t) => (
           <ToolCard key={t.id || t.name} tool={t} />
         ))}
@@ -269,7 +290,7 @@ function AssistantBubble({
             {expanded ? "收起" : "展开全文"}
           </button>
         )}
-        {streaming && !text && tools.every((t) => !t.running) && (
+        {streaming && !text && !thinking && tools.every((t) => !t.running) && (
           <div data-testid="thinking" className="flex gap-1 py-1">
             <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite]" />
             <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite_0.2s]" />
@@ -566,8 +587,10 @@ export function ChatApp({ height }: { height: number | null }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [liveText, setLiveText] = useState("");
+  const [liveThinking, setLiveThinking] = useState("");
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
   const liveTextRef = useRef("");
+  const liveThinkingRef = useRef("");
   const liveToolsRef = useRef<ToolRecord[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -598,8 +621,10 @@ export function ChatApp({ height }: { height: number | null }) {
     setDrawerOpen(false);
     setError(null);
     setLiveText("");
+    setLiveThinking("");
     setLiveTools([]);
     liveTextRef.current = "";
+    liveThinkingRef.current = "";
     liveToolsRef.current = [];
     setLiveRunning(false);
     setApprovals([]);
@@ -639,7 +664,10 @@ export function ChatApp({ height }: { height: number | null }) {
         const data = ev.data || {};
         switch (ev.type) {
           case "message.delta":
-            if (!data.thought) {
+            if (data.thought) {
+              liveThinkingRef.current += String(data.text || "");
+              setLiveThinking(liveThinkingRef.current);
+            } else {
               liveTextRef.current += String(data.text || "");
               setLiveText(liveTextRef.current);
             }
@@ -725,8 +753,10 @@ export function ChatApp({ height }: { height: number | null }) {
                 : d,
             );
             liveTextRef.current = "";
+            liveThinkingRef.current = "";
             liveToolsRef.current = [];
             setLiveText("");
+            setLiveThinking("");
             setLiveTools([]);
             refreshSessions();
             if (typeof document !== "undefined" && document.hidden) {
@@ -1079,6 +1109,7 @@ export function ChatApp({ height }: { height: number | null }) {
       >
         {!activeId && (
           <div className="m-auto flex max-w-75 flex-col items-center px-6 text-center">
+            <img src="/logo.png" alt="AFlow" className="mb-3 h-16 w-16" />
             <div className="mb-2 bg-gradient-to-br from-indigo-200 via-cyan-200 to-indigo-200 bg-[length:200%_200%] bg-clip-text text-3xl font-extrabold text-transparent [animation:aflow-shimmer_6s_ease-in-out_infinite]">
               AFlow
             </div>
@@ -1106,8 +1137,13 @@ export function ChatApp({ height }: { height: number | null }) {
             <AssistantBubble key={m.id} text={m.content} tools={m.tools || []} status={m.status} />
           ),
         )}
-        {running && (liveText || liveTools.length > 0 || !detail?.running) && (
-          <AssistantBubble text={liveText} tools={liveTools} streaming />
+        {running && (
+          <AssistantBubble
+            text={liveText}
+            thinking={liveThinking}
+            tools={liveTools}
+            streaming
+          />
         )}
         {error && (
           <div

@@ -26,6 +26,7 @@ Configuration (environment):
     PI_ENGINE_CONTEXT_WINDOW   default 1000000
     PI_ENGINE_MAX_TOKENS       default 32768
     PI_ENGINE_REASONING        "1"/"0" (default: 1)
+    PI_ENGINE_THINKING         default thinking level: off/low/medium/high (default: off)
     PI_ENGINE_VISION           "1"/"0" declare image input modality (default: 1)
     PI_ENGINE_IDLE_TTL         seconds before an idle process is reaped (default 900)
     PI_ENGINE_CWD              default working directory for sessions (e.g. /workspace)
@@ -116,15 +117,16 @@ class PiAdapter:
     def __init__(self) -> None:
         self.pi_bin = _env("PI_BIN", "pi")
         self.provider = _env("PI_ENGINE_PROVIDER", "bailian-token-plan")
-        self.model = _env("PI_ENGINE_MODEL", "qwen3.8-max")
+        self.model = _env("PI_ENGINE_MODEL", "qwen3.6-flash")
         self.base_url = _env("PI_ENGINE_BASE_URL", DEFAULT_BASE_URL)
         self.api_key = os.environ.get("PI_ENGINE_API_KEY") or ""
         self.context_window = int(_env("PI_ENGINE_CONTEXT_WINDOW", "1000000"))
         self.max_tokens = int(_env("PI_ENGINE_MAX_TOKENS", "32768"))
         self.reasoning = _env("PI_ENGINE_REASONING", "1") != "0"
+        self.thinking = _env("PI_ENGINE_THINKING", "off")
         self.vision = _env("PI_ENGINE_VISION", "1") != "0"
         self.models = [
-            m.strip() for m in _env("PI_ENGINE_MODELS", "qwen3.8-max,qwen3.6-flash").split(",")
+            m.strip() for m in _env("PI_ENGINE_MODELS", "qwen3.6-flash,qwen3.8-max").split(",")
             if m.strip()
         ]
         self.idle_ttl = float(_env("PI_ENGINE_IDLE_TTL", "900"))
@@ -143,6 +145,7 @@ class PiAdapter:
         os.chmod(cfg_dir, 0o700)
         self._write_models_json(cfg_dir)
         self._write_gate_extension(cfg_dir)
+        self._write_settings(cfg_dir)
 
         chosen = model if model in self.models else self.model
         cmd = [
@@ -353,6 +356,12 @@ class PiAdapter:
         except Exception:
             logger.debug("respond_ui failed for %s", session_id, exc_info=True)
             return False
+
+    def _write_settings(self, cfg_dir: str) -> None:
+        """pi settings for spawned sessions: mobile-first = lean thinking."""
+        path = os.path.join(cfg_dir, "settings.json")
+        with open(path, "w") as f:
+            json.dump({"defaultThinkingLevel": self.thinking}, f)
 
     def _write_gate_extension(self, cfg_dir: str) -> None:
         ext_dir = os.path.join(cfg_dir, "extensions")
