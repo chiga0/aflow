@@ -57,8 +57,9 @@ python3 -m unittest discover -s runtime/tests
 | 名称 | 类型 | 用途 |
 |---|---|---|
 | `AFLOW_AUTH_PASSWORD` | secret | Web 登录密码 |
+| `AFLOW_AUTH_EMAIL` | secret | Web 登录邮箱 |
 | `AFLOW_DEPLOY_SSH_KEY` | secret | VPS 部署私钥 |
-| `AFLOW_AUTH_EMAIL` | variable | Web 登录邮箱 |
+| `AFLOW_PI_API_KEY` | secret | 模型 key |
 | `AFLOW_DEPLOY_TARGET` | variable | VPS 部署目标（user@host） |
 
 ## 目录

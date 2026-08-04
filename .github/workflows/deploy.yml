@@ -31,7 +31,7 @@ jobs:
           } > deploy/.env
           chmod 600 deploy/.env
         env:
-          AFLOW_AUTH_EMAIL: ${{ vars.AFLOW_AUTH_EMAIL }}
+          AFLOW_AUTH_EMAIL: ${{ secrets.AFLOW_AUTH_EMAIL || vars.AFLOW_AUTH_EMAIL }}
           AFLOW_AUTH_PASSWORD: ${{ secrets.AFLOW_AUTH_PASSWORD }}
 
       - name: install ssh key
