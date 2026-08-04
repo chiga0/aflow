@@ -62,7 +62,7 @@ const browser = await chromium.launch({ headless: true, executablePath: findChro
 const pageErrors = [];
 
 async function runDevice(name, options) {
-  const context = await browser.newContext(options);
+  const context = await browser.newContext({ ...options, colorScheme: "dark" });
   const page = await context.newPage();
   page.on("pageerror", (e) => pageErrors.push(`${name}: ${String(e.message).slice(0, 160)}`));
 

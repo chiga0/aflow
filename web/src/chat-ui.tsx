@@ -16,11 +16,15 @@ import {
   Loader2,
   Menu,
   Mic,
+  Monitor,
+  Moon,
   Paperclip,
   Send,
   ShieldCheck,
   Sparkles,
   Square,
+  Search,
+  Sun,
   Trash2,
   X,
   Zap,
@@ -135,9 +139,9 @@ function RichText({ text }: { text: string }) {
           const lang = nl >= 0 ? part.slice(0, nl).trim() : part.trim();
           const code = nl >= 0 ? part.slice(nl + 1) : "";
           return (
-            <div key={i} className="overflow-hidden rounded-lg border border-[rgba(255,255,255,0.09)] bg-black/40 text-xs">
+            <div key={i} className="overflow-hidden rounded-lg border border-border bg-muted text-xs">
               {lang && (
-                <div className="border-b border-[rgba(255,255,255,0.09)] px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="border-b border-border px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                   {lang}
                 </div>
               )}
@@ -176,7 +180,7 @@ function ToolCard({ tool }: { tool: ToolRecord }) {
       data-testid="tool-card"
       className={cn(
         "overflow-hidden rounded-lg border",
-        tool.is_error ? "border-destructive/50" : "border-[rgba(255,255,255,0.09)]",
+        tool.is_error ? "border-destructive/50" : "border-border",
       )}
     >
       <button
@@ -203,7 +207,7 @@ function ToolCard({ tool }: { tool: ToolRecord }) {
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
       {open && tool.output != null && (
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap bg-black/40 p-2.5 font-mono text-[11px] text-muted-foreground">
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap bg-muted p-2.5 font-mono text-[11px] text-muted-foreground">
           {tool.output.slice(0, 4000)}
         </pre>
       )}
@@ -268,10 +272,10 @@ function AssistantBubble({
     <div className="flex">
       <div
         data-testid="assistant-bubble"
-        className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.04)] px-3.5 py-2.5 text-[15px] leading-relaxed"
+        className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-border bg-card px-3.5 py-2.5 text-[15px] leading-relaxed"
       >
         {streaming && thinking && (
-          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] px-2.5 py-1.5">
+          <div className="rounded-lg bg-muted/50 px-2.5 py-1.5">
             <button
               type="button"
               className="flex w-full cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
@@ -396,12 +400,12 @@ function Chatbox(p: ChatboxProps) {
     );
 
   return (
-    <div className="shrink-0 border-t border-[rgba(255,255,255,0.09)] bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <div className="shrink-0 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       {(p.images.length > 0 || p.files.length > 0) && (
         <div className="flex gap-2 px-3 pt-2.5">
           {p.images.map((im, i) => (
             <div key={`i${i}`} className="relative">
-              <img src={im.dataUrl} alt="" className="h-13 w-13 rounded-lg border border-[rgba(255,255,255,0.09)] object-cover" />
+              <img src={im.dataUrl} alt="" className="h-13 w-13 rounded-lg border border-border object-cover" />
               <button
                 type="button"
                 aria-label="移除图片"
@@ -432,7 +436,7 @@ function Chatbox(p: ChatboxProps) {
         </div>
       )}
 
-      <div className="mx-3 my-2.5 rounded-2xl border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.05)] shadow-xl shadow-black/30 focus-within:border-[rgba(99,102,241,0.7)]">
+      <div className="mx-3 my-2.5 rounded-2xl border border-border bg-card shadow-xl shadow-black/30 focus-within:border-ring">
         <Textarea
           ref={ref}
           data-testid="composer-input"
@@ -592,6 +596,39 @@ function Chatbox(p: ChatboxProps) {
   );
 }
 
+/* ── theme (system / light / dark, persisted) ─────────── */
+
+type ThemePref = "system" | "light" | "dark";
+
+function useTheme(): [ThemePref, (t: ThemePref) => void] {
+  const [pref, setPref] = useState<ThemePref>(() => {
+    try {
+      return (localStorage.getItem("aflow-theme") as ThemePref) || "system";
+    } catch {
+      return "system";
+    }
+  });
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const apply = () => {
+      const light = pref === "light" || (pref === "system" && mq.matches);
+      document.documentElement.dataset.theme = light ? "light" : "dark";
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [pref]);
+  const set = useCallback((t: ThemePref) => {
+    setPref(t);
+    try {
+      localStorage.setItem("aflow-theme", t);
+    } catch {
+      /* private mode */
+    }
+  }, []);
+  return [pref, set];
+}
+
 /* ── main component ────────────────────────────────────── */
 
 export function ChatApp({ height }: { height: number | null }) {
@@ -620,6 +657,8 @@ export function ChatApp({ height }: { height: number | null }) {
   const stickToBottom = useRef(true);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [query, setQuery] = useState("");
+  const [themePref, setThemePref] = useTheme();
   const [pullPx, setPullPx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1129,7 +1168,7 @@ export function ChatApp({ height }: { height: number | null }) {
       )}
 
       {/* header */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-[rgba(255,255,255,0.09)] bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" data-testid="drawer-open" aria-label="会话列表">
@@ -1145,11 +1184,28 @@ export function ChatApp({ height }: { height: number | null }) {
                 </Button>
               </SheetClose>
             </SheetHeader>
+            <div className="px-4 pb-2">
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/50 px-3 py-2">
+                <Search size={14} className="shrink-0 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索会话…"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto px-2 pb-4">
               {sessions.length === 0 && (
                 <div className="py-8 text-center text-sm text-muted-foreground">暂无会话</div>
               )}
-              {sessions.map((s) => (
+              {sessions
+                .filter(
+                  (s) =>
+                    !query.trim() ||
+                    (s.title || "").toLowerCase().includes(query.trim().toLowerCase()),
+                )
+                .map((s) => (
                 <div
                   key={s.id}
                   data-testid="session-item"
@@ -1197,6 +1253,30 @@ export function ChatApp({ height }: { height: number | null }) {
                     {armedDelete === s.id ? "确认?" : <Trash2 size={13} />}
                   </button>
                 </div>
+              ))}
+            </div>
+            <div className="flex gap-1 border-t border-border p-3">
+              {(
+                [
+                  ["system", Monitor, "跟随系统"],
+                  ["light", Sun, "浅色"],
+                  ["dark", Moon, "深色"],
+                ] as const
+              ).map(([value, Icon, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={cn(
+                    "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs",
+                    themePref === value
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-secondary/60",
+                  )}
+                  onClick={() => setThemePref(value)}
+                >
+                  <Icon size={13} />
+                  {label}
+                </button>
               ))}
             </div>
           </SheetContent>
@@ -1257,7 +1337,7 @@ export function ChatApp({ height }: { height: number | null }) {
         {!activeId && (
           <div className="m-auto flex max-w-75 flex-col items-center px-6 text-center">
             <img src="/logo.png" alt="AFlow" className="mb-3 h-16 w-16" />
-            <div className="mb-2 bg-gradient-to-br from-indigo-200 via-cyan-200 to-indigo-200 bg-[length:200%_200%] bg-clip-text text-3xl font-extrabold text-transparent [animation:aflow-shimmer_6s_ease-in-out_infinite]">
+            <div className="mb-2 bg-gradient-to-br from-primary to-accent bg-[length:200%_200%] bg-clip-text text-3xl font-extrabold text-transparent [animation:aflow-shimmer_6s_ease-in-out_infinite]">
               AFlow
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
@@ -1268,7 +1348,7 @@ export function ChatApp({ height }: { height: number | null }) {
                 <button
                   key={s}
                   type="button"
-                  className="cursor-pointer rounded-xl border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.04)] px-3 py-2.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground active:bg-primary/15"
+                  className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground active:bg-primary/15"
                   onClick={() => send(s)}
                 >
                   {s}

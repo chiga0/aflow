@@ -29,6 +29,32 @@
   --radius: 0.75rem;
 }
 
+/* light theme: applied via data-theme on <html>; default (no attr) = dark.
+   "system" preference is resolved in JS and writes the attribute. */
+:root[data-theme="light"] {
+  --background: #fafafa;
+  --foreground: #171717;
+  --card: #f1f1f2;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #e5e7eb;
+  --secondary-foreground: #171717;
+  --muted: #e5e7eb;
+  --muted-foreground: #525252;
+  --accent: #0891b2;
+  --accent-foreground: #083344;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --warning: #d97706;
+  --success: #16a34a;
+  --border: rgba(0, 0, 0, 0.09);
+  --input: rgba(0, 0, 0, 0.14);
+  --ring: #4f46e5;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
