@@ -39,6 +39,24 @@ logger = logging.getLogger("runtime.chat")
 TURN_TIMEOUT = float(__import__("os").environ.get("AFLOW_CHAT_TURN_TIMEOUT", "1800"))
 REPLAY_BUFFER = 500
 HEARTBEAT_S = 15.0
+MAX_IMAGES = 3
+MAX_IMAGE_B64 = 4 * 1024 * 1024  # ~3MB raw
+
+
+def _validate_images(images: Any) -> list[dict[str, Any]]:
+    """Bound the attachment payload; drop anything malformed."""
+    if not isinstance(images, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for img in images[:MAX_IMAGES]:
+        if not isinstance(img, dict):
+            continue
+        data = str(img.get("data") or "")
+        mime = str(img.get("mimeType") or "image/png")
+        if not data or len(data) > MAX_IMAGE_B64 or not mime.startswith("image/"):
+            continue
+        out.append({"data": data, "mimeType": mime})
+    return out
 
 
 @dataclass
@@ -126,19 +144,29 @@ class ChatHub:
 
     # ── messaging ────────────────────────────────────────────
 
-    def send_message(self, chat_id: str, text: str) -> dict[str, Any]:
+    def send_message(
+        self, chat_id: str, text: str, images: list | None = None
+    ) -> dict[str, Any]:
         state = self._get_state(chat_id)
         if state is None:
             raise KeyError(chat_id)
+        images = _validate_images(images)
         with state.lock:
             if state.running:
                 raise RuntimeError("a turn is already running")
             state.running = True
         now = utc_now()
-        self.store.add_chat_message(chat_id, "user", text, now)
+        self.store.add_chat_message(
+            chat_id, "user", text, now,
+            images=json.dumps(
+                [{"mimeType": i.get("mimeType"), "bytes": len(i.get("data", ""))}
+                 for i in images],
+                ensure_ascii=False,
+            ) if images else "[]",
+        )
         self.store.touch_chat_session(chat_id, now)
         threading.Thread(
-            target=self._drive_turn, args=(state, text), daemon=True,
+            target=self._drive_turn, args=(state, text, images), daemon=True,
             name=f"chat-turn-{chat_id}",
         ).start()
         return {"ok": True, "running": True}
@@ -154,7 +182,9 @@ class ChatHub:
         state.pi_sid = None  # aborted process is closed by adapter.cancel
         return True
 
-    def _drive_turn(self, state: _SessionState, prompt: str) -> None:
+    def _drive_turn(
+        self, state: _SessionState, prompt: str, images: list | None = None
+    ) -> None:
         result = TurnResult()
         text_buf: list[str] = []
         tools: list[dict[str, Any]] = []
@@ -162,7 +192,7 @@ class ChatHub:
         deadline = time.monotonic() + TURN_TIMEOUT
         try:
             pi_sid = self._ensure_pi(state)
-            self.adapter.send_prompt(pi_sid, prompt)
+            self.adapter.send_prompt(pi_sid, prompt, images=images or None)
             for _i, _n, payload in self.adapter.stream_events(pi_sid, timeout=60.0):
                 if time.monotonic() > deadline:
                     result.status = "timeout"
@@ -335,11 +365,15 @@ def handle_post(handler: Any, path: str, body: dict[str, Any], hub: ChatHub) -> 
         chat_id = parts[3]
         if parts[4] == "messages":
             text = str(body.get("text") or "").strip()
-            if not text:
-                handler.error(HTTPStatus.BAD_REQUEST, "text is required")
+            images = body.get("images")
+            if not text and not images:
+                handler.error(HTTPStatus.BAD_REQUEST, "text or images required")
                 return True
             try:
-                handler.json(hub.send_message(chat_id, text), status=HTTPStatus.ACCEPTED)
+                handler.json(
+                    hub.send_message(chat_id, text, images),
+                    status=HTTPStatus.ACCEPTED,
+                )
             except KeyError:
                 handler.error(HTTPStatus.NOT_FOUND, "chat session not found")
             except RuntimeError as exc:

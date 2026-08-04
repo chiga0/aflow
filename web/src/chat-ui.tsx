@@ -34,8 +34,15 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   tools: ToolRecord[];
+  images?: { mimeType?: string; bytes?: number; dataUrl?: string }[];
   status: string;
   created_at: string;
+}
+
+export interface PendingImage {
+  dataUrl: string;
+  base64: string;
+  mimeType: string;
 }
 
 interface SessionDetail extends SessionMeta {
@@ -131,10 +138,23 @@ function ToolCard({ tool }: { tool: ToolRecord }) {
 
 /* ── message bubbles ───────────────────────────────────── */
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text, images }: { text: string; images?: Message["images"] }) {
   return (
     <div className="ac-row ac-row--user">
-      <div className="ac-bubble ac-bubble--user">{text}</div>
+      <div className="ac-bubble ac-bubble--user">
+        {images && images.length > 0 && (
+          <div className="ac-user-imgs">
+            {images.map((im, i) =>
+              im.dataUrl ? (
+                <img key={i} src={im.dataUrl} alt="attached" className="ac-user-img" />
+              ) : (
+                <span key={i} className="ac-user-imgchip">📷</span>
+              ),
+            )}
+          </div>
+        )}
+        {text}
+      </div>
     </div>
   );
 }
@@ -192,15 +212,22 @@ function AssistantBubble({
 
 function InputBar({
   running,
+  images,
   onSend,
   onCancel,
+  onPickImage,
+  onRemoveImage,
 }: {
   running: boolean;
+  images: PendingImage[];
   onSend: (text: string) => void;
   onCancel: () => void;
+  onPickImage: (file: File) => void;
+  onRemoveImage: (index: number) => void;
 }) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const autosize = useCallback(() => {
     const el = ref.current;
@@ -218,8 +245,41 @@ function InputBar({
   };
 
   return (
-    <div className="ac-inputbar">
-      <textarea
+    <div className="ac-inputbar-wrap">
+      {images.length > 0 && (
+        <div className="ac-previews">
+          {images.map((im, i) => (
+            <div key={i} className="ac-preview">
+              <img src={im.dataUrl} alt="" />
+              <button type="button" aria-label="移除图片" onClick={() => onRemoveImage(i)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="ac-inputbar">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onPickImage(f);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          className="ac-attach"
+          aria-label="附加截图"
+          disabled={running || images.length >= 3}
+          onClick={() => fileRef.current?.click()}
+        >
+          📷
+        </button>
+        <textarea
         ref={ref}
         className="ac-input"
         rows={1}
@@ -237,21 +297,22 @@ function InputBar({
           }
         }}
       />
-      {running ? (
-        <button type="button" className="ac-btn ac-btn--stop" onClick={onCancel} aria-label="停止">
-          ■
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="ac-btn ac-btn--send"
-          onClick={submit}
-          disabled={!text.trim()}
-          aria-label="发送"
-        >
-          ↑
-        </button>
-      )}
+        {running ? (
+          <button type="button" className="ac-btn ac-btn--stop" onClick={onCancel} aria-label="停止">
+            ■
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ac-btn ac-btn--send"
+            onClick={submit}
+            disabled={(!text.trim() && images.length === 0)}
+            aria-label="发送"
+          >
+            ↑
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -271,6 +332,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const liveToolsRef = useRef<ToolRecord[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   // Scroll etiquette: only auto-scroll when the user is already near the
@@ -441,8 +503,9 @@ export function ChatApp({ height }: { height: number | null }) {
   }, []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, images?: PendingImage[]) => {
       let id = activeId;
+      const imgs = images || [];
       try {
         if (!id) {
           const session = await api<SessionMeta>("POST", "/api/chat/sessions");
@@ -462,6 +525,7 @@ export function ChatApp({ height }: { height: number | null }) {
                     role: "user",
                     content: text,
                     tools: [],
+                    images: imgs.map((im) => ({ dataUrl: im.dataUrl, mimeType: im.mimeType })),
                     status: "completed",
                     created_at: new Date().toISOString(),
                   },
@@ -474,7 +538,11 @@ export function ChatApp({ height }: { height: number | null }) {
         liveTextRef.current = "";
         liveToolsRef.current = [];
         stickToBottom.current = true;
-        await api("POST", `/api/chat/sessions/${id}/messages`, { text });
+        await api("POST", `/api/chat/sessions/${id}/messages`, {
+          text,
+          images: imgs.map((im) => ({ data: im.base64, mimeType: im.mimeType })),
+        });
+        setPendingImages([]);
         refreshSessions();
       } catch (exc) {
         setLiveRunning(false);
@@ -483,6 +551,23 @@ export function ChatApp({ height }: { height: number | null }) {
     },
     [activeId, refreshSessions],
   );
+
+  const pickImage = useCallback((file: File) => {
+    if (file.size > 3 * 1024 * 1024) {
+      setError("图片不能超过 3MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      const base64 = dataUrl.split(",")[1] || "";
+      if (!base64) return;
+      setPendingImages((ps) =>
+        ps.length >= 3 ? ps : [...ps, { dataUrl, base64, mimeType: file.type || "image/png" }],
+      );
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   const cancel = useCallback(async () => {
     if (activeId) {
@@ -617,7 +702,7 @@ export function ChatApp({ height }: { height: number | null }) {
         )}
         {detail?.messages.map((m) =>
           m.role === "user" ? (
-            <UserBubble key={m.id} text={m.content} />
+            <UserBubble key={m.id} text={m.content} images={m.images} />
           ) : (
             <AssistantBubble
               key={m.id}
@@ -643,7 +728,14 @@ export function ChatApp({ height }: { height: number | null }) {
       </div>
 
       {/* composer */}
-      <InputBar running={running} onSend={send} onCancel={cancel} />
+      <InputBar
+        running={running}
+        images={pendingImages}
+        onSend={(t) => send(t, pendingImages)}
+        onCancel={cancel}
+        onPickImage={pickImage}
+        onRemoveImage={(i) => setPendingImages((ps) => ps.filter((_p, j) => j !== i))}
+      />
     </div>
   );
 }
@@ -771,13 +863,26 @@ export const chatStyles = `
 }
 .ac-chip:active { background: rgba(99,102,241,0.15); color: #e0e7ff; }
 
-.ac-inputbar {
-  display: flex; align-items: flex-end; gap: 0.5rem;
-  padding: 0.55rem 0.75rem;
-  padding-bottom: calc(0.55rem + env(safe-area-inset-bottom, 0px));
+.ac-inputbar-wrap {
   border-top: 1px solid rgba(255,255,255,0.07);
   background: rgba(9,9,11,0.92); backdrop-filter: blur(10px);
   flex: 0 0 auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.ac-previews { display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem 0; }
+.ac-preview { position: relative; }
+.ac-preview img {
+  width: 52px; height: 52px; object-fit: cover; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.ac-preview button {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  border-radius: 50%; border: none; background: rgba(24,24,27,0.9); color: #a1a1aa;
+  font-size: 0.6rem; cursor: pointer; display: grid; place-items: center;
+}
+.ac-inputbar {
+  display: flex; align-items: flex-end; gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
 }
 .ac-input {
   flex: 1; resize: none; border-radius: 12px;
@@ -787,6 +892,21 @@ export const chatStyles = `
   font-family: inherit;
 }
 .ac-input:focus { border-color: #6366f1; }
+.ac-attach {
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.06); font-size: 1rem; flex: 0 0 auto;
+  display: grid; place-items: center;
+}
+.ac-attach:disabled { opacity: 0.35; cursor: default; }
+.ac-user-imgs { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
+.ac-user-img {
+  max-width: 160px; max-height: 120px; border-radius: 8px; display: block;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+.ac-user-imgchip {
+  display: inline-block; padding: 2px 8px; border-radius: 6px;
+  background: rgba(255,255,255,0.15); font-size: 0.75rem;
+}
 .ac-btn {
   width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
   font-size: 1.1rem; display: grid; place-items: center; flex: 0 0 auto;

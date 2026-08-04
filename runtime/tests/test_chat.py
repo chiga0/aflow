@@ -121,6 +121,26 @@ class ChatHubTests(unittest.TestCase):
             slow_adapter.shutdown()
             slow_patcher.stop()
 
+    def test_images_persist_metadata_and_validate(self):
+        session = self.hub.create_session()
+        chat_id = session["id"]
+        tiny = "QUJD"  # "ABC"
+        huge = "A" * (5 * 1024 * 1024)
+        self.hub.send_message(
+            chat_id, "看图",
+            images=[
+                {"data": tiny, "mimeType": "image/png"},
+                {"data": huge, "mimeType": "image/png"},   # dropped: too big
+                {"data": tiny, "mimeType": "text/plain"},  # dropped: not image
+            ],
+        )
+        done = _wait(lambda: not self.hub._get_state(chat_id).running)
+        self.assertTrue(done)
+        detail = self.hub.session_detail(chat_id)
+        user = detail["messages"][0]
+        self.assertEqual(len(user["images"]), 1)
+        self.assertEqual(user["images"][0]["mimeType"], "image/png")
+
     def test_delete_session(self):
         session = self.hub.create_session()
         chat_id = session["id"]

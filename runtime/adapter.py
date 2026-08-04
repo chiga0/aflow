@@ -43,7 +43,7 @@ class QwenAdapter:
             raise RuntimeError(f"qwen /session missing sessionId: {resp}")
         return session_id
 
-    def send_prompt(self, session_id: str, prompt: str) -> dict[str, Any]:
+    def send_prompt(self, session_id: str, prompt: str, images: list | None = None) -> dict[str, Any]:
         """POST /session/{id}/prompt → {promptId, ...}"""
         return self._request(
             "POST",

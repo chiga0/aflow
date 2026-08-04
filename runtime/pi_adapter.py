@@ -128,9 +128,17 @@ class PiAdapter:
                     session_id, proc.pid, self.model, cwd or ".")
         return session_id
 
-    def send_prompt(self, session_id: str, prompt: str) -> dict[str, Any]:
+    def send_prompt(self, session_id: str, prompt: str, images: list | None = None) -> dict[str, Any]:
         session = self._get(session_id)
-        self._send(session, {"type": "prompt", "message": prompt})
+        command: dict[str, Any] = {"type": "prompt", "message": prompt}
+        if images:
+            # pi RPC image content: [{"type":"image","data":<b64>,"mimeType":...}]
+            command["images"] = [
+                {"type": "image", "data": img["data"], "mimeType": img.get("mimeType", "image/png")}
+                for img in images
+                if isinstance(img, dict) and img.get("data")
+            ]
+        self._send(session, command)
         session.last_activity = time.monotonic()
         return {"ok": True}
 

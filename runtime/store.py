@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     role       TEXT NOT NULL,
     content    TEXT NOT NULL DEFAULT '',
     tools      TEXT NOT NULL DEFAULT '[]',
+    images     TEXT NOT NULL DEFAULT '[]',
     status     TEXT NOT NULL DEFAULT 'completed',
     created_at TEXT NOT NULL
 );
@@ -104,6 +105,18 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive migrations for DBs created by older versions."""
+        cols = {
+            r[1] for r in self._conn.execute("PRAGMA table_info(chat_messages)").fetchall()
+        }
+        if cols and "images" not in cols:
+            self._conn.execute(
+                "ALTER TABLE chat_messages ADD COLUMN images TEXT NOT NULL DEFAULT '[]'"
+            )
+            self._conn.commit()
 
     # ── Auth sessions ─────────────────────────────────────────
 
@@ -268,13 +281,15 @@ class Store:
         content: str,
         now: str,
         tools: str = "[]",
+        images: str = "[]",
         status: str = "completed",
     ) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO chat_messages (session_id, role, content, tools, status, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, role, content, tools, status, now),
+                "INSERT INTO chat_messages"
+                " (session_id, role, content, tools, images, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, role, content, tools, images, status, now),
             )
             self._conn.commit()
 
@@ -290,6 +305,10 @@ class Store:
                 item["tools"] = json.loads(item.get("tools") or "[]")
             except Exception:
                 item["tools"] = []
+            try:
+                item["images"] = json.loads(item.get("images") or "[]")
+            except Exception:
+                item["images"] = []
             out.append(item)
         return out
 
