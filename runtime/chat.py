@@ -272,6 +272,16 @@ class ChatHub:
 
     # ── reads ────────────────────────────────────────────────
 
+    def list_sessions(self) -> list[dict[str, Any]]:
+        """Session list enriched with live running flag + last status."""
+        out = []
+        for row in self.store.list_chat_sessions():
+            state = self._states.get(row["id"])
+            row["running"] = bool(state and state.running)
+            row["last_status"] = self.store.last_chat_status(row["id"])
+            out.append(row)
+        return out
+
     def session_detail(self, chat_id: str) -> dict[str, Any] | None:
         session = self.store.get_chat_session(chat_id)
         if not session:
@@ -292,7 +302,7 @@ def _parts(path: str) -> list[str]:
 def handle_get(handler: Any, path: str, hub: ChatHub) -> bool:
     parts = _parts(path)
     if parts == ["api", "chat", "sessions"]:
-        handler.json({"sessions": hub.store.list_chat_sessions()})
+        handler.json({"sessions": hub.list_sessions()})
         return True
     if len(parts) >= 4 and parts[:3] == ["api", "chat", "sessions"]:
         chat_id = parts[3]

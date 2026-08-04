@@ -16,6 +16,8 @@ interface SessionMeta {
   title: string;
   created_at: string;
   updated_at: string;
+  running?: boolean;
+  last_status?: string | null;
 }
 
 interface ToolRecord {
@@ -62,6 +64,12 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   }
   return (await resp.json()) as T;
 }
+
+const SUGGESTIONS = [
+  "审计当前项目的部署链路风险",
+  "分析最近一次代码变更的影响",
+  "写一个 hello world 并运行验证",
+];
 
 /* ── lightweight markdown (code fences only, by design) ── */
 
@@ -131,6 +139,12 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
+function collapsePreview(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length > 12) return lines.slice(0, 12).join("\n") + "\n…";
+  return text.slice(0, 500) + "…";
+}
+
 function AssistantBubble({
   text,
   tools,
@@ -142,13 +156,21 @@ function AssistantBubble({
   status?: string;
   streaming?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 500 || text.split("\n").length > 12;
+  const shown = long && !expanded ? collapsePreview(text) : text;
   return (
     <div className="ac-row">
       <div className="ac-bubble ac-bubble--assistant">
         {tools.map((t) => (
           <ToolCard key={t.id || t.name} tool={t} />
         ))}
-        {text && <RichText text={text} />}
+        {shown && <RichText text={shown} />}
+        {long && (
+          <button type="button" className="ac-more" onClick={() => setExpanded(!expanded)}>
+            {expanded ? "收起" : "展开全文"}
+          </button>
+        )}
         {streaming && !text && tools.every((t) => !t.running) && (
           <div className="ac-thinking">
             <span className="ac-dot" />
@@ -456,6 +478,13 @@ export function ChatApp({ height }: { height: number | null }) {
   );
 
   const running = liveRunning || Boolean(detail?.running);
+  const lastUserText = useMemo(() => {
+    const msgs = detail?.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") return msgs[i].content;
+    }
+    return "";
+  }, [detail]);
 
   return (
     <div
@@ -499,7 +528,15 @@ export function ChatApp({ height }: { height: number | null }) {
                   className={`ac-session ${s.id === activeId ? "ac-session--active" : ""}`}
                   onClick={() => openSession(s.id)}
                 >
-                  <div className="ac-session-title">{s.title || "新会话"}</div>
+                  <div className="ac-session-title">
+                    {s.running && <span className="ac-badge ac-badge--run">运行中</span>}
+                    {!s.running && (s.last_status === "failed" || s.last_status === "timeout") && (
+                      <span className="ac-badge ac-badge--bad">
+                        {s.last_status === "failed" ? "失败" : "超时"}
+                      </span>
+                    )}
+                    {s.title || "新会话"}
+                  </div>
                   <div className="ac-session-meta">
                     {new Date(s.updated_at).toLocaleString("zh-CN", {
                       month: "numeric",
@@ -532,6 +569,13 @@ export function ChatApp({ height }: { height: number | null }) {
           <div className="ac-welcome">
             <div className="ac-welcome-title">AFlow</div>
             <p>描述你的目标，Agent 会规划、执行并交付结果。</p>
+            <div className="ac-chips">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} type="button" className="ac-chip" onClick={() => send(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {detail?.messages.map((m) =>
@@ -549,7 +593,16 @@ export function ChatApp({ height }: { height: number | null }) {
         {running && (liveText || liveTools.length > 0 || !detail?.running) && (
           <AssistantBubble text={liveText} tools={liveTools} streaming />
         )}
-        {error && <div className="ac-error">{error}</div>}
+        {error && (
+          <div className="ac-error">
+            <span>{error}</span>
+            {lastUserText && (
+              <button type="button" className="ac-retry" onClick={() => send(lastUserText)}>
+                重试
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* composer */}
@@ -656,7 +709,30 @@ export const chatStyles = `
   align-self: center; max-width: 90%; font-size: 0.8rem; color: #fca5a5;
   background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
   border-radius: 8px; padding: 0.45rem 0.7rem;
+  display: flex; align-items: center; gap: 0.6rem;
 }
+.ac-retry {
+  border: 1px solid rgba(252,165,165,0.5); background: transparent; color: #fca5a5;
+  font-size: 0.72rem; border-radius: 6px; padding: 0.2rem 0.55rem; cursor: pointer;
+  flex: 0 0 auto;
+}
+.ac-more {
+  border: none; background: transparent; color: #818cf8; font-size: 0.75rem;
+  cursor: pointer; padding: 0.1rem 0; text-align: left;
+}
+.ac-badge {
+  display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 4px;
+  margin-right: 0.35rem; vertical-align: 1px; letter-spacing: 0.03em;
+}
+.ac-badge--run { background: rgba(245,158,11,0.18); color: #fbbf24; animation: ac-pulse 1.2s infinite; }
+.ac-badge--bad { background: rgba(239,68,68,0.18); color: #fca5a5; }
+.ac-chips { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.2rem; width: 100%; max-width: 300px; }
+.ac-chip {
+  border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+  color: #a1a1aa; font-size: 0.82rem; border-radius: 10px; padding: 0.6rem 0.8rem;
+  cursor: pointer; text-align: left; transition: all 0.2s;
+}
+.ac-chip:active { background: rgba(99,102,241,0.15); color: #e0e7ff; }
 
 .ac-inputbar {
   display: flex; align-items: flex-end; gap: 0.5rem;

@@ -246,6 +246,15 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def last_chat_status(self, session_id: str) -> str | None:
+        """Status of the newest message in a session (for list badges)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT status FROM chat_messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        return row["status"] if row else None
+
     def delete_chat_session(self, session_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
