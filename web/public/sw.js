@@ -80,20 +80,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigations & everything else: network first, offline shell fallback.
-  // cache: no-store bypasses the HTTP cache so a new deploy is always seen.
+  // Navigations: cache-first so the opaque dark shell paints instantly on
+  // launch (network-first left the webview transparent while the round trip
+  // ran, flashing the Android launcher / iOS homescreen through). The copy
+  // revalidates in the background; new deploys surface via the update toast
+  // or pull-to-refresh on the next foreground.
   event.respondWith(
-    fetch(req, { cache: "no-store" })
-      .then((res) => {
-        // Cache successful navigations so the shell is fresh next offline load.
-        if (req.mode === "navigate" && res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put("/", copy)).catch(() => undefined);
-        }
-        return res;
-      })
-      .catch(() =>
-        caches.match(req).then((hit) => hit || caches.match("/index.html") || caches.match("/")),
-      ),
+    (async () => {
+      const cache = await caches.open(VERSION);
+      const hit = await cache.match("/");
+      const refresh = fetch(req, { cache: "no-store" })
+        .then((res) => {
+          if (res && res.status === 200) cache.put("/", res.clone());
+          return res;
+        })
+        .catch(() => undefined);
+      if (hit) {
+        event.waitUntil(refresh);
+        return hit;
+      }
+      const res = await refresh;
+      if (res) return res;
+      return (
+        (await caches.match("/index.html")) ||
+        Response.error()
+      );
+    })(),
   );
 });
