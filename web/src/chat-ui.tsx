@@ -604,8 +604,10 @@ export function ChatApp({ height }: { height: number | null }) {
     setLiveRunning(false);
     setApprovals([]);
     stickToBottom.current = true;
+    // Clear before fetching so the previous session never renders under the
+    // new id (users saw a wrong-session flash while the fetch was in flight).
+    setDetail(null);
     if (!id) {
-      setDetail(null);
       return;
     }
     try {
@@ -795,6 +797,10 @@ export function ChatApp({ height }: { height: number | null }) {
       const fls = files || [];
       const finalText =
         text + fls.map((f) => `\n\n📄 ${f.name}：\n\`\`\`\n${f.text}\n\`\`\``).join("");
+      // Clear attachment previews immediately — waiting for the upload made
+      // them linger for seconds on mobile networks.
+      setPendingImages([]);
+      setPendingFiles([]);
       try {
         if (!id) {
           const session = await api<SessionMeta>("POST", "/api/chat/sessions");
@@ -834,8 +840,6 @@ export function ChatApp({ height }: { height: number | null }) {
           text: finalText,
           images: imgs.map((im) => ({ data: im.base64, mimeType: im.mimeType })),
         });
-        setPendingImages([]);
-        setPendingFiles([]);
         refreshSessions();
       } catch (exc) {
         setLiveRunning(false);
@@ -875,18 +879,35 @@ export function ChatApp({ height }: { height: number | null }) {
   );
 
   const pickImage = useCallback((file: File) => {
-    if (file.size > 3 * 1024 * 1024) {
-      setError("图片不能超过 3MB");
+    if (file.size > 8 * 1024 * 1024) {
+      setError("图片不能超过 8MB");
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      const base64 = dataUrl.split(",")[1] || "";
-      if (!base64) return;
-      setPendingImages((ps) =>
-        ps.length >= 3 ? ps : [...ps, { dataUrl, base64, mimeType: file.type || "image/png" }],
-      );
+      const img = new Image();
+      img.onload = () => {
+        // Downscale phone photos before upload: 3MB originals meant slow
+        // POSTs and slow vision turns. <=1280px JPEG is plenty for the model.
+        const max = 1280;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const g = canvas.getContext("2d");
+        if (!g) return;
+        g.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        const base64 = dataUrl.split(",")[1] || "";
+        if (!base64) return;
+        setPendingImages((ps) =>
+          ps.length >= 3 ? ps : [...ps, { dataUrl, base64, mimeType: "image/jpeg" }],
+        );
+      };
+      img.onerror = () => setError("图片解析失败");
+      img.src = String(reader.result || "");
     };
     reader.readAsDataURL(file);
   }, []);

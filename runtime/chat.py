@@ -290,6 +290,10 @@ class ChatHub:
         self._broadcast(state, "turn.finished", {
             "status": result.status, "error": result.error,
         })
+        # The turn is persisted; late/reconnecting subscribers must not
+        # replay it as live events (that rendered duplicate replies).
+        with state.lock:
+            state.buffer.clear()
         with state.lock:
             state.running = False
 

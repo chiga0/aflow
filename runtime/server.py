@@ -39,7 +39,7 @@ from .store import Store
 
 logger = logging.getLogger("runtime.server")
 
-MAX_BODY = 4 * 1024 * 1024
+MAX_BODY = 12 * 1024 * 1024
 
 # Paths that never require authentication (the SPA shell + login + probes).
 _PUBLIC_EXACT = {
