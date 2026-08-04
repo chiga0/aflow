@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" style="background: #09090b">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -21,6 +21,13 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <title>AFlow · Agent Runtime</title>
+    <!-- Inline critical styles: the standalone PWA webview paints before the
+         external CSS loads; without an opaque background the iOS homescreen
+         flashes through during launch. -->
+    <style>
+      html, body { background: #09090b; margin: 0; height: 100%; overflow: hidden; }
+      #root { height: 100%; }
+    </style>
     <script>
       // Last-resort error surface: only shown if React never mounts the root.
       window.onerror = function (msg, url, line, col, err) {
@@ -44,7 +51,12 @@
     </script>
   </head>
   <body class="bg-zinc-950 text-zinc-100 antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <!-- inline launch splash; React replaces it on first render -->
+      <div style="position: fixed; inset: 0; background: #09090b; display: grid; place-items: center">
+        <img src="/logo-128.png" width="72" height="72" alt="" style="border-radius: 18px" />
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
