@@ -7,16 +7,19 @@
  * composer.
  */
 import {
+  ArrowDown,
   ChevronDown,
   ChevronRight,
   Cpu,
   FileText,
   Image as ImageIcon,
+  Loader2,
   Menu,
   Mic,
   Paperclip,
   Send,
   ShieldCheck,
+  Sparkles,
   Square,
   Trash2,
   X,
@@ -609,33 +612,47 @@ export function ChatApp({ height }: { height: number | null }) {
   const stickToBottom = useRef(true);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [pulling, setPulling] = useState(false);
+  const [pullPx, setPullPx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const touchY = useRef<number | null>(null);
 
-  /* PWA update toast (deploy replaced the service worker) */
+  /* PWA update banner (deploy replaced the service worker) */
   useEffect(() => {
     const onUpdate = () => setUpdateAvailable(true);
     window.addEventListener("aflow:update-available", onUpdate);
     return () => window.removeEventListener("aflow:update-available", onUpdate);
   }, []);
 
-  /* pull-down at the top = force refresh (checks SW update + reloads) */
+  /* native-feel pull-to-refresh: content follows the finger with resistance,
+     indicator arrow rotates with progress, spring-back on release. */
+  const PULL_MAX = 96;
+  const PULL_TRIGGER = 56;
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     touchY.current = scrollRef.current?.scrollTop === 0 ? e.touches[0].clientY : null;
+    setDragging(true);
   }, []);
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (touchY.current == null) return;
+    if (touchY.current == null || refreshing) return;
     const dy = e.touches[0].clientY - touchY.current;
-    if (scrollRef.current?.scrollTop === 0 && dy > 60) setPulling(true);
-  }, []);
+    if (scrollRef.current?.scrollTop === 0 && dy > 0) {
+      setPullPx(Math.min(dy * 0.45, PULL_MAX));
+    } else {
+      setPullPx(0);
+    }
+  }, [refreshing]);
   const onTouchEnd = useCallback(() => {
-    if (pulling) {
-      setPulling(false);
+    setDragging(false);
+    if (pullPx > PULL_TRIGGER && !refreshing) {
+      setRefreshing(true);
+      setPullPx(48);
       window.dispatchEvent(new Event("aflow:check-update"));
-      window.setTimeout(() => window.location.reload(), 350);
+      window.setTimeout(() => window.location.reload(), 500);
+    } else {
+      setPullPx(0);
     }
     touchY.current = null;
-  }, [pulling]);
+  }, [pullPx, refreshing]);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -1051,19 +1068,27 @@ export function ChatApp({ height }: { height: number | null }) {
       className="flex w-screen flex-col overflow-hidden bg-background text-foreground"
       style={{ height: height ? `${height}px` : "100dvh" }}
     >
-      {/* update / pull-to-refresh indicators */}
+      {/* update snackbar (Material: actionable notices live at the bottom,
+          thumb-reachable) — sits just above the composer */}
       {updateAvailable && (
-        <button
-          type="button"
-          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+8px)] z-50 -translate-x-1/2 cursor-pointer rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-lg"
-          onClick={() => window.location.reload()}
-        >
-          发现新版本，点击更新
-        </button>
-      )}
-      {pulling && (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+8px)] z-50 -translate-x-1/2 rounded-full bg-secondary px-4 py-2 text-xs text-muted-foreground">
-          释放刷新
+        <div className="mx-3 mb-2 flex shrink-0 items-center gap-2 rounded-xl border border-primary/40 bg-primary/15 px-3 py-2 text-xs backdrop-blur">
+          <Sparkles size={14} className="shrink-0 text-primary" />
+          <span className="flex-1">发现新版本</span>
+          <button
+            type="button"
+            className="cursor-pointer rounded-lg bg-primary px-2.5 py-1 font-semibold text-primary-foreground"
+            onClick={() => window.location.reload()}
+          >
+            更新
+          </button>
+          <button
+            type="button"
+            aria-label="关闭"
+            className="cursor-pointer p-1 text-muted-foreground"
+            onClick={() => setUpdateAvailable(false)}
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
 
@@ -1155,6 +1180,30 @@ export function ChatApp({ height }: { height: number | null }) {
         </Button>
       </header>
 
+      {/* pull-to-refresh indicator */}
+      <div
+        aria-hidden
+        className="flex items-end justify-center overflow-hidden"
+        style={{
+          height: refreshing ? 40 : Math.min(pullPx, PULL_MAX) * 0.5,
+          transition: dragging ? "none" : "height 0.25s cubic-bezier(0.2, 0.8, 0.4, 1)",
+        }}
+      >
+        <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
+          {refreshing ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <ArrowDown
+              size={13}
+              style={{
+                transform: `rotate(${(Math.min(pullPx, PULL_TRIGGER) / PULL_TRIGGER) * 180}deg)`,
+              }}
+            />
+          )}
+          {refreshing ? "刷新中…" : pullPx > PULL_TRIGGER ? "释放刷新" : "下拉刷新"}
+        </div>
+      </div>
+
       {/* messages */}
       <div
         data-testid="scroll"
@@ -1163,7 +1212,11 @@ export function ChatApp({ height }: { height: number | null }) {
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5"
+        className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5 [overscroll-behavior-y:contain]"
+        style={{
+          transform: `translateY(${refreshing ? 40 : pullPx}px)`,
+          transition: dragging ? "none" : "transform 0.25s cubic-bezier(0.2, 0.8, 0.4, 1)",
+        }}
       >
         {!activeId && (
           <div className="m-auto flex max-w-75 flex-col items-center px-6 text-center">
