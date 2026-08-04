@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { StandaloneWebShell } from "@qwen-code/web-shell";
 import type { WelcomeHeaderProps } from "@qwen-code/web-shell";
-import { ChatApp, chatStyles } from "./chat-ui";
+import { ChatApp } from "./chat-ui";
 
 /* ── Brand mark (shared by login + welcome) ─────────────── */
 
@@ -282,10 +282,7 @@ export function App() {
         <CheckingScreen />
       )}
       {(auth === "authed" || auth === "disabled") && engine === "pi" && (
-        <>
-          <style>{chatStyles}</style>
-          <ChatApp height={viewportHeight} />
-        </>
+        <ChatApp height={viewportHeight} />
       )}
       {(auth === "authed" || auth === "disabled") && engine === "qwen" && (
         <StandaloneWebShell

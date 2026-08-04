@@ -35,22 +35,22 @@ page.on("response", (r) => {
 page.on("requestfailed", (r) => console.log("[reqfail]", r.url().replace(BASE, ""), r.failure()?.errorText));
 
 await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
-await page.waitForSelector(".ac-shell, .aflow-auth", { timeout: 15000 });
+await page.waitForSelector("[data-testid=\"shell\"], .aflow-auth", { timeout: 15000 });
 
 const hasLogin = await page.$(".aflow-auth-form");
 if (hasLogin) {
   await page.fill('input[type="email"]', EMAIL);
   await page.fill('input[type="password"]', PASSWORD);
   await page.click(".aflow-auth-submit");
-  await page.waitForSelector(".ac-shell", { timeout: 15000 });
+  await page.waitForSelector('[data-testid=\"shell\"]', { timeout: 15000 });
 }
 console.log("[ui] shell up");
 
-await page.fill(".ac-input", "回复两个字：收到");
-await page.click(".ac-btn--send");
+await page.fill('[data-testid=\"composer-input\"]', "回复两个字：收到");
+await page.click('[data-testid=\"composer-send\"]');
 await page.waitForTimeout(25000);
 
-const text = await page.evaluate(() => document.querySelector(".ac-scroll")?.innerText || "");
+const text = await page.evaluate(() => document.querySelector('[data-testid=\"scroll\"]')?.innerText || "");
 console.log("[scroll text]", JSON.stringify(text.slice(0, 300)));
 const detail = await page.evaluate(async () => {
   const sid = "__probe__";

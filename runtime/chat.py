@@ -63,6 +63,8 @@ def _validate_images(images: Any) -> list[dict[str, Any]]:
 class _SessionState:
     chat_id: str
     pi_sid: str | None = None
+    model: str = ""
+    gate_mode: str = "strict"
     running: bool = False
     seq: int = 0
     buffer: deque[tuple[int, str, dict[str, Any]]] = field(
@@ -126,12 +128,22 @@ class ChatHub:
         return None
 
     def _ensure_pi(self, state: _SessionState) -> str:
-        """Return a live engine session id, respawning when it was reaped."""
+        """Return a live engine session id, respawning when reaped/recycled."""
         if state.pi_sid:
-            registry = getattr(self.adapter, "_sessions", None)
-            if registry is None or state.pi_sid in registry:
+            alive = getattr(self.adapter, "alive", None)
+            if (alive is not None and alive(state.pi_sid)) or (
+                alive is None and state.pi_sid in getattr(self.adapter, "_sessions", {})
+            ):
                 return state.pi_sid
-        state.pi_sid = self.adapter.create_session()
+        create = getattr(self.adapter, "create_session", None)
+        if create is None:
+            raise RuntimeError("adapter cannot create sessions")
+        try:
+            state.pi_sid = create(
+                model=state.model or None, gate_mode=state.gate_mode
+            )
+        except TypeError:
+            state.pi_sid = create()
         return state.pi_sid
 
     def _close_pi(self, state: _SessionState) -> None:
@@ -330,6 +342,29 @@ class ChatHub:
                 if q in state.subscribers:
                     state.subscribers.remove(q)
 
+    def set_options(
+        self, chat_id: str, model: str | None, gate_mode: str | None
+    ) -> dict[str, Any]:
+        state = self._get_state(chat_id)
+        if state is None:
+            raise KeyError(chat_id)
+        if state.running:
+            raise RuntimeError("cannot change options while a turn is running")
+        if model:
+            state.model = model
+        if gate_mode in ("strict", "auto"):
+            state.gate_mode = gate_mode
+        setter = getattr(self.adapter, "set_options", None)
+        if setter and state.pi_sid:
+            setter(state.pi_sid, model=state.model or None, gate_mode=state.gate_mode)
+        return {"ok": True, "model": state.model, "gate_mode": state.gate_mode}
+
+    def meta(self) -> dict[str, Any]:
+        return {
+            "models": getattr(self.adapter, "models", [getattr(self.adapter, "model", "")]),
+            "gate_modes": ["strict", "auto"],
+        }
+
     # ── reads ────────────────────────────────────────────────
 
     def list_sessions(self) -> list[dict[str, Any]]:
@@ -363,6 +398,9 @@ def handle_get(handler: Any, path: str, hub: ChatHub) -> bool:
     parts = _parts(path)
     if parts == ["api", "chat", "sessions"]:
         handler.json({"sessions": hub.list_sessions()})
+        return True
+    if parts == ["api", "chat", "meta"]:
+        handler.json(hub.meta())
         return True
     if len(parts) >= 4 and parts[:3] == ["api", "chat", "sessions"]:
         chat_id = parts[3]
@@ -403,6 +441,18 @@ def handle_post(handler: Any, path: str, body: dict[str, Any], hub: ChatHub) -> 
             return True
         if parts[4] == "cancel":
             handler.json({"ok": hub.cancel(chat_id)})
+            return True
+        if parts[4] == "options":
+            try:
+                handler.json(hub.set_options(
+                    chat_id,
+                    model=body.get("model"),
+                    gate_mode=body.get("gate_mode"),
+                ))
+            except KeyError:
+                handler.error(HTTPStatus.NOT_FOUND, "chat session not found")
+            except RuntimeError as exc:
+                handler.error(HTTPStatus.CONFLICT, str(exc))
             return True
         if parts[4] == "approvals":
             request_id = str(body.get("request_id") or "")

@@ -70,6 +70,7 @@ const DANGEROUS = [
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
+    if (process.env.AFLOW_GATE_MODE === "auto") return undefined;
     if (event.toolName !== "bash") return undefined;
     const command = String((event.input as any)?.command ?? "");
     if (!DANGEROUS.some((p) => p.test(command))) return undefined;
@@ -99,6 +100,8 @@ class _PiSession:
     session_id: str
     proc: subprocess.Popen[str]
     cfg_dir: str
+    model: str = ""
+    gate_mode: str = "strict"
     events: queue.Queue[dict[str, Any]] = field(default_factory=queue.Queue)
     alive: bool = True
     last_activity: float = field(default_factory=time.monotonic)
@@ -120,6 +123,10 @@ class PiAdapter:
         self.max_tokens = int(_env("PI_ENGINE_MAX_TOKENS", "32768"))
         self.reasoning = _env("PI_ENGINE_REASONING", "1") != "0"
         self.vision = _env("PI_ENGINE_VISION", "1") != "0"
+        self.models = [
+            m.strip() for m in _env("PI_ENGINE_MODELS", "qwen3.8-max,qwen3.6-flash").split(",")
+            if m.strip()
+        ]
         self.idle_ttl = float(_env("PI_ENGINE_IDLE_TTL", "900"))
         self.default_cwd = os.environ.get("PI_ENGINE_CWD") or ""
         self._sessions: dict[str, _PiSession] = {}
@@ -127,7 +134,9 @@ class PiAdapter:
 
     # ── adapter surface (QwenAdapter compatible) ─────────────
 
-    def create_session(self, cwd: str | None = None) -> str:
+    def create_session(
+        self, cwd: str | None = None, model: str | None = None, gate_mode: str = "strict"
+    ) -> str:
         self._reap_idle()
         session_id = f"pi-{uuid.uuid4().hex[:12]}"
         cfg_dir = tempfile.mkdtemp(prefix="aflow-pi-")
@@ -135,11 +144,12 @@ class PiAdapter:
         self._write_models_json(cfg_dir)
         self._write_gate_extension(cfg_dir)
 
+        chosen = model if model in self.models else self.model
         cmd = [
             self.pi_bin, "--mode", "rpc", "--no-session",
-            "--provider", self.provider, "--model", self.model,
+            "--provider", self.provider, "--model", chosen,
         ]
-        env = dict(os.environ, PI_CODING_AGENT_DIR=cfg_dir)
+        env = dict(os.environ, PI_CODING_AGENT_DIR=cfg_dir, AFLOW_GATE_MODE=gate_mode)
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -154,7 +164,10 @@ class PiAdapter:
             shutil.rmtree(cfg_dir, ignore_errors=True)
             raise
 
-        session = _PiSession(session_id=session_id, proc=proc, cfg_dir=cfg_dir)
+        session = _PiSession(
+            session_id=session_id, proc=proc, cfg_dir=cfg_dir,
+            model=chosen, gate_mode=gate_mode,
+        )
         with self._lock:
             self._sessions[session_id] = session
         threading.Thread(
@@ -302,6 +315,29 @@ class PiAdapter:
             logger.info("reaping idle pi session %s", sid)
             self.close_session(sid)
 
+    def set_options(
+        self, session_id: str, model: str | None = None, gate_mode: str | None = None
+    ) -> dict[str, Any]:
+        """Change model / approval mode; respawns the process when idle."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return {"ok": False, "error": "unknown session"}
+        if model and model in self.models:
+            session.model = model
+        if gate_mode in ("strict", "auto"):
+            session.gate_mode = gate_mode
+        # Options apply at process spawn; recycle an idle process so the next
+        # turn uses them immediately. A running turn keeps its process.
+        if session.proc.poll() is None:
+            self._terminate(session)
+            with self._lock:
+                self._sessions.pop(session_id, None)
+        return {"ok": True, "model": session.model, "gate_mode": session.gate_mode}
+
+    def alive(self, session_id: str) -> bool:
+        session = self._sessions.get(session_id)
+        return bool(session and session.proc.poll() is None)
+
     def respond_ui(self, session_id: str, request_id: str, confirmed: bool) -> bool:
         """Answer an extension_ui_request (approval card) from the client."""
         session = self._sessions.get(session_id)
@@ -337,13 +373,14 @@ class PiAdapter:
                     },
                     "models": [
                         {
-                            "id": self.model,
-                            "name": self.model,
-                            "reasoning": self.reasoning,
+                            "id": mid,
+                            "name": mid,
+                            "reasoning": "flash" not in mid and self.reasoning,
                             "input": ["text", "image"] if self.vision else ["text"],
                             "contextWindow": self.context_window,
                             "maxTokens": self.max_tokens,
                         }
+                        for mid in self.models
                     ],
                 }
             }

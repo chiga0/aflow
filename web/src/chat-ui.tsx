@@ -1,15 +1,48 @@
 /**
- * aflow-lite mobile-first chat UI (pi engine).
+ * aflow mobile-first chat UI (pi engine), tailwind v4 + shadcn primitives.
  *
- * Talks to /api/chat/* instead of the qwen daemon: transcripts are owned by
- * the runtime, live events arrive over SSE (EventSource auto-resends
- * Last-Event-ID, which the server's replay buffer understands), and the whole
- * layout sizes itself from window.visualViewport so mobile IMEs never cover
- * the composer.
+ * Talks to /api/chat/*: transcripts owned by the runtime, live events over
+ * SSE (EventSource auto-resends Last-Event-ID; server replays its buffer),
+ * layout sized from window.visualViewport so mobile IMEs never cover the
+ * composer.
  */
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Image as ImageIcon,
+  Menu,
+  Mic,
+  Paperclip,
+  Send,
+  ShieldCheck,
+  Square,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/* ── types ─────────────────────────────────────────────── */
+import { Button } from "./components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "./components/ui/sheet";
+import { Textarea } from "./components/ui/textarea";
+import { cn } from "./lib/utils";
+
+/* ── types ────────────────────────────────────────────── */
 
 interface SessionMeta {
   id: string;
@@ -39,15 +72,15 @@ interface Message {
   created_at: string;
 }
 
+interface SessionDetail extends SessionMeta {
+  running: boolean;
+  messages: Message[];
+}
+
 export interface PendingImage {
   dataUrl: string;
   base64: string;
   mimeType: string;
-}
-
-interface SessionDetail extends SessionMeta {
-  running: boolean;
-  messages: Message[];
 }
 
 /* ── api helpers ───────────────────────────────────────── */
@@ -90,16 +123,20 @@ function RichText({ text }: { text: string }) {
           const lang = nl >= 0 ? part.slice(0, nl).trim() : part.trim();
           const code = nl >= 0 ? part.slice(nl + 1) : "";
           return (
-            <div className="ac-code" key={i}>
-              {lang && <div className="ac-code-lang">{lang}</div>}
-              <pre>
-                <code>{code.replace(/\n$/, "")}</code>
+            <div key={i} className="overflow-hidden rounded-lg border border-border bg-black/40 text-xs">
+              {lang && (
+                <div className="border-b border-border px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {lang}
+                </div>
+              )}
+              <pre className="overflow-x-auto p-2.5">
+                <code className="font-mono text-foreground/85">{code.replace(/\n$/, "")}</code>
               </pre>
             </div>
           );
         }
         return part.trim() ? (
-          <p key={i} className="ac-para">
+          <p key={i} className="m-0 whitespace-pre-wrap">
             {part}
           </p>
         ) : null;
@@ -116,44 +153,76 @@ function ToolCard({ tool }: { tool: ToolRecord }) {
     if (tool.input == null) return "";
     try {
       const s = typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input);
-      return s.length > 140 ? s.slice(0, 140) + "…" : s;
+      return s.length > 90 ? s.slice(0, 90) + "…" : s;
     } catch {
       return "";
     }
   }, [tool.input]);
   return (
-    <div className={`ac-tool ${tool.is_error ? "ac-tool--err" : ""}`}>
-      <button type="button" className="ac-tool-head" onClick={() => setOpen(!open)}>
-        <span className={`ac-tool-dot ${tool.running ? "ac-tool-dot--run" : ""}`} />
-        <span className="ac-tool-name">{tool.name}</span>
-        {inputPreview && <span className="ac-tool-args">{inputPreview}</span>}
-        <span className="ac-tool-chev">{open ? "▾" : "▸"}</span>
+    <div
+      data-testid="tool-card"
+      className={cn(
+        "overflow-hidden rounded-lg border",
+        tool.is_error ? "border-destructive/50" : "border-border",
+      )}
+    >
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-2 bg-secondary/40 px-2.5 py-1.5 text-left text-xs text-muted-foreground"
+        onClick={() => setOpen(!open)}
+      >
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            tool.running
+              ? "bg-warning [animation:aflow-pulse_1s_ease-in-out_infinite]"
+              : tool.is_error
+                ? "bg-destructive"
+                : "bg-success",
+          )}
+        />
+        <span className="font-mono font-semibold text-foreground/85">{tool.name}</span>
+        {inputPreview && (
+          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+            {inputPreview}
+          </span>
+        )}
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
       {open && tool.output != null && (
-        <pre className="ac-tool-out">{tool.output.slice(0, 4000)}</pre>
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap bg-black/40 p-2.5 font-mono text-[11px] text-muted-foreground">
+          {tool.output.slice(0, 4000)}
+        </pre>
       )}
     </div>
   );
 }
 
-/* ── message bubbles ───────────────────────────────────── */
+/* ── bubbles ───────────────────────────────────────────── */
 
 function UserBubble({ text, images }: { text: string; images?: Message["images"] }) {
   return (
-    <div className="ac-row ac-row--user">
-      <div className="ac-bubble ac-bubble--user">
+    <div className="flex justify-end">
+      <div className="max-w-[86%] rounded-2xl rounded-br-sm bg-gradient-to-br from-primary to-accent px-3.5 py-2 text-[15px] leading-relaxed text-white">
         {images && images.length > 0 && (
-          <div className="ac-user-imgs">
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
             {images.map((im, i) =>
               im.dataUrl ? (
-                <img key={i} src={im.dataUrl} alt="attached" className="ac-user-img" />
+                <img
+                  key={i}
+                  src={im.dataUrl}
+                  alt="attached"
+                  className="max-h-28 max-w-40 rounded-lg border border-white/25"
+                />
               ) : (
-                <span key={i} className="ac-user-imgchip">📷</span>
+                <span key={i} className="rounded-md bg-white/15 px-2 py-0.5 text-xs">
+                  📷
+                </span>
               ),
             )}
           </div>
         )}
-        {text}
+        <span className="whitespace-pre-wrap break-words">{text}</span>
       </div>
     </div>
   );
@@ -180,26 +249,33 @@ function AssistantBubble({
   const long = text.length > 500 || text.split("\n").length > 12;
   const shown = long && !expanded ? collapsePreview(text) : text;
   return (
-    <div className="ac-row">
-      <div className="ac-bubble ac-bubble--assistant">
+    <div className="flex">
+      <div
+        data-testid="assistant-bubble"
+        className="flex max-w-[86%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-border bg-secondary/30 px-3.5 py-2.5 text-[15px] leading-relaxed"
+      >
         {tools.map((t) => (
           <ToolCard key={t.id || t.name} tool={t} />
         ))}
         {shown && <RichText text={shown} />}
         {long && (
-          <button type="button" className="ac-more" onClick={() => setExpanded(!expanded)}>
+          <button
+            type="button"
+            className="cursor-pointer self-start text-xs text-primary"
+            onClick={() => setExpanded(!expanded)}
+          >
             {expanded ? "收起" : "展开全文"}
           </button>
         )}
         {streaming && !text && tools.every((t) => !t.running) && (
-          <div className="ac-thinking">
-            <span className="ac-dot" />
-            <span className="ac-dot" />
-            <span className="ac-dot" />
+          <div data-testid="thinking" className="flex gap-1 py-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite_0.2s]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite_0.4s]" />
           </div>
         )}
         {status && status !== "completed" && (
-          <div className="ac-status ac-status--bad">
+          <div className="text-xs text-destructive">
             {status === "failed" ? "执行失败" : status === "timeout" ? "超时" : status}
           </div>
         )}
@@ -208,111 +284,271 @@ function AssistantBubble({
   );
 }
 
-/* ── input bar ─────────────────────────────────────────── */
+/* ── chatbox (composer) ────────────────────────────────── */
 
-function InputBar({
-  running,
-  images,
-  onSend,
-  onCancel,
-  onPickImage,
-  onRemoveImage,
-}: {
+interface ChatboxProps {
   running: boolean;
   images: PendingImage[];
+  files: { name: string; text: string }[];
+  models: string[];
+  model: string;
+  gateMode: "strict" | "auto";
   onSend: (text: string) => void;
   onCancel: () => void;
   onPickImage: (file: File) => void;
+  onPickFile: (file: File) => void;
   onRemoveImage: (index: number) => void;
-}) {
+  onRemoveFile: (index: number) => void;
+  onModel: (model: string) => void;
+  onGateMode: (mode: "strict" | "auto") => void;
+}
+
+function Chatbox(p: ChatboxProps) {
   const [text, setText] = useState("");
+  const [listening, setListening] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const imgRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const recRef = useRef<{ stop: () => void } | null>(null);
 
   const autosize = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, []);
 
+  const canSend = Boolean(text.trim() || p.images.length || p.files.length);
+
   const submit = () => {
-    const value = text.trim();
-    if (!value || running) return;
-    onSend(value);
+    if (!canSend || p.running) return;
+    p.onSend(text.trim());
     setText("");
     requestAnimationFrame(autosize);
   };
 
+  const toggleVoice = () => {
+    const w = window as unknown as Record<string, any>;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) return;
+    if (listening) {
+      recRef.current?.stop();
+      return;
+    }
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.onresult = (e: any) => {
+      let final = "";
+      for (const r of e.results) if (r.isFinal) final += r[0].transcript;
+      if (final) {
+        setText((t) => (t ? t + final : final));
+        requestAnimationFrame(autosize);
+      }
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
+
+  const hasSR =
+    typeof window !== "undefined" &&
+    Boolean(
+      (window as unknown as Record<string, any>).SpeechRecognition ||
+        (window as unknown as Record<string, any>).webkitSpeechRecognition,
+    );
+
   return (
-    <div className="ac-inputbar-wrap">
-      {images.length > 0 && (
-        <div className="ac-previews">
-          {images.map((im, i) => (
-            <div key={i} className="ac-preview">
-              <img src={im.dataUrl} alt="" />
-              <button type="button" aria-label="移除图片" onClick={() => onRemoveImage(i)}>
-                ✕
+    <div className="shrink-0 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+      {(p.images.length > 0 || p.files.length > 0) && (
+        <div className="flex gap-2 px-3 pt-2.5">
+          {p.images.map((im, i) => (
+            <div key={`i${i}`} className="relative">
+              <img src={im.dataUrl} alt="" className="h-13 w-13 rounded-lg border border-border object-cover" />
+              <button
+                type="button"
+                aria-label="移除图片"
+                className="absolute -right-1.5 -top-1.5 grid h-4.5 w-4.5 cursor-pointer place-items-center rounded-full bg-card text-[9px] text-muted-foreground"
+                onClick={() => p.onRemoveImage(i)}
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+          {p.files.map((f, i) => (
+            <div
+              key={`f${i}`}
+              className="flex max-w-36 items-center gap-1.5 rounded-lg bg-secondary/60 px-2.5 py-1.5 text-xs text-muted-foreground"
+            >
+              <FileText size={12} className="shrink-0" />
+              <span className="truncate">{f.name}</span>
+              <button
+                type="button"
+                aria-label="移除文件"
+                className="cursor-pointer text-muted-foreground"
+                onClick={() => p.onRemoveFile(i)}
+              >
+                <X size={10} />
               </button>
             </div>
           ))}
         </div>
       )}
-      <div className="ac-inputbar">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
+
+      <div className="mx-3 my-2.5 rounded-2xl border border-border bg-secondary/25 focus-within:border-primary">
+        <Textarea
+          ref={ref}
+          data-testid="composer-input"
+          className="max-h-36 border-0 bg-transparent px-3.5 pt-3 pb-1 text-base focus-visible:ring-0"
+          rows={1}
+          placeholder={listening ? "正在听… 说完自动填入" : "描述你想让 Agent 完成的任务…"}
+          value={text}
+          enterKeyHint="send"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onPickImage(f);
-            e.target.value = "";
+            setText(e.target.value);
+            autosize();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            }
           }}
         />
-        <button
-          type="button"
-          className="ac-attach"
-          aria-label="附加截图"
-          disabled={running || images.length >= 3}
-          onClick={() => fileRef.current?.click()}
-        >
-          📷
-        </button>
-        <textarea
-        ref={ref}
-        className="ac-input"
-        rows={1}
-        placeholder="描述你想让 Agent 完成的任务…"
-        value={text}
-        enterKeyHint="send"
+        <div className="flex items-center gap-1 px-2 pb-2">
+          {/* + attach menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="附加内容" className="rounded-full text-muted-foreground">
+                <Paperclip size={17} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start">
+              <DropdownMenuLabel>附加</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => imgRef.current?.click()}>
+                <ImageIcon size={14} /> 图片 / 截图
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => fileRef.current?.click()}>
+                <FileText size={14} /> 文件（文本）
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {hasSR && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="语音输入"
+              className={cn(
+                "rounded-full",
+                listening
+                  ? "bg-destructive/80 text-white [animation:aflow-pulse_1.2s_infinite]"
+                  : "text-muted-foreground",
+              )}
+              onClick={toggleVoice}
+            >
+              <Mic size={17} />
+            </Button>
+          )}
+
+          <div className="flex-1" />
+
+          {/* model switcher */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label="切换模型"
+                className="h-7 max-w-28 gap-1 rounded-lg bg-primary/15 px-2 text-[11px] text-primary hover:bg-primary/25"
+              >
+                <span className="truncate">{p.model}</span>
+                <ChevronDown size={11} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end">
+              <DropdownMenuLabel>模型</DropdownMenuLabel>
+              {p.models.map((m) => (
+                <DropdownMenuItem
+                  key={m}
+                  className={cn(m === p.model && "bg-primary/15 text-primary")}
+                  onClick={() => p.onModel(m)}
+                >
+                  {m === p.model ? "✓ " : ""}
+                  {m}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* approval mode */}
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label="审批模式"
+            title={p.gateMode === "strict" ? "危险命令需审批" : "自动执行（免审批）"}
+            className={cn(
+              "h-7 gap-1 rounded-lg px-2 text-[11px]",
+              p.gateMode === "strict"
+                ? "bg-primary/15 text-primary hover:bg-primary/25"
+                : "bg-warning/15 text-warning hover:bg-warning/25",
+            )}
+            onClick={() => p.onGateMode(p.gateMode === "strict" ? "auto" : "strict")}
+          >
+            {p.gateMode === "strict" ? <ShieldCheck size={12} /> : <Zap size={12} />}
+            {p.gateMode === "strict" ? "审批" : "自动"}
+          </Button>
+
+          {p.running ? (
+            <Button
+              data-testid="composer-stop"
+              variant="destructive"
+              size="icon"
+              aria-label="停止"
+              className="rounded-full"
+              onClick={p.onCancel}
+            >
+              <Square size={14} fill="currentColor" />
+            </Button>
+          ) : (
+            <Button
+              data-testid="composer-send"
+              size="icon"
+              aria-label="发送"
+              className="rounded-full bg-gradient-to-br from-primary to-accent"
+              disabled={!canSend}
+              onClick={submit}
+            >
+              <Send size={15} />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <input
+        ref={imgRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
         onChange={(e) => {
-          setText(e.target.value);
-          autosize();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            submit();
-          }
+          const f = e.target.files?.[0];
+          if (f) p.onPickImage(f);
+          e.target.value = "";
         }}
       />
-        {running ? (
-          <button type="button" className="ac-btn ac-btn--stop" onClick={onCancel} aria-label="停止">
-            ■
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="ac-btn ac-btn--send"
-            onClick={submit}
-            disabled={(!text.trim() && images.length === 0)}
-            aria-label="发送"
-          >
-            ↑
-          </button>
-        )}
-      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) p.onPickFile(f);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
@@ -326,22 +562,20 @@ export function ChatApp({ height }: { height: number | null }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
-  // Refs mirror the live buffers so the turn.finished handler can finalize
-  // the assistant message locally without stale-closure state.
   const liveTextRef = useRef("");
   const liveToolsRef = useRef<ToolRecord[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; text: string }[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState("");
+  const [gateMode, setGateMode] = useState<"strict" | "auto">("strict");
   const [approvals, setApprovals] = useState<
     { request_id: string; title: string; message: string }[]
   >([]);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const esRef = useRef<EventSource | null>(null);
-  // Scroll etiquette: only auto-scroll when the user is already near the
-  // bottom; reading history must never be yanked back by new content.
   const stickToBottom = useRef(true);
-  // Two-step delete: first tap arms the confirmation, second tap deletes.
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
 
   const refreshSessions = useCallback(async () => {
@@ -363,6 +597,7 @@ export function ChatApp({ height }: { height: number | null }) {
     liveToolsRef.current = [];
     setLiveRunning(false);
     setApprovals([]);
+    stickToBottom.current = true;
     if (!id) {
       setDetail(null);
       return;
@@ -390,7 +625,6 @@ export function ChatApp({ height }: { height: number | null }) {
     const es = new EventSource(`/api/chat/sessions/${activeId}/events`, {
       withCredentials: true,
     });
-    esRef.current = es;
     es.onmessage = (e) => {
       try {
         const ev = JSON.parse(e.data) as { type: string; data: Record<string, unknown> };
@@ -442,7 +676,9 @@ export function ChatApp({ height }: { height: number | null }) {
             break;
           case "permission.request":
             setLiveRunning(true);
-            notify("AFlow 需要审批", String(data.message || "").slice(0, 80));
+            if (typeof document !== "undefined" && document.hidden) {
+              navigator.vibrate?.(120);
+            }
             setApprovals((as) => [
               ...as,
               {
@@ -459,9 +695,6 @@ export function ChatApp({ height }: { height: number | null }) {
             break;
           case "turn.finished": {
             setLiveRunning(false);
-            // Finalize the assistant message locally from the live buffers so
-            // the reply never disappears even when the reconcile fetch is
-            // blocked (WAF / flaky mobile network).
             const content = liveTextRef.current;
             const tools = liveToolsRef.current;
             setDetail((d) =>
@@ -488,8 +721,16 @@ export function ChatApp({ height }: { height: number | null }) {
             setLiveText("");
             setLiveTools([]);
             refreshSessions();
-            notify("AFlow 完成", content.slice(0, 80) || "任务已完成");
-            // Best-effort reconcile with the persisted transcript.
+            if (typeof document !== "undefined" && document.hidden) {
+              try {
+                if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                  new Notification("AFlow 完成", { body: content.slice(0, 80) || "任务已完成" });
+                }
+                navigator.vibrate?.(120);
+              } catch {
+                /* ignore */
+              }
+            }
             api<SessionDetail>("GET", `/api/chat/sessions/${activeId}`)
               .then(setDetail)
               .catch(() => undefined);
@@ -504,7 +745,6 @@ export function ChatApp({ height }: { height: number | null }) {
     };
     return () => {
       es.close();
-      esRef.current = null;
     };
   }, [activeId, refreshSessions]);
 
@@ -512,23 +752,20 @@ export function ChatApp({ height }: { height: number | null }) {
     refreshSessions();
   }, [refreshSessions]);
 
-  /* in-tab notifications: completion & approval moments */
+  useEffect(() => {
+    api<{ models: string[] }>("GET", "/api/chat/meta")
+      .then((m) => {
+        setModels(m.models || []);
+        setModel((cur) => cur || (m.models || [])[0] || "");
+      })
+      .catch(() => undefined);
+  }, []);
+
+  /* request notification permission once */
   useEffect(() => {
     if (typeof Notification === "undefined") return;
     if (Notification.permission === "default") {
       Notification.requestPermission().catch(() => undefined);
-    }
-  }, []);
-
-  const notify = useCallback((title: string, body: string) => {
-    if (typeof document !== "undefined" && !document.hidden) return;
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification(title, { body });
-      }
-      navigator.vibrate?.(120);
-    } catch {
-      /* ignore */
     }
   }, []);
 
@@ -545,17 +782,23 @@ export function ChatApp({ height }: { height: number | null }) {
   }, []);
 
   const send = useCallback(
-    async (text: string, images?: PendingImage[]) => {
+    async (text: string, images?: PendingImage[], files?: { name: string; text: string }[]) => {
       let id = activeId;
       const imgs = images || [];
+      const fls = files || [];
+      const finalText =
+        text + fls.map((f) => `\n\n📄 ${f.name}：\n\`\`\`\n${f.text}\n\`\`\``).join("");
       try {
         if (!id) {
           const session = await api<SessionMeta>("POST", "/api/chat/sessions");
           id = session.id;
           setActiveId(id);
           setDetail({ ...session, running: false, messages: [] });
+          await api("POST", `/api/chat/sessions/${id}/options`, {
+            model: model || undefined,
+            gate_mode: gateMode,
+          }).catch(() => undefined);
         }
-        // Optimistic user bubble.
         setDetail((d) =>
           d
             ? {
@@ -565,7 +808,7 @@ export function ChatApp({ height }: { height: number | null }) {
                   {
                     id: Date.now(),
                     role: "user",
-                    content: text,
+                    content: finalText,
                     tools: [],
                     images: imgs.map((im) => ({ dataUrl: im.dataUrl, mimeType: im.mimeType })),
                     status: "completed",
@@ -581,33 +824,47 @@ export function ChatApp({ height }: { height: number | null }) {
         liveToolsRef.current = [];
         stickToBottom.current = true;
         await api("POST", `/api/chat/sessions/${id}/messages`, {
-          text,
+          text: finalText,
           images: imgs.map((im) => ({ data: im.base64, mimeType: im.mimeType })),
         });
         setPendingImages([]);
+        setPendingFiles([]);
         refreshSessions();
       } catch (exc) {
         setLiveRunning(false);
         setError(exc instanceof Error ? exc.message : String(exc));
       }
     },
-    [activeId, refreshSessions],
+    [activeId, refreshSessions, model, gateMode],
   );
 
-  const decideApproval = useCallback(
-    async (requestId: string, approved: boolean) => {
-      if (!activeId) return;
-      setApprovals((as) => as.filter((a) => a.request_id !== requestId));
+  const cancel = useCallback(async () => {
+    if (activeId) {
       try {
-        await api("POST", `/api/chat/sessions/${activeId}/approvals`, {
-          request_id: requestId,
-          approved,
-        });
-      } catch (exc) {
-        setError(exc instanceof Error ? exc.message : String(exc));
+        await api("POST", `/api/chat/sessions/${activeId}/cancel`);
+      } catch {
+        /* cancel is best-effort */
       }
+    }
+  }, [activeId]);
+
+  const removeSession = useCallback(
+    async (id: string) => {
+      if (armedDelete !== id) {
+        setArmedDelete(id);
+        window.setTimeout(() => setArmedDelete((cur) => (cur === id ? null : cur)), 3000);
+        return;
+      }
+      setArmedDelete(null);
+      try {
+        await api("DELETE", `/api/chat/sessions/${id}`);
+      } catch {
+        /* ignore */
+      }
+      if (activeId === id) openSession(null);
+      refreshSessions();
     },
-    [activeId],
+    [armedDelete, activeId, openSession, refreshSessions],
   );
 
   const pickImage = useCallback((file: File) => {
@@ -627,34 +884,59 @@ export function ChatApp({ height }: { height: number | null }) {
     reader.readAsDataURL(file);
   }, []);
 
-  const cancel = useCallback(async () => {
-    if (activeId) {
-      try {
-        await api("POST", `/api/chat/sessions/${activeId}/cancel`);
-      } catch {
-        /* cancel is best-effort */
-      }
+  const pickFile = useCallback((file: File) => {
+    if (file.size > 256 * 1024) {
+      setError("文本文件不能超过 256KB");
+      return;
     }
-  }, [activeId]);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || "");
+      setPendingFiles((fs) => (fs.length >= 3 ? fs : [...fs, { name: file.name, text: content }]));
+    };
+    reader.readAsText(file);
+  }, []);
 
-  const removeSession = useCallback(
-    async (id: string) => {
-      if (armedDelete !== id) {
-        // First tap: arm the confirmation, auto-disarm after 3s.
-        setArmedDelete(id);
-        window.setTimeout(() => setArmedDelete((cur) => (cur === id ? null : cur)), 3000);
-        return;
-      }
-      setArmedDelete(null);
+  const changeModel = useCallback(
+    async (m: string) => {
+      setModel(m);
+      if (!activeId) return;
       try {
-        await api("DELETE", `/api/chat/sessions/${id}`);
-      } catch {
-        /* ignore */
+        await api("POST", `/api/chat/sessions/${activeId}/options`, { model: m });
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
       }
-      if (activeId === id) openSession(null);
-      refreshSessions();
     },
-    [armedDelete, activeId, openSession, refreshSessions],
+    [activeId],
+  );
+
+  const changeGateMode = useCallback(
+    async (mode: "strict" | "auto") => {
+      setGateMode(mode);
+      if (!activeId) return;
+      try {
+        await api("POST", `/api/chat/sessions/${activeId}/options`, { gate_mode: mode });
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      }
+    },
+    [activeId],
+  );
+
+  const decideApproval = useCallback(
+    async (requestId: string, approved: boolean) => {
+      if (!activeId) return;
+      setApprovals((as) => as.filter((a) => a.request_id !== requestId));
+      try {
+        await api("POST", `/api/chat/sessions/${activeId}/approvals`, {
+          request_id: requestId,
+          approved,
+        });
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      }
+    },
+    [activeId],
   );
 
   const running = liveRunning || Boolean(detail?.running);
@@ -668,56 +950,55 @@ export function ChatApp({ height }: { height: number | null }) {
 
   return (
     <div
-      className="ac-shell"
+      data-testid="shell"
+      className="flex w-screen flex-col overflow-hidden bg-background text-foreground"
       style={{ height: height ? `${height}px` : "100dvh" }}
     >
       {/* header */}
-      <header className="ac-header">
-        <button
-          type="button"
-          className="ac-iconbtn"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="会话列表"
-        >
-          ☰
-        </button>
-        <div className="ac-header-title">
-          {detail?.title || "AFlow"}
-          <span className="ac-engine">pi</span>
-        </div>
-        <button type="button" className="ac-iconbtn" onClick={() => newSession()} aria-label="新会话">
-          ＋
-        </button>
-      </header>
-
-      {/* session drawer */}
-      {drawerOpen && (
-        <div className="ac-drawer-bg" onClick={() => setDrawerOpen(false)}>
-          <div className="ac-drawer" onClick={(e) => e.stopPropagation()}>
-            <div className="ac-drawer-head">
-              <span>会话</span>
-              <button type="button" className="ac-mini-btn" onClick={() => newSession()}>
-                ＋ 新会话
-              </button>
-            </div>
-            <div className="ac-drawer-list">
-              {sessions.length === 0 && <div className="ac-empty">暂无会话</div>}
+      <header className="flex shrink-0 items-center gap-2 border-b border-border bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
+        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" data-testid="drawer-open" aria-label="会话列表">
+              <Menu size={18} />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" data-testid="drawer" className="pt-[env(safe-area-inset-top)]">
+            <SheetHeader className="flex-row items-center justify-between">
+              <SheetTitle>会话</SheetTitle>
+              <SheetClose asChild>
+                <Button variant="outline" size="sm" onClick={() => newSession()}>
+                  ＋ 新会话
+                </Button>
+              </SheetClose>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto px-2 pb-4">
+              {sessions.length === 0 && (
+                <div className="py-8 text-center text-sm text-muted-foreground">暂无会话</div>
+              )}
               {sessions.map((s) => (
                 <div
                   key={s.id}
-                  className={`ac-session ${s.id === activeId ? "ac-session--active" : ""}`}
+                  data-testid="session-item"
+                  className={cn(
+                    "relative mb-0.5 cursor-pointer rounded-xl px-3 py-2.5 pr-9",
+                    s.id === activeId ? "bg-primary/15" : "hover:bg-secondary/50 active:bg-secondary/50",
+                  )}
                   onClick={() => openSession(s.id)}
                 >
-                  <div className="ac-session-title">
-                    {s.running && <span className="ac-badge ac-badge--run">运行中</span>}
+                  <div className="truncate text-sm">
+                    {s.running && (
+                      <span className="mr-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning [animation:aflow-pulse_1.2s_infinite]">
+                        运行中
+                      </span>
+                    )}
                     {!s.running && (s.last_status === "failed" || s.last_status === "timeout") && (
-                      <span className="ac-badge ac-badge--bad">
+                      <span className="mr-1.5 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
                         {s.last_status === "failed" ? "失败" : "超时"}
                       </span>
                     )}
                     {s.title || "新会话"}
                   </div>
-                  <div className="ac-session-meta">
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
                     {new Date(s.updated_at).toLocaleString("zh-CN", {
                       month: "numeric",
                       day: "numeric",
@@ -727,31 +1008,63 @@ export function ChatApp({ height }: { height: number | null }) {
                   </div>
                   <button
                     type="button"
-                    className={`ac-session-del ${armedDelete === s.id ? "ac-session-del--armed" : ""}`}
                     aria-label="删除会话"
+                    className={cn(
+                      "absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5",
+                      armedDelete === s.id
+                        ? "bg-destructive/15 text-xs text-destructive"
+                        : "text-muted-foreground",
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
                       removeSession(s.id);
                     }}
                   >
-                    {armedDelete === s.id ? "确认?" : "✕"}
+                    {armedDelete === s.id ? "确认?" : <Trash2 size={13} />}
                   </button>
                 </div>
               ))}
             </div>
-          </div>
+          </SheetContent>
+        </Sheet>
+
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-[15px] font-semibold">
+          <span className="truncate">{detail?.title || "AFlow"}</span>
+          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
+            pi
+          </span>
         </div>
-      )}
+
+        <Button variant="ghost" size="icon" aria-label="新会话" onClick={() => newSession()}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </Button>
+      </header>
 
       {/* messages */}
-      <div className="ac-scroll" ref={scrollRef} onScroll={onScroll}>
+      <div
+        data-testid="scroll"
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5"
+      >
         {!activeId && (
-          <div className="ac-welcome">
-            <div className="ac-welcome-title">AFlow</div>
-            <p>描述你的目标，Agent 会规划、执行并交付结果。</p>
-            <div className="ac-chips">
+          <div className="m-auto flex max-w-75 flex-col items-center px-6 text-center">
+            <div className="mb-2 bg-gradient-to-br from-indigo-200 via-cyan-200 to-indigo-200 bg-[length:200%_200%] bg-clip-text text-3xl font-extrabold text-transparent [animation:aflow-shimmer_6s_ease-in-out_infinite]">
+              AFlow
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              描述你的目标，Agent 会规划、执行并交付结果。
+            </p>
+            <div className="mt-5 flex w-full flex-col gap-2">
               {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" className="ac-chip" onClick={() => send(s)}>
+                <button
+                  key={s}
+                  type="button"
+                  className="cursor-pointer rounded-xl border border-border bg-secondary/30 px-3 py-2.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground active:bg-primary/15"
+                  onClick={() => send(s)}
+                >
                   {s}
                 </button>
               ))}
@@ -762,22 +1075,24 @@ export function ChatApp({ height }: { height: number | null }) {
           m.role === "user" ? (
             <UserBubble key={m.id} text={m.content} images={m.images} />
           ) : (
-            <AssistantBubble
-              key={m.id}
-              text={m.content}
-              tools={m.tools || []}
-              status={m.status}
-            />
+            <AssistantBubble key={m.id} text={m.content} tools={m.tools || []} status={m.status} />
           ),
         )}
         {running && (liveText || liveTools.length > 0 || !detail?.running) && (
           <AssistantBubble text={liveText} tools={liveTools} streaming />
         )}
         {error && (
-          <div className="ac-error">
+          <div
+            data-testid="error"
+            className="mx-auto flex max-w-[90%] items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
             <span>{error}</span>
             {lastUserText && (
-              <button type="button" className="ac-retry" onClick={() => send(lastUserText)}>
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer rounded-md border border-destructive/50 px-2 py-0.5 text-[11px]"
+                onClick={() => send(lastUserText)}
+              >
                 重试
               </button>
             )}
@@ -785,287 +1100,50 @@ export function ChatApp({ height }: { height: number | null }) {
         )}
       </div>
 
-      {/* composer */}
+      {/* approval cards */}
       {approvals.length > 0 && (
-        <div className="ac-approvals">
+        <div className="flex shrink-0 flex-col gap-2 px-3 pb-2">
           {approvals.map((a) => (
-            <div key={a.request_id} className="ac-approval">
-              <div className="ac-approval-title">⚠️ {a.title}</div>
-              <div className="ac-approval-msg">{a.message}</div>
-              <div className="ac-approval-actions">
-                <button
-                  type="button"
-                  className="ac-approve-ok"
-                  onClick={() => decideApproval(a.request_id, true)}
-                >
+            <div
+              key={a.request_id}
+              className="rounded-xl border border-warning/40 bg-warning/10 p-3 [animation:aflow-fade-in_0.25s_ease-out_both]"
+            >
+              <div className="text-sm font-semibold text-warning">⚠️ {a.title}</div>
+              <div className="mt-1 max-h-30 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-foreground/85">
+                {a.message}
+              </div>
+              <div className="mt-2.5 flex gap-2">
+                <Button size="sm" className="flex-1 bg-success hover:brightness-110"
+                  onClick={() => decideApproval(a.request_id, true)}>
                   允许
-                </button>
-                <button
-                  type="button"
-                  className="ac-approve-no"
-                  onClick={() => decideApproval(a.request_id, false)}
-                >
+                </Button>
+                <Button size="sm" variant="destructive" className="flex-1"
+                  onClick={() => decideApproval(a.request_id, false)}>
                   拒绝
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
-      <InputBar
+
+      {/* composer */}
+      <Chatbox
         running={running}
         images={pendingImages}
-        onSend={(t) => send(t, pendingImages)}
+        files={pendingFiles}
+        models={models}
+        model={model || "qwen3.8-max"}
+        gateMode={gateMode}
+        onSend={(t) => send(t, pendingImages, pendingFiles)}
         onCancel={cancel}
         onPickImage={pickImage}
+        onPickFile={pickFile}
         onRemoveImage={(i) => setPendingImages((ps) => ps.filter((_p, j) => j !== i))}
+        onRemoveFile={(i) => setPendingFiles((fs) => fs.filter((_f, j) => j !== i))}
+        onModel={changeModel}
+        onGateMode={changeGateMode}
       />
     </div>
   );
 }
-
-/* ── styles ────────────────────────────────────────────── */
-
-export const chatStyles = `
-.ac-shell {
-  display: flex; flex-direction: column; background: #09090b; color: #f4f4f5;
-  width: 100vw; overflow: hidden;
-  font-family: "SF Pro Text", Inter, system-ui, -apple-system, sans-serif;
-}
-.ac-header {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.55rem 0.6rem;
-  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: rgba(9,9,11,0.9); backdrop-filter: blur(10px);
-  flex: 0 0 auto;
-}
-.ac-header-title {
-  flex: 1; text-align: center; font-size: 0.95rem; font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
-}
-.ac-engine {
-  font-size: 0.6rem; padding: 1px 6px; border-radius: 4px;
-  background: rgba(99,102,241,0.18); color: #a5b4fc; letter-spacing: 0.06em;
-}
-.ac-iconbtn {
-  width: 38px; height: 38px; border: none; border-radius: 10px;
-  background: transparent; color: #d4d4d8; font-size: 1.05rem; cursor: pointer;
-  display: grid; place-items: center; flex: 0 0 auto;
-}
-.ac-iconbtn:active { background: rgba(255,255,255,0.08); }
-
-.ac-scroll {
-  flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 0.9rem 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.6rem;
-}
-.ac-row { display: flex; }
-.ac-row--user { justify-content: flex-end; }
-.ac-bubble {
-  max-width: 86%; padding: 0.55rem 0.8rem; border-radius: 14px;
-  font-size: 0.92rem; line-height: 1.55; overflow-wrap: anywhere;
-}
-.ac-bubble--user {
-  background: linear-gradient(135deg, #4f46e5, #0891b2); color: #fff;
-  border-bottom-right-radius: 4px; white-space: pre-wrap;
-}
-.ac-bubble--assistant {
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.07);
-  border-bottom-left-radius: 4px; display: flex; flex-direction: column; gap: 0.45rem;
-}
-.ac-para { margin: 0; white-space: pre-wrap; }
-.ac-code {
-  background: #0c0c0f; border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px; overflow: hidden; font-size: 0.8rem;
-}
-.ac-code-lang {
-  padding: 0.25rem 0.6rem; font-size: 0.65rem; color: #71717a;
-  border-bottom: 1px solid rgba(255,255,255,0.06); text-transform: uppercase; letter-spacing: 0.05em;
-}
-.ac-code pre { margin: 0; padding: 0.6rem; overflow-x: auto; }
-.ac-code code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #d4d4d8; }
-
-.ac-tool { border: 1px solid rgba(255,255,255,0.09); border-radius: 8px; overflow: hidden; }
-.ac-tool--err { border-color: rgba(239,68,68,0.4); }
-.ac-tool-head {
-  display: flex; align-items: center; gap: 0.45rem; width: 100%;
-  background: rgba(255,255,255,0.03); border: none; color: #a1a1aa;
-  padding: 0.4rem 0.6rem; font-size: 0.75rem; cursor: pointer; text-align: left;
-}
-.ac-tool-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex: 0 0 auto; }
-.ac-tool-dot--run { background: #f59e0b; animation: ac-pulse 1s ease-in-out infinite; }
-.ac-tool--err .ac-tool-dot { background: #ef4444; }
-.ac-tool-name { font-weight: 600; color: #d4d4d8; font-family: ui-monospace, monospace; }
-.ac-tool-args {
-  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: #71717a; font-family: ui-monospace, monospace;
-}
-.ac-tool-chev { color: #52525b; }
-.ac-tool-out {
-  margin: 0; padding: 0.5rem 0.6rem; font-size: 0.72rem; color: #a1a1aa;
-  background: #0c0c0f; overflow-x: auto; max-height: 220px; overflow-y: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap;
-}
-
-.ac-thinking { display: flex; gap: 4px; padding: 0.2rem 0; }
-.ac-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: #818cf8;
-  animation: ac-pulse 1.2s ease-in-out infinite;
-}
-.ac-dot:nth-child(2) { animation-delay: 0.2s; }
-.ac-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes ac-pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
-
-.ac-status--bad { color: #fca5a5; font-size: 0.8rem; }
-.ac-error {
-  align-self: center; max-width: 90%; font-size: 0.8rem; color: #fca5a5;
-  background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
-  border-radius: 8px; padding: 0.45rem 0.7rem;
-  display: flex; align-items: center; gap: 0.6rem;
-}
-.ac-retry {
-  border: 1px solid rgba(252,165,165,0.5); background: transparent; color: #fca5a5;
-  font-size: 0.72rem; border-radius: 6px; padding: 0.2rem 0.55rem; cursor: pointer;
-  flex: 0 0 auto;
-}
-.ac-more {
-  border: none; background: transparent; color: #818cf8; font-size: 0.75rem;
-  cursor: pointer; padding: 0.1rem 0; text-align: left;
-}
-.ac-badge {
-  display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 4px;
-  margin-right: 0.35rem; vertical-align: 1px; letter-spacing: 0.03em;
-}
-.ac-badge--run { background: rgba(245,158,11,0.18); color: #fbbf24; animation: ac-pulse 1.2s infinite; }
-.ac-badge--bad { background: rgba(239,68,68,0.18); color: #fca5a5; }
-.ac-chips { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.2rem; width: 100%; max-width: 300px; }
-.ac-chip {
-  border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
-  color: #a1a1aa; font-size: 0.82rem; border-radius: 10px; padding: 0.6rem 0.8rem;
-  cursor: pointer; text-align: left; transition: all 0.2s;
-}
-.ac-chip:active { background: rgba(99,102,241,0.15); color: #e0e7ff; }
-
-.ac-approvals {
-  padding: 0.5rem 0.75rem 0;
-  display: flex; flex-direction: column; gap: 0.5rem;
-  background: rgba(9,9,11,0.92);
-}
-.ac-approval {
-  border: 1px solid rgba(245,158,11,0.4); background: rgba(245,158,11,0.08);
-  border-radius: 12px; padding: 0.6rem 0.75rem;
-  animation: aflow-fade-in 0.25s ease-out both;
-}
-.ac-approval-title { font-size: 0.85rem; font-weight: 600; color: #fbbf24; }
-.ac-approval-msg {
-  font-size: 0.78rem; color: #d4d4d8; margin-top: 0.3rem;
-  white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  max-height: 120px; overflow-y: auto;
-}
-.ac-approval-actions { display: flex; gap: 0.5rem; margin-top: 0.55rem; }
-.ac-approve-ok, .ac-approve-no {
-  flex: 1; height: 38px; border-radius: 9px; border: none; cursor: pointer;
-  font-size: 0.85rem; font-weight: 600;
-}
-.ac-approve-ok { background: #16a34a; color: #fff; }
-.ac-approve-no { background: rgba(239,68,68,0.85); color: #fff; }
-.ac-inputbar-wrap {
-  border-top: 1px solid rgba(255,255,255,0.07);
-  background: rgba(9,9,11,0.92); backdrop-filter: blur(10px);
-  flex: 0 0 auto;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.ac-previews { display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem 0; }
-.ac-preview { position: relative; }
-.ac-preview img {
-  width: 52px; height: 52px; object-fit: cover; border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.15);
-}
-.ac-preview button {
-  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
-  border-radius: 50%; border: none; background: rgba(24,24,27,0.9); color: #a1a1aa;
-  font-size: 0.6rem; cursor: pointer; display: grid; place-items: center;
-}
-.ac-inputbar {
-  display: flex; align-items: flex-end; gap: 0.5rem;
-  padding: 0.55rem 0.75rem;
-}
-.ac-input {
-  flex: 1; resize: none; border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05);
-  color: #f4f4f5; font-size: 16px; /* 16px prevents iOS zoom-on-focus */
-  line-height: 1.4; padding: 0.55rem 0.75rem; outline: none; max-height: 120px;
-  font-family: inherit;
-}
-.ac-input:focus { border-color: #6366f1; }
-.ac-attach {
-  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
-  background: rgba(255,255,255,0.06); font-size: 1rem; flex: 0 0 auto;
-  display: grid; place-items: center;
-}
-.ac-attach:disabled { opacity: 0.35; cursor: default; }
-.ac-user-imgs { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
-.ac-user-img {
-  max-width: 160px; max-height: 120px; border-radius: 8px; display: block;
-  border: 1px solid rgba(255,255,255,0.25);
-}
-.ac-user-imgchip {
-  display: inline-block; padding: 2px 8px; border-radius: 6px;
-  background: rgba(255,255,255,0.15); font-size: 0.75rem;
-}
-.ac-btn {
-  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
-  font-size: 1.1rem; display: grid; place-items: center; flex: 0 0 auto;
-  color: #fff; transition: opacity 0.15s;
-}
-.ac-btn--send { background: linear-gradient(135deg, #6366f1, #06b6d4); }
-.ac-btn--send:disabled { opacity: 0.35; cursor: default; }
-.ac-btn--stop { background: rgba(239,68,68,0.85); font-size: 0.85rem; }
-
-.ac-drawer-bg {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40;
-}
-.ac-drawer {
-  position: absolute; top: 0; left: 0; bottom: 0; width: min(300px, 84vw);
-  background: #101013; border-right: 1px solid rgba(255,255,255,0.08);
-  display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
-}
-.ac-drawer-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.8rem 0.9rem; font-weight: 600; font-size: 0.95rem;
-}
-.ac-mini-btn {
-  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05);
-  color: #d4d4d8; font-size: 0.75rem; border-radius: 8px; padding: 0.3rem 0.6rem;
-  cursor: pointer;
-}
-.ac-drawer-list { flex: 1; overflow-y: auto; padding: 0 0.5rem 1rem; }
-.ac-empty { color: #52525b; font-size: 0.85rem; text-align: center; padding: 2rem 0; }
-.ac-session {
-  position: relative; padding: 0.6rem 1.8rem 0.6rem 0.7rem; border-radius: 10px;
-  cursor: pointer; margin-bottom: 2px;
-}
-.ac-session:active, .ac-session--active { background: rgba(99,102,241,0.14); }
-.ac-session-title {
-  font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ac-session-meta { font-size: 0.7rem; color: #71717a; margin-top: 2px; }
-.ac-session-del {
-  position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
-  border: none; background: transparent; color: #52525b; cursor: pointer;
-  font-size: 0.8rem; padding: 0.3rem;
-}
-.ac-session-del--armed {
-  color: #fca5a5; background: rgba(239,68,68,0.15); border-radius: 6px;
-  font-size: 0.7rem; padding: 0.3rem 0.45rem;
-}
-
-.ac-welcome { text-align: center; margin: auto; padding: 1.5rem; color: #a1a1aa; }
-.ac-welcome-title {
-  font-size: 1.7rem; font-weight: 800; margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, #c7d2fe, #a5f3fc);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.ac-welcome p { font-size: 0.9rem; line-height: 1.6; }
-`;
