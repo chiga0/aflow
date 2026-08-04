@@ -606,6 +606,34 @@ export function ChatApp({ height }: { height: number | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const touchY = useRef<number | null>(null);
+
+  /* PWA update toast (deploy replaced the service worker) */
+  useEffect(() => {
+    const onUpdate = () => setUpdateAvailable(true);
+    window.addEventListener("aflow:update-available", onUpdate);
+    return () => window.removeEventListener("aflow:update-available", onUpdate);
+  }, []);
+
+  /* pull-down at the top = force refresh (checks SW update + reloads) */
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    touchY.current = scrollRef.current?.scrollTop === 0 ? e.touches[0].clientY : null;
+  }, []);
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (touchY.current == null) return;
+    const dy = e.touches[0].clientY - touchY.current;
+    if (scrollRef.current?.scrollTop === 0 && dy > 60) setPulling(true);
+  }, []);
+  const onTouchEnd = useCallback(() => {
+    if (pulling) {
+      setPulling(false);
+      window.dispatchEvent(new Event("aflow:check-update"));
+      window.setTimeout(() => window.location.reload(), 350);
+    }
+    touchY.current = null;
+  }, [pulling]);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -1012,6 +1040,22 @@ export function ChatApp({ height }: { height: number | null }) {
       className="flex w-screen flex-col overflow-hidden bg-background text-foreground"
       style={{ height: height ? `${height}px` : "100dvh" }}
     >
+      {/* update / pull-to-refresh indicators */}
+      {updateAvailable && (
+        <button
+          type="button"
+          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+8px)] z-50 -translate-x-1/2 cursor-pointer rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-lg"
+          onClick={() => window.location.reload()}
+        >
+          发现新版本，点击更新
+        </button>
+      )}
+      {pulling && (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+8px)] z-50 -translate-x-1/2 rounded-full bg-secondary px-4 py-2 text-xs text-muted-foreground">
+          释放刷新
+        </div>
+      )}
+
       {/* header */}
       <header className="flex shrink-0 items-center gap-2 border-b border-[rgba(255,255,255,0.09)] bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -1105,6 +1149,9 @@ export function ChatApp({ height }: { height: number | null }) {
         data-testid="scroll"
         ref={scrollRef}
         onScroll={onScroll}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5"
       >
         {!activeId && (

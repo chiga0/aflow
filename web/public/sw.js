@@ -8,7 +8,7 @@
  * The shell stays available offline so the branded UI loads; the WebShell
  * itself will surface its own "disconnected" state when qwen is unreachable.
  */
-const VERSION = "aflow-lite-v1";
+const VERSION = "__BUILD_ID__";
 const SHELL = [
   "/",
   "/index.html",
@@ -81,8 +81,9 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Navigations & everything else: network first, offline shell fallback.
+  // cache: no-store bypasses the HTTP cache so a new deploy is always seen.
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: "no-store" })
       .then((res) => {
         // Cache successful navigations so the shell is fresh next offline load.
         if (req.mode === "navigate" && res && res.status === 200) {

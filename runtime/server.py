@@ -326,6 +326,13 @@ def make_handler(
             self.send_header("Content-Length", str(len(body)))
             if "/assets/" in self.path:
                 self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            else:
+                # index.html / sw.js / manifest must revalidate every load,
+                # otherwise PWA installs sit on a heuristically-cached stale
+                # shell and never see new deploys.
+                self.send_header("Cache-Control", "no-cache")
+                if self.path.endswith("sw.js"):
+                    self.send_header("Service-Worker-Allowed", "/")
             self.end_headers()
             self.wfile.write(body)
 

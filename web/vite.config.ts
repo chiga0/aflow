@@ -1,9 +1,28 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { defineConfig, type Plugin } from "vite";
+
+// Stamp a build id into sw.js so every deploy byte-changes the worker and
+// browsers/PWAs pick it up (the update flow then reloads the new shell).
+function stampServiceWorker(): Plugin {
+  return {
+    name: "stamp-sw",
+    closeBundle() {
+      const p = resolve(__dirname, "dist/sw.js");
+      if (existsSync(p)) {
+        writeFileSync(
+          p,
+          readFileSync(p, "utf8").replace("__BUILD_ID__", `aflow-${Date.now()}`),
+        );
+      }
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), stampServiceWorker()],
   server: {
     port: 5173,
     proxy: {
