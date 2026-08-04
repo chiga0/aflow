@@ -1,294 +1,155 @@
-# aflow-lite 设计方案
+# aflow-lite 设计方案（现状版）
 
-> Phase 0: 单 Agent、移动优先、云端部署、能用。
+> 自托管的轻量 Agent 运行时：手机/浏览器描述目标 → 云端 agent 规划、执行、交付，全程实时可见。
+> 本文描述**当前实现**；计划与偏差见 [PLAN.md](PLAN.md)。
 
-## 1. 问题
+## 1. 设计哲学
 
-aflow 当前有 ~37,000 行代码、40+ 个领域概念、v1/v2 两套 API 并行，
-但 **没有一个用户闭环跑通**：在手机上发一句话 → 云端 agent 执行 → 实时看到过程 → 拿到结果。
+**先让一个人用起来。**
 
-复杂度堆叠导致项目无法被实际使用。
+- 控制面：~3.6k 行 **stdlib-only** Python（无三方依赖），单文件 SQLite
+- 执行面：按需 spawn 的 `pi --mode rpc` 子进程（~180MB/会话，跑完即退），
+  而不是常驻多 GB daemon；qwen serve 保留为回退引擎
+- 界面：移动优先 PWA（React + Vite + Tailwind v4），可装到主屏幕
 
-## 2. 目标
-
-**一个人在手机上发一句话，云端 qwen agent 跑完，实时看到过程，拿到结果。**
-
-非目标（Phase 0 不做）：
-- 多 Agent 编排 / Mission DAG
-- 多租户 / RBAC / Tenant / Project
-- Worker 调度 / Executor 容器管理
-- Review Gate / 审批流
-- Budget / Cost 管控
-- Channel 集成（钉钉/飞书/企微）
-- Temporal / A2A / ACP
-- 多 adapter（只支持 qwen serve）
-
-## 3. 架构
+## 2. 架构
 
 ```
-┌─────────────────────────────────────────────┐
-│  Mobile-first PWA                           │
-│                                             │
-│  /            → Session 列表                │
-│  /chat/:id    → 实时 Chat（SSE 流式）        │
-│                                             │
-│  技术：React + Vite + Tailwind              │
-│  目标：<2000 行 TSX                         │
-└──────────────────┬──────────────────────────┘
-                   │ HTTP + SSE
-┌──────────────────▼──────────────────────────┐
-│  Runtime (Python, stdlib only)              │
-│                                             │
-│  POST /api/sessions              创建       │
-│  GET  /api/sessions              列表       │
-│  GET  /api/sessions/:id          详情       │
-│  POST /api/sessions/:id/prompt   发消息     │
-│  GET  /api/sessions/:id/events   SSE 流     │
-│  POST /api/sessions/:id/cancel   取消       │
-│  GET  /api/health                健康检查   │
-│                                             │
-│  内部模块：                                  │
-│  - store.py     sqlite 持久化（3 张表）      │
-│  - adapter.py   qwen serve 客户端           │
-│  - relay.py     SSE 事件中继 + 映射          │
-│  - server.py    HTTP 路由（<400 行）         │
-│                                             │
-│  目标：<1500 行 Python                      │
-└──────────────────┬──────────────────────────┘
-                   │ HTTP + SSE
-┌──────────────────▼──────────────────────────┐
-│  qwen serve (外部进程)                       │
-│  已有的 agent CLI daemon                    │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Mobile-first PWA (web/)                     │
+│  流式聊天 · 工具卡 · 审批卡 · 图片/语音输入     │
+│  模型切换 · 会话历史 · 离线壳 · Web Push       │
+└───────────────────┬──────────────────────────┘
+                    │ HTTP + SSE (+ Web Push)
+┌───────────────────▼──────────────────────────┐
+│  Runtime (Python stdlib only)                │
+│  server.py   路由 + 统一鉴权闸门 + SPA 服务    │
+│  chat.py     ChatHub：turn 驱动、SSE fan-out、 │
+│              replay buffer、审批、模型路由     │
+│  store.py    sqlite 持久化（6 张表）           │
+│  pi_adapter  pi --mode rpc 子进程引擎（默认）  │
+│  adapter.py  qwen serve 客户端（回退）         │
+│  relay.py    事件归一化（pi/qwen → 规范事件）   │
+│  missions.py 服务端 sequential 编排            │
+│  channels.py 钉钉/飞书/webhook 入口            │
+└───────────────────┬──────────────────────────┘
+                    │ stdio JSON-RPC          │ HTTP SSE
+┌───────────────────▼──────────┐   ┌──────────▼─────────┐
+│  pi --mode rpc (子进程)       │   │  qwen serve (回退)  │
+│  每会话一个，空闲回收          │   │  常驻 daemon        │
+└──────────────────────────────┘   └────────────────────┘
 ```
 
-## 4. 数据模型
+## 3. API 表面
 
-只有 3 个概念：
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/health` | GET | 健康检查（公开） |
+| `/api/auth/login` / `logout` / `session` | POST/POST/GET | 登录会话 |
+| `/api/chat/sessions` | POST / GET | 创建（后台预热 pi 进程）/ 列表 |
+| `/api/chat/sessions/:id` | GET / DELETE | 详情+历史 / 删除 |
+| `/api/chat/sessions/:id/messages` | POST | 发消息；turn 运行中则入队（pi） |
+| `/api/chat/sessions/:id/events` | GET | SSE 流，`Last-Event-ID` 断线续播 |
+| `/api/chat/sessions/:id/cancel` | POST | 取消当前 turn |
+| `/api/chat/sessions/:id/options` | POST | 模型 / 审批模式切换 |
+| `/api/chat/sessions/:id/approvals` | POST | 审批卡决策（approve/deny） |
+| `/api/missions/*` | — | 服务端多步编排 |
+| `/api/channels/*` | — | IM/webhook 入口配置 |
+| `/metrics` | GET | 请求指标 |
 
-### Session
-一次 agent 会话。对应 qwen serve 的一个 session。
+除公开路由外，所有 `/api/*` 与 `/daemon/*` 过统一鉴权闸门。
 
-```python
-@dataclass
-class Session:
-    id: str                    # "s_<hex12>"
-    title: str                 # 用户可编辑，默认取首条 prompt 前 40 字
-    status: str                # idle | running | completed | failed | cancelled
-    qwen_session_id: str | None
-    created_at: str
-    updated_at: str
-```
+## 4. 执行引擎与事件归一化
 
-### Message
-一条消息。user / assistant / tool / system。
-
-```python
-@dataclass
-class Message:
-    id: str                    # "m_<hex12>"
-    session_id: str
-    role: str                  # user | assistant | tool | system
-    content: str               # 文本内容
-    tool_name: str | None      # role=tool 时的工具名
-    tool_call_id: str | None   # role=tool 时关联的 call id
-    partial: bool              # 是否为流式片段
-    created_at: str
-```
-
-### Event
-SSE 事件。append-only，用于实时推送和回放。
-
-```python
-@dataclass
-class Event:
-    id: int                    # 自增序列号（SSE id）
-    session_id: str
-    type: str                  # message.delta | tool.start | tool.end |
-                               # status.change | error | done
-    data: dict                 # JSON payload
-    created_at: str
-```
-
-## 5. API 设计
-
-### POST /api/sessions
-创建 session。可选传入首条 prompt 立即开始。
-
-```json
-// Request
-{ "prompt": "审计当前项目的部署链路" }
-
-// Response 201
-{ "id": "s_a1b2c3", "title": "审计当前项目的部署链路", "status": "running" }
-```
-
-### GET /api/sessions
-列出所有 session，按 updated_at 倒序。
-
-```json
-{ "sessions": [ { "id": "...", "title": "...", "status": "...", ... } ] }
-```
-
-### GET /api/sessions/:id
-Session 详情 + 消息历史。
-
-```json
-{
-  "session": { ... },
-  "messages": [ ... ]
-}
-```
-
-### POST /api/sessions/:id/prompt
-向 running/idle 的 session 追加消息。
-
-```json
-{ "prompt": "再看看 CI 配置" }
-```
-
-### GET /api/sessions/:id/events
-SSE 流。支持 `Last-Event-ID` 断线重连。
+`pi_adapter` 把 pi RPC 事件映射成 **qwen 形状**的 payload，使 `relay`、
+missions、channels 对引擎无感：
 
 ```
-id: 1
-event: message.delta
-data: {"text": "正在分析"}
-
-id: 2
-event: tool.start
-data: {"tool_call_id": "tc_1", "name": "bash", "input": {"command": "ls"}}
-
-id: 3
-event: tool.end
-data: {"tool_call_id": "tc_1", "name": "bash", "output": "..."}
-
-id: 4
-event: done
-data: {"status": "completed"}
+pi message_update/text_delta      → session_update agent_message_chunk
+pi message_update/thinking_delta  → session_update agent_thought_chunk
+pi tool_execution_start/update/end→ tool_call / tool_call_update / tool_output
+pi permission_request (gate ext)  → permission_request
+pi turn_end / agent_settled       → turn_complete / turn_error
+进程中途死亡                       → session_died
 ```
 
-### POST /api/sessions/:id/cancel
-取消正在运行的 session。
+- **自动模型路由**：带图请求走快视觉模型（默认 qwen3.6-flash），纯文本走强模型
+  （默认 qwen3.8-max）；用户显式选模型后不覆盖
+- **审批 gate**：pi extension 拦截危险命令 → `permission.request` 事件 → 审批卡 →
+  `respond_ui` 回传决策；不支持的对话框类型自动拒绝（永不阻塞 agent）
+- **中途换模型**：`set_model` 对活的 pi 会话生效，影响排队消息与下一 turn
 
-### GET /api/health
-```json
-{ "ok": true, "version": "0.1.0", "qwen": "connected" }
-```
+## 5. 持久化（两层分离）
 
-## 6. Adapter 设计
+**持久层** — SQLite `data/aflow.db`：
 
-从现有 `QwenServeAdapter` 提取核心，去掉 executor/mission/review_gate 耦合：
+| 表 | 内容 |
+|----|------|
+| `auth_sessions` | 浏览器登录会话 |
+| `chat_sessions` | id / title / created / updated |
+| `chat_messages` | role、content、tools(JSON)、images(元数据 JSON)、status |
+| `missions` / `mission_steps` | 服务端编排 |
+| `channels` | IM/webhook 配置 |
 
-```python
-class QwenAdapter:
-    def __init__(self, base_url: str, token: str | None = None): ...
+写入时机：user 消息发送即落库；assistant 消息 **turn 结束一次性落库**
+（全文 + tool 记录 + status）；标题首轮规则生成。迁移用
+`CREATE TABLE IF NOT EXISTS` + 守卫式 `ALTER TABLE`，原地升级。
 
-    def create_session(self, cwd: str | None = None) -> str:
-        """POST /session → sessionId"""
+**实时层** — 内存 `_SessionState`：SSE 订阅者 + replay buffer
+（deque 500，带 seq）。turn 结束清空 buffer，避免重连重复渲染已落库内容。
 
-    def send_prompt(self, session_id: str, prompt: str) -> dict:
-        """POST /session/{id}/prompt → {promptId}"""
+**已知边界**（followup，见 PLAN.md）：图片只存元数据（历史为占位 chip）、
+thinking 不落库、mid-turn 崩溃丢半条回复（web 端 local finalize 兜底）。
 
-    def stream_events(self, session_id: str, last_id: str | None = None):
-        """GET /session/{id}/events → yield (event_name, data)"""
+## 6. Web 设计
 
-    def cancel(self, session_id: str) -> None:
-        """POST /session/{id}/cancel"""
-```
+- 单列移动优先；底部固定 composer（iOS safe-area）；触摸目标 ≥44px
+- 流式：思考动画、发送键变停止键、tool 卡可折叠、代码块横向滚
+- 乐观渲染：发送即显；断线 EventSource 自动重连 + replay
+- 滚动礼仪：用户上翻时不强制拽回底部
+- 中文输入法安全（`isComposing` 不触发发送）
+- 图片附件：≤1280px JPEG 压缩后上传；历史 chip 占位
+- 语音输入：Web Speech API（不支持时隐藏按钮，系统键盘听写兜底）
+- 通知：turn 完成/审批 in-tab 通知 + Notification；后台 Web Push（§7）
+- PWA：manifest + maskable icon；SW 离线壳（导航 cache-first 防启动闪白）、
+  build-stamped 更新 + pull-to-refresh + 底部更新 snackbar
 
-事件映射（qwen SSE → aflow-lite Event）：
+## 7. Web Push（后台推送）
 
-| qwen 事件 | aflow-lite 事件 |
-|-----------|----------------|
-| session_update / agent_message_chunk | message.delta |
-| session_update / tool_call | tool.start |
-| session_update / tool_call_update | tool.update |
-| session_update / tool_output | tool.end |
-| permission_request | permission.request |
-| turn_complete | done |
-| turn_error / session_died | error |
-
-## 7. Web 设计
-
-### 页面结构
-
-```
-/                SessionList    会话列表（卡片式，状态徽标）
-/chat/:id        ChatDetail     实时对话（流式渲染 + 输入栏）
-```
-
-### 组件
+stdlib 实现的 VAPID（RFC 8292）：`runtime/push.py` 内置 P-256 ECDSA
+（RFC 6979 确定性签名，无三方依赖）。
 
 ```
-SessionCard      列表项：标题 + 状态 + 时间
-MessageBubble    消息气泡（user 右对齐，agent 左对齐）
-ToolCallCard     可折叠的 tool call（名称 + 输入 + 输出）
-InputBar         底部固定输入栏（textarea + 发送按钮）
-StatusPill       状态徽标（running/completed/failed）
+浏览器 pushManager.subscribe(VAPID pubKey)
+  → POST /api/push/subscribe 存 endpoint+keys
+turn 完成 / 审批请求 → POST endpoint（Authorization: vapid t=jwt, k=pubkey）
+  → SW push 事件 → showNotification；404/410 自动退订
 ```
 
-### 移动端优先
-
-- 单列布局，无侧边栏
-- 底部固定输入栏（iOS safe area）
-- 触摸目标 ≥ 44px
-- PWA manifest（可添加到主屏幕）
-- 深色模式跟随系统
+无 payload 推送不需要 RFC 8291 内容加密；通知文案由 SW 本地生成。
 
 ## 8. 部署
 
-```yaml
-# docker-compose.yml
-services:
-  aflow-lite:
-    build: .
-    ports: ["8765:8765"]
-    environment:
-      - QWEN_SERVE_URL=http://qwen:4170
-    volumes:
-      - data:/data
+- **bare-metal**（推荐小 VPS）：`deploy/deploy_baremetal.sh`，无 Docker 依赖
+- **compose**：`deploy/docker-compose.pi.yml`（pi 引擎）
+- **CI**：workflow_dispatch 一键 deploy + post-deploy e2e smoke
+  （health/login/chat turn/SSE/persist）
+- HTTPS：Caddy / `docker-compose.https.yml`
 
-  qwen:
-    image: qwen-code/qwen:latest
-    command: qwen serve --hostname 0.0.0.0 --port 4170
-    volumes:
-      - workspace:/workspace
-```
+## 9. 代码量现状
 
-单命令启动：`docker compose up -d`
+| 模块 | 行数 |
+|------|------|
+| runtime/（含 push/missions/channels） | ~3.6k |
+| web/src/ | ~1.9k |
 
-## 9. 代码量预算
+超出原预算（<3.1k），换来 auth、审批、图片、missions、channels、
+推送等 Phase 1 能力；stdlib-only 与移动优先两条硬约束未破。
 
-| 模块 | 目标行数 |
-|------|---------|
-| runtime/server.py | <400 |
-| runtime/store.py | <300 |
-| runtime/adapter.py | <350 |
-| runtime/relay.py | <200 |
-| runtime/models.py | <80 |
-| **Runtime 合计** | **<1330** |
-| web/pages/ | <600 |
-| web/components/ | <800 |
-| web/lib/ | <400 |
-| **Web 合计** | **<1800** |
-| **总计** | **<3130** |
+## 10. Phase 路线
 
-## 10. 从现有代码复用什么
-
-| 现有模块 | 复用方式 |
-|---------|---------|
-| adapters/qwen.py | 提取 _request, _build_request, SSE 解析 → adapter.py |
-| agent_events.py | 提取 _translate_qwen 的映射逻辑 → relay.py |
-| store.py | 不复用（太重），重写 3 表 sqlite |
-| server.py | 不复用（2900 行路由），重写 |
-| web LiveRunnerPanel | 提取 transcript 渲染逻辑 → ChatDetail |
-| web SSE hooks | 提取 useRunLiveDaemonEvents → useSessionEvents |
-
-## 11. Phase 路线
-
-| Phase | 目标 | 周期 |
+| Phase | 目标 | 状态 |
 |-------|------|------|
-| **0** | 单 agent 跑通，手机能用 | 2-3 周 |
-| 1 | auth + 历史 + 多 adapter + 审批 + 部署打磨 | +3-4 周 |
-| 2 | Mission DAG + Review Gate + Worker + 隔离 | +4-6 周 |
+| 0 | 单 agent 跑通，手机能用 | ✅ |
+| 1 | auth + 历史 + 多 adapter + 审批 + 部署打磨 + 推送 | ✅ 主体 |
+| 2 | Mission DAG + Review Gate + Worker + 隔离 | 未开始 |
