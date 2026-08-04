@@ -575,6 +575,7 @@ export function ChatApp({ height }: { height: number | null }) {
   const [pendingFiles, setPendingFiles] = useState<{ name: string; text: string }[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
+  const [engine, setEngine] = useState("pi");
   const [gateMode, setGateMode] = useState<"strict" | "auto">("strict");
   const [approvals, setApprovals] = useState<
     { request_id: string; title: string; message: string }[]
@@ -758,10 +759,11 @@ export function ChatApp({ height }: { height: number | null }) {
   }, [refreshSessions]);
 
   useEffect(() => {
-    api<{ models: string[] }>("GET", "/api/chat/meta")
+    api<{ models: string[]; engine?: string }>("GET", "/api/chat/meta")
       .then((m) => {
         setModels(m.models || []);
         setModel((cur) => cur || (m.models || [])[0] || "");
+        if (m.engine) setEngine(m.engine);
       })
       .catch(() => undefined);
   }, []);
@@ -1036,7 +1038,7 @@ export function ChatApp({ height }: { height: number | null }) {
         <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-[15px] font-semibold">
           <span className="truncate">{detail?.title || "AFlow"}</span>
           <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
-            pi
+            {engine}
           </span>
         </div>
 

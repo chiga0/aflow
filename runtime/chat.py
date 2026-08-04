@@ -363,6 +363,7 @@ class ChatHub:
         return {
             "models": getattr(self.adapter, "models", [getattr(self.adapter, "model", "")]),
             "gate_modes": ["strict", "auto"],
+            "engine": getattr(self.adapter, "engine", "qwen"),
         }
 
     # ── reads ────────────────────────────────────────────────
