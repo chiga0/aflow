@@ -130,23 +130,24 @@ class ChatHub:
 
     def _ensure_pi(self, state: _SessionState) -> str:
         """Return a live engine session id, respawning when reaped/recycled."""
-        if state.pi_sid:
-            alive = getattr(self.adapter, "alive", None)
-            if (alive is not None and alive(state.pi_sid)) or (
-                alive is None and state.pi_sid in getattr(self.adapter, "_sessions", {})
-            ):
-                return state.pi_sid
-        create = getattr(self.adapter, "create_session", None)
-        if create is None:
-            raise RuntimeError("adapter cannot create sessions")
-        try:
-            state.pi_sid = create(
-                model=state.model or None, gate_mode=state.gate_mode
-            )
-        except TypeError:
-            state.pi_sid = create()
-        state.current_model = state.model or getattr(self.adapter, "model", "")
-        return state.pi_sid
+        with state.lock:
+            if state.pi_sid:
+                alive = getattr(self.adapter, "alive", None)
+                if (alive is not None and alive(state.pi_sid)) or (
+                    alive is None and state.pi_sid in getattr(self.adapter, "_sessions", {})
+                ):
+                    return state.pi_sid
+            create = getattr(self.adapter, "create_session", None)
+            if create is None:
+                raise RuntimeError("adapter cannot create sessions")
+            try:
+                state.pi_sid = create(
+                    model=state.model or None, gate_mode=state.gate_mode
+                )
+            except TypeError:
+                state.pi_sid = create()
+            state.current_model = state.model or getattr(self.adapter, "model", "")
+            return state.pi_sid
 
     def _close_pi(self, state: _SessionState) -> None:
         if state.pi_sid and hasattr(self.adapter, "close_session"):
@@ -166,9 +167,19 @@ class ChatHub:
             raise KeyError(chat_id)
         images = _validate_images(images)
         with state.lock:
-            if state.running:
+            was_running = state.running
+            if not was_running:
+                state.running = True
+        if was_running:
+            # Message queue: pi accepts followUp prompts while a turn runs;
+            # the active driver streams the queued turn too.
+            if getattr(self.adapter, "engine", "") != "pi":
                 raise RuntimeError("a turn is already running")
-            state.running = True
+            pid = self._ensure_pi(state)
+            self.adapter.send_prompt(pid, text, images=images or None, queue=True)
+            self.store.add_chat_message(chat_id, "user", text, utc_now())
+            self.store.touch_chat_session(chat_id, utc_now())
+            return {"ok": True, "queued": True}
         now = utc_now()
         self.store.add_chat_message(
             chat_id, "user", text, now,

@@ -185,9 +185,18 @@ class PiAdapter:
                     session_id, proc.pid, self.model, cwd or ".")
         return session_id
 
-    def send_prompt(self, session_id: str, prompt: str, images: list | None = None) -> dict[str, Any]:
+    def send_prompt(
+        self,
+        session_id: str,
+        prompt: str,
+        images: list | None = None,
+        queue: bool = False,
+    ) -> dict[str, Any]:
         session = self._get(session_id)
         command: dict[str, Any] = {"type": "prompt", "message": prompt}
+        if queue:
+            # pi delivers queued prompts after the current turn settles.
+            command["streamingBehavior"] = "followUp"
         if images:
             # pi RPC image content: [{"type":"image","data":<b64>,"mimeType":...}]
             command["images"] = [

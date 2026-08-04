@@ -88,6 +88,25 @@ class ChatHubTests(unittest.TestCase):
         state = self.hub._get_state(chat_id)
         self.assertEqual(len(state.buffer), 0)
 
+    def test_message_queue_while_running(self):
+        slow_adapter, slow_patcher = make_pi_adapter(FRAMES, delay_ms=500)
+        try:
+            hub = ChatHub(slow_adapter, self.store)
+            session = hub.create_session()
+            chat_id = session["id"]
+            hub.send_message(chat_id, "first")
+            self.assertTrue(_wait(lambda: hub._get_state(chat_id).running))
+            # second message queues instead of 409
+            res = hub.send_message(chat_id, "second")
+            self.assertTrue(res.get("queued"))
+            _wait(lambda: not hub._get_state(chat_id).running, timeout=15)
+            detail = hub.session_detail(chat_id)
+            users = [m for m in detail["messages"] if m["role"] == "user"]
+            self.assertEqual(len(users), 2)
+        finally:
+            slow_adapter.shutdown()
+            slow_patcher.stop()
+
     def test_approval_flow(self):
         session = self.hub.create_session()
         chat_id = session["id"]
