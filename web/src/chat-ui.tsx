@@ -442,6 +442,7 @@ export function ChatApp({ height }: { height: number | null }) {
             break;
           case "permission.request":
             setLiveRunning(true);
+            notify("AFlow 需要审批", String(data.message || "").slice(0, 80));
             setApprovals((as) => [
               ...as,
               {
@@ -487,6 +488,7 @@ export function ChatApp({ height }: { height: number | null }) {
             setLiveText("");
             setLiveTools([]);
             refreshSessions();
+            notify("AFlow 完成", content.slice(0, 80) || "任务已完成");
             // Best-effort reconcile with the persisted transcript.
             api<SessionDetail>("GET", `/api/chat/sessions/${activeId}`)
               .then(setDetail)
@@ -509,6 +511,26 @@ export function ChatApp({ height }: { height: number | null }) {
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
+
+  /* in-tab notifications: completion & approval moments */
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => undefined);
+    }
+  }, []);
+
+  const notify = useCallback((title: string, body: string) => {
+    if (typeof document !== "undefined" && !document.hidden) return;
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification(title, { body });
+      }
+      navigator.vibrate?.(120);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   /* auto-scroll on new content, only when the user is at the bottom */
   useEffect(() => {
