@@ -23,7 +23,7 @@ ENGINE="${AFLOW_ENGINE:-pi}"
 echo "==> sync -> ${TARGET}:${REMOTE_DIR}/"
 ssh "$TARGET" "mkdir -p '${REMOTE_DIR}'"
 rsync -az --delete \
-  --exclude node_modules --exclude dist --exclude data \
+  --exclude node_modules --exclude data \
   --exclude '*.db' --exclude '*.db-*' --exclude BOOTSTRAP_PASSWORD.txt --exclude .git \
   --exclude qwen-settings.json --exclude .env --exclude screenshots \
   "$ROOT_DIR/" "$TARGET:$REMOTE_DIR/"
