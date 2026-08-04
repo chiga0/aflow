@@ -1,24 +1,20 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-
-import { App } from "./app";
-import { ErrorBoundary } from "./components/error-boundary";
-import { ToastProvider } from "./components/toast";
+import "@qwen-code/webui/styles.css";
 import "./index.css";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./app";
 
-const savedTheme = localStorage.getItem("cloud-agents-theme");
-const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-document.documentElement.classList.toggle(
-  "dark",
-  savedTheme ? savedTheme === "dark" : prefersDark,
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </ErrorBoundary>
-  </React.StrictMode>,
-);
+// Register the offline app shell in production builds only (dev would fight HMR).
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* offline shell is best-effort; ignore registration failures */
+    });
+  });
+}

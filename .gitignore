@@ -1,21 +1,19 @@
-site/
+# python
 .venv/
 __pycache__/
 *.py[cod]
-runtime/artifacts/
+
+# node / web
+node_modules/
+dist/
 web/node_modules/
 web/test-results/
 web/playwright-report/
 web/coverage/
 web/*.tsbuildinfo
-.env
-.env.*
-!.env.example
-!*.env.example
-.aflow/
-.runtime/
+web/e2e/screenshots/
 
-# aflow-lite runtime data (never commit the live SQLite / bootstrap secret)
+# runtime state
 data/
 *.db
 *.db-journal
@@ -23,5 +21,15 @@ data/
 *.db-shm
 **/BOOTSTRAP_PASSWORD.txt
 *.log
-lite/deploy/qwen-settings.json
-lite/web/e2e/screenshots/
+
+# secrets / local env
+.env
+.env.*
+!.env.example
+!*.env.example
+deploy/qwen-settings.json
+
+# legacy
+site/
+.aflow/
+.runtime/

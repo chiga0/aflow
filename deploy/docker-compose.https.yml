@@ -1,0 +1,29 @@
+# Optional HTTPS overlay. Adds Caddy in front of the runtime:
+#   AFLOW_DOMAIN=agent.example.com \
+#     docker compose -f deploy/docker-compose.yml \
+#                  -f deploy/docker-compose.https.yml up -d --build
+#
+# In production, firewall off port 8765 so the runtime is only reachable via
+# Caddy on 443 (compose cannot remove the base port mapping, so block it at the
+# host firewall / security group).
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      AFLOW_DOMAIN: ${AFLOW_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - aflow
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

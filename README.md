@@ -1,57 +1,63 @@
 # aflow
 
-aflow is a self-hostable Agent runtime for long-running cloud execution,
-human approval, worker scheduling, audit trails, and recovery.
+aflow 是一个**自托管的轻量 Agent 运行时**：在浏览器或手机上描述目标，
+云端的执行 Agent（默认 [pi](https://pi.dev)）规划、执行、交付，全程实时可见。
 
-Online site: https://chiga0.github.io/aflow/
+设计哲学：**先让一个人用起来**。控制面是 ~2.5k 行 stdlib Python + 一个
+移动优先的 Web 控制台；执行面是按需 spawn 的 `pi --mode rpc` 子进程
+（~180MB/会话，跑完即退），而不是常驻的多 GB daemon。
 
-## Reading path
+在线文档与调研见 [docs/](docs/)，设计见 [docs/DESIGN.md](docs/DESIGN.md)。
 
-Start with the learner-facing docs before jumping into the design notes:
+## 它是什么 / 不是什么
 
-- [认识 aflow](docs/getting-started.md)
-- [核心概念](docs/concepts.md)
-- [使用管理台](docs/user-guide.md)
-- [从部署到可用产品的完整教程](docs/deployment-runbook.md)
-- [钉钉、飞书、企业微信机器人接入](docs/channel-integrations.md)
-- [执行单元发现、注册与调度](docs/execution-units.md)
-- [架构走读](docs/architecture-walkthrough.md)
-- [排障手册](docs/troubleshooting.md)
-- [产品可用性审计](docs/implementation/product-usability-audit.md)
+| ✅ 是 | ❌ 不是（明确不做） |
+|---|---|
+| 单用户、自托管的 agent 控制台 | 多租户 / RBAC / 计费 |
+| 实时流式聊天（代码高亮、tool 折叠、思考过程） | 手机上做 diff 精读 / 代码编辑 |
+| 服务端 sequential 编排（plan → code → review） | DAG / fan-out 编排（路线图中） |
+| 钉钉 / 飞书 / 通用 webhook 入口 | 原生 App（PWA 安装到主屏） |
+| 一键部署到 1.6GB VPS | K8s / Temporal |
 
-## Local preview
+## 本地运行
 
 ```bash
-python3 -m pip install -r requirements.txt
-mkdocs serve
+# runtime（stdlib-only，无依赖）+ web 控制台
+python3 -m runtime --host 127.0.0.1 --port 8765 &
+cd web && npm install && npm run dev
+
+# 或构建后由 runtime 直接服务静态文件
+cd web && npm run build
+AFLOW_STATIC_DIR=$PWD/dist AFLOW_AUTH_DISABLED=1 python3 -m runtime --port 8765
 ```
 
-## aflow Runtime
+执行引擎默认 `pi`（需 `pi` 在 PATH 且配置 `PI_ENGINE_API_KEY`）；
+`AFLOW_ENGINE=qwen` 回退到 qwen serve daemon。变量见 [.env.example](.env.example)。
 
-The runtime lives in [runtime](runtime/). It provides a stdlib Run Manager with
-`/runs`, `/missions`, `/workers`, `/executors`, `/auth`, `/access`, and
-artifact/audit APIs over a pluggable SAEU adapter boundary.
+## 部署
 
 ```bash
-python3 -m runtime.cloud_agents_runtime --host 127.0.0.1 --port 8765
+# bare-metal（推荐小 VPS，无 Docker 依赖）
+deploy/deploy_baremetal.sh user@host [/opt/aflow]
+
+# docker compose（pi 引擎，无 qwen daemon）
+docker compose -f deploy/docker-compose.pi.yml up -d --build
+```
+
+## 测试
+
+```bash
+make test            # runtime 单测 + web typecheck + web build
+make screenshots     # 确定性 UI 状态矩阵截图（fake pi）
 python3 -m unittest discover -s runtime/tests
 ```
 
-## Local/NAS quick start
+## 目录
 
-Docker with Compose v2 is the only prerequisite. The helper generates private
-credentials, builds the complete Runtime and Web image, registers the co-located
-execution unit, waits for health, and runs an HTTP smoke test.
-
-```bash
-make local-up
-make local-demo
 ```
-
-Open `http://127.0.0.1:8765`. The login email is printed after startup; the generated
-password stays in `.env.local`, which is mode `0600` and ignored by Git.
-
-The default demo uses the deterministic adapter so first startup does not depend on
-third-party credentials. See the
-[deployment runbook](docs/deployment-runbook.md#3-快速路径-a本机或-nas-作为控制面)
-for LAN exposure, real CLI adapters, diagnostics, and shutdown.
+runtime/   控制面：auth 网关、/api/chat、missions、channels、pi/qwen adapter
+web/       移动优先 Web 控制台（React + Vite + Tailwind，PWA）
+deploy/    bare-metal / compose / Dockerfile / HTTPS
+scripts/   自测、UI 截图矩阵等开发工具
+docs/      设计（DESIGN/PLAN）、Codex 移动端调研、验收清单
+```
