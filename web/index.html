@@ -73,14 +73,24 @@
     <div id="root"></div>
     <script>
       // Splash watchdog: if React never mounts (stale shell / JS 404),
-      // reload once instead of staring at a dead screen.
+      // reload once; if still stuck, unregister stale service workers and
+      // reload again — guarantees self-heal from any bad cached state.
       setTimeout(function () {
-        if (!window.__AFLOW_MOUNTED__) {
-          var k = "aflow-splash-reload";
-          if (!sessionStorage.getItem(k)) {
-            sessionStorage.setItem(k, "1");
-            location.reload();
-          }
+        if (window.__AFLOW_MOUNTED__) return;
+        var k = "aflow-heal";
+        var n = parseInt(sessionStorage.getItem(k) || "0", 10);
+        if (n >= 2) return;
+        sessionStorage.setItem(k, String(n + 1));
+        if (n === 1 && navigator.serviceWorker) {
+          navigator.serviceWorker
+            .getRegistrations()
+            .then(function (rs) {
+              return Promise.all(rs.map(function (r) { return r.unregister(); }));
+            })
+            .then(function () { location.reload(); })
+            .catch(function () { location.reload(); });
+        } else {
+          location.reload();
         }
       }, 5000);
     </script>

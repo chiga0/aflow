@@ -52,7 +52,10 @@ def load_glyph(master_path):
 
 def render(glyph, bg, size, occupancy, transparent=False):
     s = int(size)
-    canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0) if transparent else (*bg, 255))
+    canvas = Image.new(
+        "RGBA", (s, s),
+        (0, 0, 0, 0) if transparent else (bg if len(bg) == 4 else (*bg, 255)),
+    )
     gw, gh = glyph.size
     scale = (occupancy * s) / max(gw, gh)
     nw, nh = max(1, round(gw * scale)), max(1, round(gh * scale))
@@ -64,12 +67,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("master", help="path to the master logo png")
     ap.add_argument("--occupancy", type=float, default=0.66)
+    ap.add_argument("--bg", default=None, help="plate hex color override, e.g. #09090b")
     ap.add_argument("--apply", action="store_true", help="write into web/public (+ web/dist if present)")
     ap.add_argument("--out", default="/tmp/icon-preview", help="preview dir when not --apply")
     args = ap.parse_args()
 
     glyph, bg = load_glyph(args.master)
-    print(f"master bg={bg} glyph={glyph.size} occupancy-> {args.occupancy}")
+    if args.bg:
+        h = args.bg.lstrip("#")
+        bg = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+    print(f"master glyph={glyph.size} plate={bg} occupancy-> {args.occupancy}")
 
     if not args.apply:
         os.makedirs(args.out, exist_ok=True)
