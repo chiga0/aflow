@@ -18,6 +18,16 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", async () => {
     try {
       const hadController = Boolean(navigator.serviceWorker.controller);
+      // When a newer SW takes over this (old) page, reload once so the new
+      // shell + fresh asset URLs actually run instead of stale code.
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (hadController && !sessionStorage.getItem("aflow-cc")) {
+          sessionStorage.setItem("aflow-cc", "1");
+          location.reload();
+        } else {
+          sessionStorage.removeItem("aflow-cc");
+        }
+      });
       const reg = await navigator.serviceWorker.register("/sw.js");
       reg.addEventListener("updatefound", () => {
         const worker = reg.installing;

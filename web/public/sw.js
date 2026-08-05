@@ -22,12 +22,23 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
+  // Seed the version cache with cache-busted fetches: a plain addAll(SHELL)
+  // could pick up stale bytes from the HTTP cache (heuristic freshness from
+  // pre-no-cache responses) and plant an old shell into a brand-new SW.
   event.waitUntil(
-    caches
-      .open(VERSION)
-      .then((cache) => cache.addAll(SHELL))
-      .catch(() => undefined) // partial shell is fine; navigation fallback still works
-      .then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(VERSION);
+      await Promise.all(
+        SHELL.map((path) =>
+          fetch(`${path}${path.includes("?") ? "&" : "?"}sw=${VERSION}`, {
+            cache: "no-store",
+          })
+            .then((res) => (res.ok ? cache.put(path, res) : undefined))
+            .catch(() => undefined), // partial shell is fine
+        ),
+      );
+      await self.skipWaiting();
+    })(),
   );
 });
 

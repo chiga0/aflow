@@ -394,7 +394,7 @@ function Chatbox(p: ChatboxProps) {
   const canSend = Boolean(text.trim() || p.images.length || p.files.length);
 
   const submit = () => {
-    if (!canSend || p.running) return;
+    if (!canSend) return;  // running + text = queue send (followUp)
     p.onSend(text.trim());
     setText("");
     requestAnimationFrame(autosize);
