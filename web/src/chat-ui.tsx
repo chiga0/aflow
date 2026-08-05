@@ -54,6 +54,8 @@ import {
   SheetTrigger,
 } from "./components/ui/sheet";
 import { Textarea } from "./components/ui/textarea";
+import qrcode from "qrcode-generator";
+
 import { cn } from "./lib/utils";
 
 /* ── types ────────────────────────────────────────────── */
@@ -821,11 +823,31 @@ const CHANNEL_LABELS: Record<string, string> = {
   webhook: "Webhook",
 };
 
+function detectChannelType(url: string): string | null {
+  if (/oapi\.dingtalk|dingtalk\.com/.test(url)) return "dingtalk";
+  if (/open\.feishu|feishu\.cn|larksuite/.test(url)) return "feishu";
+  if (/qyapi\.weixin|work\.weixin/.test(url)) return "wecom";
+  if (/api\.day\.app/.test(url)) return "bark";
+  if (/sctapi\.ftqq|sc\.ftqq/.test(url)) return "serverchan";
+  return null;
+}
+
+const CHANNEL_GUIDES: Record<string, string> = {
+  dingtalk: "群设置→机器人→添加自定义机器人→加签；webhook 填下方，secret 填加签密钥",
+  feishu: "开放平台创建应用→开启机器人→事件订阅 URL 填下方回调地址（扫码复制）",
+  wecom: "群聊→添加群机器人→复制 webhook 地址",
+  bark: "iOS Bark App→复制推送 URL",
+  serverchan: "serverchan.ftqq.com→复制 SendKey 推送 URL",
+  email: "任意邮箱开启 SMTP 并生成授权码（通用通知，全平台可达）",
+  webhook: "任意 HTTP 端点，收 JSON {\"text\": ...}",
+};
+
 function ChannelsPanel() {
   const [channels, setChannels] = useState<
     { id: string; type: string; name: string; reply_url: string; enabled: number }[]
   >([]);
   const [adding, setAdding] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [form, setForm] = useState({
     type: "dingtalk",
     name: "",
@@ -848,6 +870,22 @@ function ChannelsPanel() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Smart paste: when the add form opens, try the clipboard and auto-detect
+  // the platform from the copied webhook URL (kills most copy-paste pain).
+  const openAdd = useCallback(() => {
+    setAdding(true);
+    try {
+      navigator.clipboard?.readText().then((clip) => {
+        const url = (clip || "").trim();
+        if (!/^https?:\/\//.test(url)) return;
+        const type = detectChannelType(url);
+        setForm((f) => ({ ...f, type: type || f.type, reply_url: url }));
+      }).catch(() => undefined);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, []);
 
   const save = async () => {
     if (!form.reply_url.trim() && form.type !== "email") return;
@@ -872,7 +910,11 @@ function ChannelsPanel() {
         metadata,
       });
       setAdding(false);
-      setForm({ type: "dingtalk", name: "", reply_url: "", secret: "" });
+      setForm({
+        type: "dingtalk", name: "", reply_url: "", secret: "",
+        appId: "", appSecret: "", smtpHost: "", smtpPort: "465",
+        smtpUser: "", smtpPass: "", mailTo: "",
+      });
       load();
     } catch {
       /* surface via list not updating */
@@ -881,23 +923,81 @@ function ChannelsPanel() {
 
   return (
     <div className="space-y-1.5">
-      <div className="mb-2 text-xs text-muted-foreground">
+      <div className="text-xs text-muted-foreground">
         任务完成 / 审批 / 失败会同时推送到已启用的渠道
       </div>
-      {channels.map((c) => (
-        <div key={c.id} className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm">{c.name || CHANNEL_LABELS[c.type] || c.type}</div>
-            <div className="text-[11px] text-muted-foreground">{CHANNEL_LABELS[c.type] || c.type}</div>
+      {channels.map((c) => {
+        const inbound = `${window.location.origin}/api/channels/${c.id}/inbound`;
+        const twoWay = c.type === "feishu" || c.type === "dingtalk";
+        return (
+          <div key={c.id} className="rounded-xl border border-border bg-card">
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              <button
+                type="button"
+                className="min-w-0 flex-1 cursor-pointer text-left"
+                onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+              >
+                <div className="truncate text-sm">{c.name || CHANNEL_LABELS[c.type] || c.type}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {CHANNEL_LABELS[c.type] || c.type}
+                </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await api("POST", `/api/channels/${c.id}/test`, {});
+                }}
+              >
+                测试
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="删除渠道"
+                onClick={async () => {
+                  await api("POST", `/api/channels/${c.id}/delete`, {});
+                  load();
+                }}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </div>
+            {expanded === c.id && twoWay && (
+              <div className="border-t border-border px-3 py-2.5">
+                <div className="mb-1 text-[11px] text-muted-foreground">
+                  回调地址（填到平台事件订阅 / outgoing）：
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
+                    {inbound}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigator.clipboard?.writeText(inbound).catch(() => undefined)}
+                  >
+                    复制
+                  </Button>
+                </div>
+                <div
+                  className="mt-2 inline-block rounded-lg bg-white p-2"
+                  dangerouslySetInnerHTML={{
+                    __html: (() => {
+                      const qr = qrcode(0, "M");
+                      qr.addData(inbound);
+                      qr.make();
+                      return qr.createSvgTag({ scalable: true, margin: 1 })
+                        .replace("<svg", '<svg style="width:120px;height:120px;display:block"');
+                    })(),
+                  }}
+                />
+                <div className="mt-1 text-[11px] text-muted-foreground">手机扫码复制回调地址</div>
+              </div>
+            )}
           </div>
-          <Button variant="ghost" size="sm" onClick={async () => { await api("POST", `/api/channels/${c.id}/test`, {}); }}>
-            测试
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="删除渠道" onClick={async () => { await api("POST", `/api/channels/${c.id}/delete`, {}); load(); }}>
-            <Trash2 size={13} />
-          </Button>
-        </div>
-      ))}
+        );
+      })}
       {channels.length === 0 && !adding && (
         <div className="py-6 text-center text-sm text-muted-foreground">暂无渠道</div>
       )}
@@ -918,24 +1018,31 @@ function ChannelsPanel() {
               </button>
             ))}
           </div>
+          <div className="rounded-lg bg-secondary/40 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            {CHANNEL_GUIDES[form.type]}
+          </div>
           <input
             className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
             placeholder="名称（如：部署群）"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           />
-          <input
-            className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
-            placeholder="Webhook URL"
-            value={form.reply_url}
-            onChange={(e) => setForm((f) => ({ ...f, reply_url: e.target.value }))}
-          />
-          <input
-            className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
-            placeholder="签名 Secret（可选）"
-            value={form.secret}
-            onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
-          />
+          {form.type !== "email" && (
+            <input
+              className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+              placeholder="Webhook URL（打开时自动读取剪贴板）"
+              value={form.reply_url}
+              onChange={(e) => setForm((f) => ({ ...f, reply_url: e.target.value }))}
+            />
+          )}
+          {(form.type === "dingtalk" || form.type === "feishu" || form.type === "webhook") && (
+            <input
+              className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+              placeholder="签名 Secret（可选）"
+              value={form.secret}
+              onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+            />
+          )}
           {form.type === "feishu" && (
             <>
               <input
@@ -998,7 +1105,7 @@ function ChannelsPanel() {
           </div>
         </div>
       ) : (
-        <Button variant="outline" size="sm" className="w-full" onClick={() => setAdding(true)}>
+        <Button variant="outline" size="sm" className="w-full" onClick={openAdd}>
           ＋ 添加渠道
         </Button>
       )}
