@@ -132,7 +132,7 @@ fi
 # `|| true` hid that — the runtime then never restarted across deploys.
 # Match /proc cmdlines directly instead.
 python3 - <<'PY'
-import os, signal, time
+import os, time
 me = os.getpid()
 patterns = ("python3 -m runtime", "python3 -m lite.runtime")
 for pid in os.listdir("/proc"):
@@ -145,7 +145,7 @@ for pid in os.listdir("/proc"):
         continue
     if any(p in cmd for p in patterns):
         try:
-            os.kill(int(pid), signal.TERM)
+            os.kill(int(pid), 15)  # SIGTERM by number (minimal pythons lack signal.TERM)
             print(f"-- killed old runtime pid {pid}")
         except OSError:
             pass

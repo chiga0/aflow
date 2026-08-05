@@ -402,6 +402,8 @@ def make_handler(
 
             body = path.read_bytes()
             ctype, _ = mimetypes.guess_type(str(path))
+            if self.path.split("?")[0].endswith("manifest.json"):
+                ctype = "application/manifest+json"
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", ctype or "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))

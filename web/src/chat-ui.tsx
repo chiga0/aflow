@@ -861,6 +861,8 @@ export function ChatApp({ height }: { height: number | null }) {
   const stickToBottom = useRef(true);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [installEvt, setInstallEvt] = useState<{ prompt: () => void } | null>(null);
+  const [installHelp, setInstallHelp] = useState(false);
   const [query, setQuery] = useState("");
   const [drawerView, setDrawerView] = useState<"sessions" | "channels" | "files">("sessions");
   const [themePref, setThemePref] = useTheme();
@@ -868,6 +870,16 @@ export function ChatApp({ height }: { height: number | null }) {
   const [dragging, setDragging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const touchY = useRef<number | null>(null);
+
+  /* PWA install: capture beforeinstallprompt; fallback = manual guide */
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallEvt(e as unknown as { prompt: () => void });
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
 
   /* PWA update banner (deploy replaced the service worker) */
   useEffect(() => {
@@ -1534,6 +1546,21 @@ export function ChatApp({ height }: { height: number | null }) {
               >
                 🗄 备份
               </button>
+              <button
+                type="button"
+                className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs text-muted-foreground hover:bg-secondary/60"
+                onClick={() => {
+                  if (installEvt) {
+                    installEvt.prompt();
+                    setInstallEvt(null);
+                  } else {
+                    setInstallHelp(true);
+                  }
+                }}
+                title="安装到主屏幕"
+              >
+                📲 安装
+              </button>
               <div className="flex-1" />
               {(
                 [
@@ -1706,6 +1733,33 @@ export function ChatApp({ height }: { height: number | null }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* install fallback guide (no GMS / no beforeinstallprompt) */}
+      {installHelp && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6" onClick={() => setInstallHelp(false)}>
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-card p-4 text-sm leading-relaxed"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 font-semibold">安装到主屏幕</div>
+            <p className="mb-2 text-muted-foreground">
+              若按钮无法安装（国行安卓缺 Google 服务时 WebAPK 会失败），请用浏览器菜单手动添加：
+            </p>
+            <ul className="list-disc space-y-1.5 pl-4 text-[13px] text-muted-foreground">
+              <li><b>Chrome</b>： 菜单 → 添加到主屏幕 / 安装应用</li>
+              <li><b>Edge</b>： 菜单 → 添加到手机 / 主屏幕</li>
+              <li><b>三星浏览器</b>：菜单 → 将页面添加到 → 主屏幕</li>
+              <li><b>iOS Safari</b>：分享 → 添加到主屏幕</li>
+            </ul>
+            <p className="mt-2 text-[12px] text-muted-foreground">
+              无 Google 服务时添加的是快捷方式（标签页打开），功能不受影响。
+            </p>
+            <Button size="sm" className="mt-3 w-full" onClick={() => setInstallHelp(false)}>
+              知道了
+            </Button>
+          </div>
         </div>
       )}
 
