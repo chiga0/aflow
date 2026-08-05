@@ -34,7 +34,7 @@ import threading
 import time
 import urllib.request
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote, urlencode
 
 from .adapter import QwenAdapter
 from .auth import AuthConfig
@@ -45,7 +45,7 @@ from .store import Store
 
 logger = logging.getLogger("runtime.channels")
 
-SUPPORTED_TYPES = {"dingtalk", "feishu", "webhook", "wecom"}
+SUPPORTED_TYPES = {"dingtalk", "feishu", "webhook", "wecom", "bark", "serverchan", "email"}
 _SKEW_MS = 3600 * 1000
 
 
@@ -156,12 +156,27 @@ def extract_text(channel: dict[str, Any], body: Any) -> str | None:
 # ── reply delivery ──────────────────────────────────────────
 
 
-def post_reply(channel: dict[str, Any], text: str) -> None:
+def post_reply(channel: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> None:
+    """Deliver a message to the channel.
+
+    Feishu app bots reply through the Open API (tenant_access_token +
+    im/v1/messages) when app credentials are configured and a chat context
+    is available; otherwise we fall back to the custom-bot webhook.
+    """
+    ctype = (channel.get("type") or "webhook").lower()
+    snippet = text[:4000]
+    if ctype == "feishu":
+        meta = channel.get("metadata") or {}
+        chat_id = (context or {}).get("chat_id")
+        if meta.get("app_id") and meta.get("app_secret") and chat_id:
+            try:
+                _feishu_send(str(meta["app_id"]), str(meta["app_secret"]), str(chat_id), snippet)
+                return
+            except Exception:
+                logger.warning("feishu open-api reply failed; falling back", exc_info=True)
     url = (channel.get("reply_url") or "").strip()
     if not url:
         return
-    ctype = (channel.get("type") or "webhook").lower()
-    snippet = text[:4000]
     if ctype == "dingtalk":
         payload: dict[str, Any] = {"msgtype": "text", "text": {"content": snippet}}
     elif ctype == "feishu":
@@ -169,17 +184,62 @@ def post_reply(channel: dict[str, Any], text: str) -> None:
     elif ctype == "wecom":
         # 企业微信群机器人：markdown 消息，secret 在 webhook key 里，无需签名
         payload = {"msgtype": "markdown", "markdown": {"content": snippet}}
+    elif ctype == "bark":
+        payload = {"title": "AFlow", "body": snippet, "group": "aflow"}
     else:
         payload = {"text": snippet, "channel_id": channel.get("id")}
-    try:
+    if ctype == "serverchan":
+        # reply_url = https://sctapi.ftqq.com/<key>.send
+        data = urllib.parse.urlencode({"title": "AFlow 通知", "desp": snippet}).encode()
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+    elif ctype == "email":
+        _send_email(channel, snippet)
+        return
+    else:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             url, data=data, headers={"Content-Type": "application/json"}, method="POST"
         )
+    try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             resp.read()
     except Exception:
         logger.warning("channel reply failed for %s", channel.get("id"), exc_info=True)
+
+
+def _send_email(channel: dict[str, Any], text: str) -> None:
+    """Universal notify path: plain SMTP, works for every platform."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    meta = channel.get("metadata") or {}
+    host = str(meta.get("smtp_host") or "").strip()
+    if not host:
+        return
+    port = int(meta.get("smtp_port") or 465)
+    user = str(meta.get("smtp_user") or "")
+    password = str(meta.get("smtp_pass") or "")
+    to_addrs = [a.strip() for a in str(meta.get("mail_to") or user).split(",") if a.strip()]
+    if not to_addrs:
+        return
+    msg = MIMEText(text, "plain", "utf-8")
+    msg["Subject"] = "AFlow 通知"
+    msg["From"] = user or "aflow@local"
+    msg["To"] = ", ".join(to_addrs)
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=15) as s:
+            if user and password:
+                s.login(user, password)
+            s.sendmail(msg["From"], to_addrs, msg.as_string())
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as s:
+            s.starttls()
+            if user and password:
+                s.login(user, password)
+            s.sendmail(msg["From"], to_addrs, msg.as_string())
 
 
 def notify_channels(store: Store, title: str, body: str, url: str = "") -> int:
@@ -206,7 +266,65 @@ def notify_channels(store: Store, title: str, body: str, url: str = "") -> int:
     return sent
 
 
-def _run_inbound(channel: dict[str, Any], text: str, adapter: QwenAdapter) -> None:
+# ── feishu open api ───────────────────────────────────────
+
+_FEISHU_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+
+
+def _feishu_tenant_token(app_id: str, app_secret: str) -> str:
+    cached = _FEISHU_TOKEN_CACHE.get(app_id)
+    if cached and cached[1] > time.time() + 60:
+        return cached[0]
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        data=json.dumps({"app_id": app_id, "app_secret": app_secret}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+    if data.get("code") != 0:
+        raise RuntimeError(f"feishu token error: {data.get('msg')}")
+    token = str(data["tenant_access_token"])
+    _FEISHU_TOKEN_CACHE[app_id] = (token, time.time() + int(data.get("expire", 7200)))
+    return token
+
+
+def _feishu_send(app_id: str, app_secret: str, chat_id: str, text: str) -> None:
+    token = _feishu_tenant_token(app_id, app_secret)
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+        data=json.dumps({
+            "receive_id": chat_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": text}),
+        }).encode(),
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    if data.get("code") != 0:
+        raise RuntimeError(f"feishu send error: {data.get('msg')}")
+
+
+def _inbound_context(channel: dict[str, Any], body: Any) -> dict[str, Any]:
+    """Reply routing hints (feishu chat id) extracted from the event body."""
+    context: dict[str, Any] = {}
+    if (channel.get("type") or "").lower() == "feishu" and isinstance(body, dict):
+        message = (body.get("event") or {}).get("message") or {}
+        if message.get("chat_id"):
+            context["chat_id"] = str(message["chat_id"])
+        if message.get("message_id"):
+            context["message_id"] = str(message["message_id"])
+    return context
+
+
+def _run_inbound(channel: dict[str, Any], text: str, adapter: QwenAdapter,
+                 context: dict[str, Any] | None = None) -> None:
     sid: str | None = None
     reply = ""
     try:
@@ -223,7 +341,7 @@ def _run_inbound(channel: dict[str, Any], text: str, adapter: QwenAdapter) -> No
                 adapter.cancel(sid, reason="channel-inbound-done")
             except Exception:
                 pass
-    post_reply(channel, reply)
+    post_reply(channel, reply, context)
 
 
 # ── redaction ───────────────────────────────────────────────
@@ -233,6 +351,10 @@ def _redact(channel: dict[str, Any]) -> dict[str, Any]:
     secret = channel.get("secret") or ""
     out = dict(channel)
     out["secret"] = {"configured": bool(secret), "prefix": secret[:4] if secret else ""}
+    meta = dict(out.get("metadata") or {})
+    if meta.get("app_secret"):
+        meta["app_secret"] = {"configured": True}
+    out["metadata"] = meta
     return out
 
 
@@ -298,6 +420,17 @@ def _upsert(handler: Any, body: dict[str, Any], store: Store) -> bool:
     channel_id = str(body.get("id") or "").strip() or new_id("ch")
     now = utc_now()
     existing = store.get_channel(channel_id)
+    existing_meta = (existing or {}).get("metadata") or {}
+    in_meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    metadata: dict[str, Any] = {**existing_meta}
+    for key in ("app_id", "app_secret", "smtp_host", "smtp_port", "smtp_user",
+                "smtp_pass", "mail_to"):
+        if key in in_meta:
+            value = str(in_meta[key] or "").strip()
+            if value:
+                metadata[key] = value
+            elif key.endswith("_secret") or key == "smtp_pass":
+                metadata.pop(key, None)  # empty = clear
     store.upsert_channel({
         "id": channel_id,
         "type": ctype,
@@ -308,7 +441,7 @@ def _upsert(handler: Any, body: dict[str, Any], store: Store) -> bool:
         "enabled": bool(body.get("enabled", True)),
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
-        "metadata": {},
+        "metadata": metadata,
     })
     handler.json({"channel": _redact(store.get_channel(channel_id))}, status=HTTPStatus.CREATED)
     return True
@@ -356,7 +489,8 @@ def _inbound(
         return True
 
     threading.Thread(
-        target=_run_inbound, args=(channel, text, adapter), daemon=True
+        target=_run_inbound, args=(channel, text, adapter, _inbound_context(channel, body)),
+        daemon=True,
     ).start()
     handler.json({"accepted": True}, status=HTTPStatus.ACCEPTED)
     return True

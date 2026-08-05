@@ -815,6 +815,9 @@ const CHANNEL_LABELS: Record<string, string> = {
   dingtalk: "钉钉",
   feishu: "飞书",
   wecom: "企业微信",
+  bark: "Bark",
+  serverchan: "Server酱",
+  email: "邮件",
   webhook: "Webhook",
 };
 
@@ -823,7 +826,19 @@ function ChannelsPanel() {
     { id: string; type: string; name: string; reply_url: string; enabled: number }[]
   >([]);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ type: "dingtalk", name: "", reply_url: "", secret: "" });
+  const [form, setForm] = useState({
+    type: "dingtalk",
+    name: "",
+    reply_url: "",
+    secret: "",
+    appId: "",
+    appSecret: "",
+    smtpHost: "",
+    smtpPort: "465",
+    smtpUser: "",
+    smtpPass: "",
+    mailTo: "",
+  });
 
   const load = useCallback(() => {
     api<{ channels: typeof channels }>("GET", "/api/channels")
@@ -835,9 +850,27 @@ function ChannelsPanel() {
   }, [load]);
 
   const save = async () => {
-    if (!form.reply_url.trim()) return;
+    if (!form.reply_url.trim() && form.type !== "email") return;
+    const metadata: Record<string, string> = {};
+    if (form.type === "feishu") {
+      if (form.appId) metadata.app_id = form.appId;
+      if (form.appSecret) metadata.app_secret = form.appSecret;
+    }
+    if (form.type === "email") {
+      metadata.smtp_host = form.smtpHost;
+      metadata.smtp_port = form.smtpPort;
+      metadata.smtp_user = form.smtpUser;
+      metadata.smtp_pass = form.smtpPass;
+      metadata.mail_to = form.mailTo;
+    }
     try {
-      await api("POST", "/api/channels", form);
+      await api("POST", "/api/channels", {
+        type: form.type,
+        name: form.name,
+        reply_url: form.reply_url,
+        secret: form.secret,
+        metadata,
+      });
       setAdding(false);
       setForm({ type: "dingtalk", name: "", reply_url: "", secret: "" });
       load();
@@ -870,13 +903,13 @@ function ChannelsPanel() {
       )}
       {adding ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {Object.entries(CHANNEL_LABELS).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
                 className={cn(
-                  "flex-1 cursor-pointer rounded-lg py-1.5 text-xs",
+                  "min-w-16 flex-1 cursor-pointer rounded-lg py-1.5 text-xs",
                   form.type === value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary/60",
                 )}
                 onClick={() => setForm((f) => ({ ...f, type: value }))}
@@ -903,8 +936,60 @@ function ChannelsPanel() {
             value={form.secret}
             onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
           />
+          {form.type === "feishu" && (
+            <>
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="App ID（双向回复需要）"
+                value={form.appId}
+                onChange={(e) => setForm((f) => ({ ...f, appId: e.target.value }))}
+              />
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="App Secret"
+                type="password"
+                value={form.appSecret}
+                onChange={(e) => setForm((f) => ({ ...f, appSecret: e.target.value }))}
+              />
+            </>
+          )}
+          {form.type === "email" && (
+            <>
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="SMTP 主机（如 smtp.qq.com）"
+                value={form.smtpHost}
+                onChange={(e) => setForm((f) => ({ ...f, smtpHost: e.target.value }))}
+              />
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="端口（465 SSL / 587 STARTTLS）"
+                value={form.smtpPort}
+                onChange={(e) => setForm((f) => ({ ...f, smtpPort: e.target.value }))}
+              />
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="SMTP 账号"
+                value={form.smtpUser}
+                onChange={(e) => setForm((f) => ({ ...f, smtpUser: e.target.value }))}
+              />
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="SMTP 密码 / 授权码"
+                type="password"
+                value={form.smtpPass}
+                onChange={(e) => setForm((f) => ({ ...f, smtpPass: e.target.value }))}
+              />
+              <input
+                className="rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                placeholder="收件人（逗号分隔，默认同账号）"
+                value={form.mailTo}
+                onChange={(e) => setForm((f) => ({ ...f, mailTo: e.target.value }))}
+              />
+            </>
+          )}
           <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={save} disabled={!form.reply_url.trim()}>
+            <Button size="sm" className="flex-1" onClick={save} disabled={!form.reply_url.trim() && form.type !== "email"}>
               保存
             </Button>
             <Button size="sm" variant="ghost" className="flex-1" onClick={() => setAdding(false)}>
