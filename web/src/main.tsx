@@ -8,6 +8,7 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );
+(window as any).__AFLOW_MOUNTED__ = true;
 
 // Register the offline app shell in production builds only (dev would fight HMR).
 // Also drives the update flow: every deploy byte-changes sw.js (build stamp),

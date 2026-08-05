@@ -8,13 +8,17 @@
  */
 import {
   ArrowDown,
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
+  CircleUser,
   Cpu,
   Download,
   FileText,
   Image as ImageIcon,
+  Database,
   Loader2,
+  LogOut,
   Menu,
   Mic,
   Monitor,
@@ -24,6 +28,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  RefreshCw,
   Search,
   Sun,
   Trash2,
@@ -624,6 +629,124 @@ function Chatbox(p: ChatboxProps) {
   );
 }
 
+/* ── settings page (ChatGPT-style second-level view) ───── */
+
+function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-4 px-4">
+      <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SettingsRow({
+  icon,
+  label,
+  right,
+  danger,
+  onClick,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  right?: React.ReactNode;
+  danger?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm",
+        onClick ? "cursor-pointer active:bg-secondary/40" : "cursor-default",
+        danger ? "text-destructive" : "text-foreground",
+      )}
+      onClick={onClick}
+    >
+      {icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
+      <span className="flex-1">{label}</span>
+      {right && <span className="text-xs text-muted-foreground">{right}</span>}
+    </button>
+  );
+}
+
+function SettingsView(props: {
+  email: string;
+  themePref: ThemePref;
+  onTheme: (t: ThemePref) => void;
+  onBackup: () => void;
+  onInstall: () => void;
+  onUpdateCheck: () => void;
+  onLogout: () => void;
+  engine: string;
+  model: string;
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto pb-8">
+      <SettingsSection title="外观">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex gap-1 p-1.5">
+            {(
+              [
+                ["system", Monitor, "跟随系统"],
+                ["light", Sun, "浅色"],
+                ["dark", Moon, "深色"],
+              ] as const
+            ).map(([value, Icon, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs",
+                  props.themePref === value
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-secondary/60",
+                )}
+                onClick={() => props.onTheme(value)}
+              >
+                <Icon size={13} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="通知渠道">
+        <ChannelsPanel />
+      </SettingsSection>
+
+      <SettingsSection title="工作区文件">
+        <FilesPanel />
+      </SettingsSection>
+
+      <SettingsSection title="数据与安装">
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+          <SettingsRow icon={<Database size={15} />} label="下载备份" right="每日自动 · 保留 7 份" onClick={props.onBackup} />
+          <SettingsRow icon={<Download size={15} />} label="安装到主屏幕" onClick={props.onInstall} />
+          <SettingsRow icon={<RefreshCw size={15} />} label="检查更新" onClick={props.onUpdateCheck} />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="关于">
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+          <SettingsRow label="引擎" right={props.engine} />
+          <SettingsRow label="默认模型" right={props.model} />
+          <SettingsRow label="账号" right={props.email} />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="账号">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <SettingsRow icon={<LogOut size={15} />} label="退出登录" danger onClick={props.onLogout} />
+        </div>
+      </SettingsSection>
+    </div>
+  );
+}
+
 /* ── workspace browser (drawer panel) ─────────────────── */
 
 function FilesPanel() {
@@ -640,7 +763,7 @@ function FilesPanel() {
   }, [load]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-4">
+    <div className="space-y-1.5">
       <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
         <button type="button" className="cursor-pointer text-primary" onClick={() => load("")}>
           workspace
@@ -724,7 +847,7 @@ function ChannelsPanel() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-4">
+    <div className="space-y-1.5">
       <div className="mb-2 text-xs text-muted-foreground">
         任务完成 / 审批 / 失败会同时推送到已启用的渠道
       </div>
@@ -837,7 +960,29 @@ export function ChatApp({ height }: { height: number | null }) {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [nav, setNav] = useState<{ page?: "settings"; drawer?: boolean } | null>(
+    () => (history.state as { page?: "settings"; drawer?: boolean } | null) || null,
+  );
+  const [userEmail, setUserEmail] = useState("");
+  useEffect(() => {
+    const onPop = () =>
+      setNav((history.state as { page?: "settings"; drawer?: boolean } | null) || null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const go = useCallback((next: { page?: "settings"; drawer?: boolean }) => {
+    history.pushState(next, "");
+    setNav(next);
+  }, []);
+  const back = useCallback(() => history.back(), []);
+  const drawerOpen = Boolean(nav?.drawer);
+  const settingsOpen = Boolean(nav?.page);
+  useEffect(() => {
+    fetch("/api/auth/session", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => d?.email && setUserEmail(d.email))
+      .catch(() => undefined);
+  }, []);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
   const [liveArtifacts, setLiveArtifacts] = useState<{ path: string; size: number }[]>([]);
@@ -929,7 +1074,7 @@ export function ChatApp({ height }: { height: number | null }) {
 
   const openSession = useCallback(async (id: string | null) => {
     setActiveId(id);
-    setDrawerOpen(false);
+    if ((history.state as any)?.drawer) history.back();
     setError(null);
     setLiveText("");
     setLiveThinking("");
@@ -1415,71 +1560,97 @@ export function ChatApp({ height }: { height: number | null }) {
 
       {/* header */}
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-background/90 px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] backdrop-blur">
-        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" data-testid="drawer-open" aria-label="会话列表">
+        {settingsOpen ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="返回"
+              data-testid="settings-back"
+              onClick={back}
+            >
+              <ArrowLeft size={18} />
+            </Button>
+            <div className="flex-1 text-center text-[15px] font-semibold">设置</div>
+            <div className="w-9" />
+          </>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="drawer-open"
+              aria-label="会话列表"
+              onClick={() => go({ drawer: true })}
+            >
               <Menu size={18} />
             </Button>
-          </SheetTrigger>
-          <SheetContent side="left" data-testid="drawer" className="pt-[env(safe-area-inset-top)]">
-            <SheetHeader className="flex-row items-center justify-between">
-              <SheetTitle>会话</SheetTitle>
-              <SheetClose asChild>
-                <Button variant="outline" size="sm" onClick={() => newSession()}>
-                  ＋ 新会话
-                </Button>
-              </SheetClose>
-            </SheetHeader>
-            <div className="flex gap-1 px-4 pb-2">
-              {([["sessions", "会话"], ["channels", "通知渠道"], ["files", "文件"]] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn(
-                    "flex-1 cursor-pointer rounded-lg py-1.5 text-xs",
-                    drawerView === value
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:bg-secondary/60",
-                  )}
-                  onClick={() => setDrawerView(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {drawerView === "channels" ? (
-              <ChannelsPanel />
-            ) : drawerView === "files" ? (
-              <FilesPanel />
-            ) : (
-              <>
-            <div className="px-4 pb-2">
-              <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/50 px-3 py-2">
-                <Search size={14} className="shrink-0 text-muted-foreground" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索会话…"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-2 pb-4">
-              {sessions.length === 0 && (
-                <div className="py-8 text-center text-sm text-muted-foreground">暂无会话</div>
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-[15px] font-semibold">
+              <span className="truncate">{detail?.title || "AFlow"}</span>
+              <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
+                {engine}
+              </span>
+              {liveTokens > 0 && (
+                <span className="text-[10px] font-normal text-muted-foreground">
+                  {(liveTokens / 1000).toFixed(1)}k tok
+                </span>
               )}
-              {sessions
-                .filter(
-                  (s) =>
-                    !query.trim() ||
-                    (s.title || "").toLowerCase().includes(query.trim().toLowerCase()),
-                )
-                .map((s) => (
+            </div>
+            <Button variant="ghost" size="icon" aria-label="新会话" onClick={() => newSession()}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </Button>
+          </>
+        )}
+      </header>
+
+      {/* drawer: user row -> settings; search + sessions */}
+      <Sheet open={drawerOpen} onOpenChange={(o) => (o ? go({ drawer: true }) : back())}>
+        <SheetContent side="left" data-testid="drawer" className="pt-[env(safe-area-inset-top)]">
+          <SheetHeader className="flex-row items-center gap-2">
+            <button
+              type="button"
+              className="flex min-w-0 cursor-pointer items-center gap-2.5"
+              onClick={() => go({ page: "settings" })}
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+                <CircleUser size={20} />
+              </span>
+              <span className="truncate text-sm font-semibold">{userEmail || "AFlow"}</span>
+            </button>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" onClick={() => newSession()}>
+              ＋ 新会话
+            </Button>
+          </SheetHeader>
+          <div className="px-4 pb-2">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/50 px-3 py-2">
+              <Search size={14} className="shrink-0 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索会话…"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-4">
+            {sessions.length === 0 && (
+              <div className="py-8 text-center text-sm text-muted-foreground">暂无会话</div>
+            )}
+            {sessions
+              .filter(
+                (s) =>
+                  !query.trim() ||
+                  (s.title || "").toLowerCase().includes(query.trim().toLowerCase()),
+              )
+              .map((s) => (
                 <div
                   key={s.id}
                   data-testid="session-item"
                   className={cn(
-                    "relative mb-0.5 cursor-pointer rounded-xl px-3 py-2.5 pr-9",
+                    "relative mb-0.5 cursor-pointer rounded-xl px-3 py-2.5 pr-16",
                     s.id === activeId ? "bg-primary/15" : "hover:bg-secondary/50 active:bg-secondary/50",
                   )}
                   onClick={() => openSession(s.id)}
@@ -1534,79 +1705,41 @@ export function ChatApp({ height }: { height: number | null }) {
                   </button>
                 </div>
               ))}
-            </div>
-              </>
-            )}
-            <div className="flex gap-1 border-t border-border p-3">
-              <button
-                type="button"
-                className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs text-muted-foreground hover:bg-secondary/60"
-                onClick={() => window.open("/api/backup", "_blank")}
-                title="下载 SQLite 备份（每日自动，保留 7 份）"
-              >
-                🗄 备份
-              </button>
-              <button
-                type="button"
-                className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs text-muted-foreground hover:bg-secondary/60"
-                onClick={() => {
-                  if (installEvt) {
-                    installEvt.prompt();
-                    setInstallEvt(null);
-                  } else {
-                    setInstallHelp(true);
-                  }
-                }}
-                title="安装到主屏幕"
-              >
-                📲 安装
-              </button>
-              <div className="flex-1" />
-              {(
-                [
-                  ["system", Monitor, "跟随系统"],
-                  ["light", Sun, "浅色"],
-                  ["dark", Moon, "深色"],
-                ] as const
-              ).map(([value, Icon, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn(
-                    "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg py-2 text-xs",
-                    themePref === value
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:bg-secondary/60",
-                  )}
-                  onClick={() => setThemePref(value)}
-                >
-                  <Icon size={13} />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </SheetContent>
-        </Sheet>
+          </div>
+        </SheetContent>
+      </Sheet>
 
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-[15px] font-semibold">
-          <span className="truncate">{detail?.title || "AFlow"}</span>
-          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
-            {engine}
-          </span>
-          {liveTokens > 0 && (
-            <span className="text-[10px] font-normal text-muted-foreground">
-              {(liveTokens / 1000).toFixed(1)}k tok
-            </span>
-          )}
-        </div>
-
-        <Button variant="ghost" size="icon" aria-label="新会话" onClick={() => newSession()}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </Button>
-      </header>
-
+      {settingsOpen ? (
+        <SettingsView
+          email={userEmail}
+          themePref={themePref}
+          onTheme={setThemePref}
+          onBackup={() => window.open("/api/backup", "_blank")}
+          onInstall={() => {
+            if (installEvt) {
+              installEvt.prompt();
+              setInstallEvt(null);
+            } else {
+              setInstallHelp(true);
+            }
+          }}
+          onUpdateCheck={() => {
+            window.dispatchEvent(new Event("aflow:check-update"));
+            window.setTimeout(() => window.location.reload(), 700);
+          }}
+          onLogout={async () => {
+            try {
+              await api("POST", "/api/auth/logout", {});
+            } catch {
+              /* ignore */
+            }
+            window.location.reload();
+          }}
+          engine={engine}
+          model={model || "qwen3.8-max"}
+        />
+      ) : (
+        <>
       {/* pull-to-refresh indicator */}
       <div
         aria-hidden
@@ -1780,6 +1913,8 @@ export function ChatApp({ height }: { height: number | null }) {
         onModel={changeModel}
         onGateMode={changeGateMode}
       />
+        </>
+      )}
     </div>
   );
 }

@@ -51,12 +51,20 @@
     </script>
   </head>
   <body class="bg-zinc-950 text-zinc-100 antialiased">
-    <div id="root">
-      <!-- inline launch splash; React replaces it on first render -->
-      <div id="splash" style="position: fixed; inset: 0; background: #09090b; display: grid; place-items: center">
-        <img src="/logo-128.png" width="72" height="72" alt="" style="border-radius: 18px" />
-      </div>
-    </div>
+    <div id="root"></div>
+    <script>
+      // Splash watchdog: if React never mounts (stale shell / JS 404),
+      // reload once instead of staring at a dead screen.
+      setTimeout(function () {
+        if (!window.__AFLOW_MOUNTED__) {
+          var k = "aflow-splash-reload";
+          if (!sessionStorage.getItem(k)) {
+            sessionStorage.setItem(k, "1");
+            location.reload();
+          }
+        }
+      }, 5000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
