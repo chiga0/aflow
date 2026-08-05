@@ -28,7 +28,12 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
           sessionStorage.removeItem("aflow-cc");
         }
       });
-      const reg = await navigator.serviceWorker.register("/sw.js");
+      const reg = await navigator.serviceWorker.register("/sw.js", {
+        // never let the HTTP cache throttle/serve stale worker scripts
+        updateViaCache: "none",
+      });
+      // explicit update() on every load bypasses Chrome's 24h SW throttle
+      reg.update().catch(() => undefined);
       reg.addEventListener("updatefound", () => {
         const worker = reg.installing;
         if (!worker) return;
