@@ -40,9 +40,11 @@ function findChromium() {
 const DONE_MARKER = "已完成";
 
 async function shot(page, name) {
-  const path = join(OUT, `${name}.png`);
+  const prefix = process.env.AFLOW_THEME && process.env.AFLOW_THEME !== "dark"
+    ? `${process.env.AFLOW_THEME}-` : "";
+  const path = join(OUT, `${prefix}${name}.png`);
   await page.screenshot({ path });
-  console.log("  shot", name);
+  console.log("  shot", prefix + name);
 }
 
 async function sendPrompt(page, text) {
@@ -62,7 +64,11 @@ const browser = await chromium.launch({ headless: true, executablePath: findChro
 const pageErrors = [];
 
 async function runDevice(name, options) {
-  const context = await browser.newContext({ ...options, colorScheme: "dark" });
+  const theme = process.env.AFLOW_THEME || "dark";
+  const context = await browser.newContext({ ...options, colorScheme: theme });
+  if (theme !== "dark") {
+    await context.addInitScript((t) => localStorage.setItem("aflow-theme", t), theme);
+  }
   const page = await context.newPage();
   page.on("pageerror", (e) => pageErrors.push(`${name}: ${String(e.message).slice(0, 160)}`));
 

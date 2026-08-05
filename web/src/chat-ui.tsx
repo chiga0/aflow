@@ -1130,6 +1130,8 @@ export function useTheme(): [ThemePref, (t: ThemePref) => void] {
     const apply = () => {
       const light = pref === "light" || (pref === "system" && mq.matches);
       document.documentElement.dataset.theme = light ? "light" : "dark";
+      const tc = document.querySelector('meta[name="theme-color"]');
+      if (tc) tc.setAttribute("content", light ? "#fafafa" : "#09090b");
     };
     apply();
     mq.addEventListener("change", apply);
