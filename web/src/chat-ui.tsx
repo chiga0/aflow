@@ -580,7 +580,7 @@ function Chatbox(p: ChatboxProps) {
             </span>
           </Button>
 
-          {p.running && (
+          {p.running && !canSend ? (
             <Button
               data-testid="composer-stop"
               variant="destructive"
@@ -591,18 +591,19 @@ function Chatbox(p: ChatboxProps) {
             >
               <Square size={14} fill="currentColor" />
             </Button>
+          ) : (
+            <Button
+              data-testid="composer-send"
+              size="icon"
+              aria-label="发送"
+              title={p.running ? "排队发送" : "发送"}
+              className="rounded-full bg-foreground text-background hover:opacity-90"
+              disabled={!canSend}
+              onClick={submit}
+            >
+              <Send size={15} />
+            </Button>
           )}
-          <Button
-            data-testid="composer-send"
-            size="icon"
-            aria-label="发送"
-            title={p.running ? "排队发送" : "发送"}
-            className="rounded-full bg-foreground text-background hover:opacity-90"
-            disabled={!canSend}
-            onClick={submit}
-          >
-            <Send size={15} />
-          </Button>
         </div>
       </div>
 
