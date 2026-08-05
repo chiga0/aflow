@@ -1945,10 +1945,18 @@ export function ChatApp({
           themePref={themePref}
           onTheme={setThemePref}
           onBackup={() => window.open("/api/backup", "_blank")}
-          onInstall={() => {
+          onInstall={async () => {
             if (installEvt) {
-              installEvt.prompt();
-              setInstallEvt(null);
+              try {
+                installEvt.prompt();
+                const choice = await (installEvt as any).userChoice;
+                setInstallEvt(null);
+                // GMS-less CN Android: WebAPK prompt resolves dismissed/failed
+                if (!choice || choice.outcome !== "accepted") setInstallHelp(true);
+              } catch {
+                setInstallEvt(null);
+                setInstallHelp(true);
+              }
             } else {
               setInstallHelp(true);
             }
