@@ -10,12 +10,14 @@ function stampServiceWorker(): Plugin {
   return {
     name: "stamp-sw",
     closeBundle() {
-      const p = resolve(__dirname, "dist/sw.js");
-      if (existsSync(p)) {
-        writeFileSync(
-          p,
-          readFileSync(p, "utf8").replace("__BUILD_ID__", `aflow-${Date.now()}`),
-        );
+      const id = `aflow-${Date.now()}`;
+      const sw = resolve(__dirname, "dist/sw.js");
+      if (existsSync(sw)) {
+        writeFileSync(sw, readFileSync(sw, "utf8").replace("__BUILD_ID__", id));
+      }
+      const html = resolve(__dirname, "dist/index.html");
+      if (existsSync(html)) {
+        writeFileSync(html, readFileSync(html, "utf8").replace("__BUILD_ID__", id));
       }
     },
   };

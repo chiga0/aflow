@@ -50,6 +50,7 @@ function isStaticAsset(pathname) {
   return (
     pathname.startsWith("/assets/") ||
     pathname.startsWith("/icon-") ||
+    pathname.startsWith("/logo-") ||
     pathname.startsWith("/apple-touch-icon") ||
     pathname.startsWith("/favicon") ||
     pathname === "/manifest.json"
@@ -133,7 +134,11 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(VERSION);
-      const forced = req.cache === "no-cache" || req.cache === "reload";
+      const url = new URL(req.url);
+      const forced =
+        req.cache === "no-cache" ||
+        req.cache === "reload" ||
+        url.searchParams.has("nocache");
       if (forced) {
         try {
           const res = await fetch(req, { cache: "no-store" });

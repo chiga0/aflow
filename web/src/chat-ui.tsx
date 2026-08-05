@@ -923,9 +923,9 @@ function ChannelsPanel() {
 
 /* ── theme (system / light / dark, persisted) ─────────── */
 
-type ThemePref = "system" | "light" | "dark";
+export type ThemePref = "system" | "light" | "dark";
 
-function useTheme(): [ThemePref, (t: ThemePref) => void] {
+export function useTheme(): [ThemePref, (t: ThemePref) => void] {
   const [pref, setPref] = useState<ThemePref>(() => {
     try {
       return (localStorage.getItem("aflow-theme") as ThemePref) || "system";
@@ -956,7 +956,15 @@ function useTheme(): [ThemePref, (t: ThemePref) => void] {
 
 /* ── main component ────────────────────────────────────── */
 
-export function ChatApp({ height }: { height: number | null }) {
+export function ChatApp({
+  height,
+  themePref,
+  setThemePref,
+}: {
+  height: number | null;
+  themePref: ThemePref;
+  setThemePref: (t: ThemePref) => void;
+}) {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -1010,10 +1018,10 @@ export function ChatApp({ height }: { height: number | null }) {
   const [installHelp, setInstallHelp] = useState(false);
   const [query, setQuery] = useState("");
   const [drawerView, setDrawerView] = useState<"sessions" | "channels" | "files">("sessions");
-  const [themePref, setThemePref] = useTheme();
   const [pullPx, setPullPx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState("");
   const touchY = useRef<number | null>(null);
 
   /* PWA install: capture beforeinstallprompt; fallback = manual guide */
@@ -1055,8 +1063,35 @@ export function ChatApp({ height }: { height: number | null }) {
     if (pullPx > PULL_TRIGGER && !refreshing) {
       setRefreshing(true);
       setPullPx(48);
-      window.dispatchEvent(new Event("aflow:check-update"));
-      window.setTimeout(() => window.location.reload(), 500);
+      (async () => {
+        // Only reload when a new build actually exists; otherwise a full
+        // reload just flashes a black screen for no reason.
+        window.dispatchEvent(new Event("aflow:check-update"));
+        let changed = false;
+        try {
+          const res = await fetch(`/index.html?nocache=1&ts=${Date.now()}`, {
+            cache: "no-store",
+          });
+          const html = await res.text();
+          const m = html.match(/name="aflow-build" content="([^"]+)"/);
+          const cur = document
+            .querySelector('meta[name="aflow-build"]')
+            ?.getAttribute("content");
+          changed = Boolean(m && cur && m[1] !== cur);
+        } catch {
+          /* offline */
+        }
+        if (changed) {
+          window.location.reload();
+          return;
+        }
+        setRefreshNote("已是最新");
+        window.setTimeout(() => {
+          setRefreshing(false);
+          setPullPx(0);
+          setRefreshNote("");
+        }, 900);
+      })();
     } else {
       setPullPx(0);
     }
@@ -1760,7 +1795,7 @@ export function ChatApp({ height }: { height: number | null }) {
               }}
             />
           )}
-          {refreshing ? "刷新中…" : pullPx > PULL_TRIGGER ? "释放刷新" : "下拉刷新"}
+          {refreshing ? (refreshNote || "刷新中…") : pullPx > PULL_TRIGGER ? "释放刷新" : "下拉刷新"}
         </div>
       </div>
 

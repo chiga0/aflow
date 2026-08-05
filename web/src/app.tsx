@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { ChatApp } from "./chat-ui";
+import { ChatApp, useTheme, type ThemePref } from "./chat-ui";
 
 /* ── Brand mark ────────────────────────────────────────── */
 
@@ -155,6 +155,7 @@ function useViewportHeight(): number | null {
 export function App() {
   const auth = useAuth();
   const viewportHeight = useViewportHeight();
+  const [themePref, setThemePref] = useTheme();
 
   return (
     <>
@@ -162,7 +163,11 @@ export function App() {
       {auth === "checking" && <CheckingScreen />}
       {auth === "unauthed" && <LoginScreen onDone={() => window.location.reload()} />}
       {(auth === "authed" || auth === "disabled") && (
-        <ChatApp height={viewportHeight} />
+        <ChatApp
+          height={viewportHeight}
+          themePref={themePref}
+          setThemePref={setThemePref}
+        />
       )}
     </>
   );
@@ -173,41 +178,41 @@ export function App() {
 const aflowStyles = `
 .aflow-auth {
   position: fixed; inset: 0; display: grid; place-items: center;
-  background: #09090b; padding: 1.5rem; overflow: auto;
+  background: var(--background); padding: 1.5rem; overflow: auto;
 }
 .aflow-auth-card {
   position: relative; z-index: 1; width: 100%; max-width: 360px;
-  background: rgba(24,24,27,0.7); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px; padding: 1.75rem; backdrop-filter: blur(12px);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 1.75rem;
 }
 .aflow-auth-brand { display: flex; align-items: center; gap: 0.75rem; }
 .aflow-auth-sub {
   font-family: ui-monospace, "SF Mono", monospace; font-size: 0.7rem;
-  letter-spacing: 0.08em; text-transform: uppercase; color: rgba(148,163,184,0.6);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-foreground);
 }
-.aflow-auth-hint { color: rgba(203,213,225,0.7); font-size: 0.875rem; margin: 1rem 0 0.25rem; }
+.aflow-auth-hint { color: var(--muted-foreground); font-size: 0.875rem; margin: 1rem 0 0.25rem; }
 .aflow-auth-form { display: grid; gap: 0.85rem; margin-top: 1rem; }
-.aflow-field { display: grid; gap: 0.35rem; font-size: 0.8rem; color: rgba(203,213,225,0.8); }
+.aflow-field { display: grid; gap: 0.35rem; font-size: 0.8rem; color: var(--muted-foreground); }
 .aflow-field input {
-  height: 42px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(9,9,11,0.6); color: #f4f4f5; padding: 0 0.85rem; font-size: 0.9rem;
+  height: 42px; border-radius: 10px; border: 1px solid var(--input);
+  background: var(--background); color: var(--foreground); padding: 0 0.85rem; font-size: 0.9rem;
   outline: none; transition: border-color 0.2s;
 }
-.aflow-field input:focus { border-color: #6366f1; }
+.aflow-field input:focus { border-color: var(--ring); }
 .aflow-auth-error {
-  font-size: 0.8rem; color: #fca5a5; background: rgba(239,68,68,0.1);
+  font-size: 0.8rem; color: var(--destructive); background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 0.5rem 0.7rem;
 }
 .aflow-auth-submit {
   height: 44px; border: none; border-radius: 10px; cursor: pointer;
   font-size: 0.95rem; font-weight: 600; color: #fff;
-  background: linear-gradient(135deg, #6366f1, #06b6d4);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
 }
 .aflow-auth-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 .aflow-title-main {
   font-family: "SF Pro Display", Inter, system-ui, sans-serif;
   font-weight: 800; letter-spacing: -0.04em;
-  background: linear-gradient(135deg, #c7d2fe 0%, #a5f3fc 50%, #c7d2fe 100%);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 `;
