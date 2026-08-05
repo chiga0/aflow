@@ -100,8 +100,10 @@ PY
 )"
   fi
   # free the ~250MB the qwen daemon was holding.
+command -v pkill >/dev/null && {
   pkill -f "qwen serve" 2>/dev/null || true
   pkill -f "@qwen-code/qwen-code" 2>/dev/null || true
+}
 else
   export QWEN_SERVE_TOKEN="${QWEN_SERVE_TOKEN:-aflow-internal-token-change-me}"
   export QWEN_SERVE_URL="http://127.0.0.1:4170"
@@ -126,8 +128,29 @@ else
 fi
 
 # (re)start runtime
-pkill -f "python3 -m runtime" 2>/dev/null || true
-pkill -f "python3 -m lite.runtime" 2>/dev/null || true
+# pkill may be missing on minimal VPS images (procps not installed) and
+# `|| true` hid that — the runtime then never restarted across deploys.
+# Match /proc cmdlines directly instead.
+python3 - <<'PY'
+import os, signal, time
+me = os.getpid()
+patterns = ("python3 -m runtime", "python3 -m lite.runtime")
+for pid in os.listdir("/proc"):
+    if not pid.isdigit() or int(pid) == me:
+        continue
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmd = f.read().decode(errors="replace").replace("\0", " ")
+    except OSError:
+        continue
+    if any(p in cmd for p in patterns):
+        try:
+            os.kill(int(pid), signal.TERM)
+            print(f"-- killed old runtime pid {pid}")
+        except OSError:
+            pass
+time.sleep(1)
+PY
 sleep 1
 echo "-- starting aflow runtime on :${AFLOW_PORT} --"
 nohup python3 -m runtime --host 0.0.0.0 --port "${AFLOW_PORT}" > /tmp/aflow-lite.log 2>&1 &
