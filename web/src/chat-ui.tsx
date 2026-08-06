@@ -316,6 +316,9 @@ function AssistantBubble({
   artifacts,
   status,
   streaming,
+  statusText,
+  elapsedSec,
+  tokens,
 }: {
   text: string;
   thinking?: string;
@@ -323,6 +326,9 @@ function AssistantBubble({
   artifacts?: { path: string; size: number }[];
   status?: string;
   streaming?: boolean;
+  statusText?: string;
+  elapsedSec?: number | null;
+  tokens?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [thinkOpen, setThinkOpen] = useState(false);
@@ -374,9 +380,15 @@ function AssistantBubble({
           </div>
         )}
         {streaming && (
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
             <Loader2 size={12} className="animate-spin" />
-            Agent 工作中…
+            <span>{statusText || "工作中"}</span>
+            {typeof elapsedSec === "number" && (
+              <span className="tabular-nums">· {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, "0")}</span>
+            )}
+            {(tokens ?? 0) > 0 && (
+              <span>· ⚡{((tokens ?? 0) / 1000).toFixed(1)}k tok</span>
+            )}
           </div>
         )}
         {status && status !== "completed" && (
@@ -1300,6 +1312,9 @@ export function ChatApp({
   const [liveThinking, setLiveThinking] = useState("");
   const [liveArtifacts, setLiveArtifacts] = useState<{ path: string; size: number }[]>([]);
   const [liveTokens, setLiveTokens] = useState(0);
+  const [liveStatus, setLiveStatus] = useState("");
+  const turnStartRef = useRef<number | null>(null);
+  const [nowTs, setNowTs] = useState(0);
   const [liveTools, setLiveTools] = useState<ToolRecord[]>([]);
   const liveTextRef = useRef("");
   const liveThinkingRef = useRef("");
@@ -1310,6 +1325,18 @@ export function ChatApp({
   const [pendingFiles, setPendingFiles] = useState<{ name: string; text: string }[]>([]);
   const [queued, setQueued] = useState<QueuedMsg[]>([]);
   const queuedRef = useRef<QueuedMsg[]>([]);
+
+  // 1s ticker while a turn runs, for the elapsed-time readout
+  useEffect(() => {
+    if (!liveRunning) return;
+    setNowTs(Date.now());
+    const iv = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [liveRunning]);
+  const elapsedSec =
+    liveRunning && turnStartRef.current
+      ? Math.max(0, Math.floor((nowTs - turnStartRef.current) / 1000))
+      : null;
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
   const [engine, setEngine] = useState("pi");
@@ -1460,19 +1487,23 @@ export function ChatApp({
       try {
         const ev = JSON.parse(e.data) as { type: string; data: Record<string, unknown> };
         const data = ev.data || {};
+        if (turnStartRef.current == null) turnStartRef.current = Date.now();
         switch (ev.type) {
           case "message.delta":
             if (data.thought) {
               liveThinkingRef.current += String(data.text || "");
               setLiveThinking(liveThinkingRef.current);
+              setLiveStatus("思考中");
             } else {
               liveTextRef.current += String(data.text || "");
               setLiveText(liveTextRef.current);
+              setLiveStatus("生成中");
             }
             setLiveRunning(true);
             break;
           case "tool.start":
             setLiveRunning(true);
+            setLiveStatus(`工具 · ${String(data.name || "tool")}`);
             liveToolsRef.current = [
               ...liveToolsRef.current,
               {
@@ -1493,6 +1524,7 @@ export function ChatApp({
             setLiveTools(liveToolsRef.current);
             break;
           case "tool.end":
+            setLiveStatus("工作中");
             liveToolsRef.current = liveToolsRef.current.map((t) =>
               t.id === String(data.tool_call_id || "")
                 ? {
@@ -1564,6 +1596,8 @@ export function ChatApp({
             setLiveTools([]);
             setLiveArtifacts([]);
     setLiveTokens(0);
+            setLiveStatus("");
+            turnStartRef.current = null;
             refreshSessions();
             // drain client queue: send the next queued message, if any
             if (queuedRef.current.length) {
@@ -1706,6 +1740,7 @@ export function ChatApp({
         setLiveRunning(true);
         setError(null);
         const wasRunning = liveRunning || Boolean(detail?.running);
+        if (!wasRunning) turnStartRef.current = Date.now();
         if (!wasRunning) {
           // fresh turn: reset live buffers; a queued message must not
           // wipe the current turn's stream.
@@ -2212,6 +2247,9 @@ export function ChatApp({
             tools={liveTools}
             artifacts={liveArtifacts}
             streaming
+            statusText={liveStatus}
+            elapsedSec={elapsedSec}
+            tokens={liveTokens}
           />
         )}
         {error && (
