@@ -1,19 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { ChatApp, useTheme, type ThemePref } from "./chat-ui";
+import { ChatApp, useTheme, type ThemePref, BrandGlyph } from "./chat-ui";
 
 /* ── Brand mark ────────────────────────────────────────── */
 
 function BrandMark({ size = 48 }: { size?: number }) {
-  return (
-    <img
-      src="/logo-128.png"
-      width={size}
-      height={size}
-      alt="AFlow"
-      style={{ borderRadius: size / 4, filter: "drop-shadow(0 4px 24px rgba(99,102,241,0.3))" }}
-    />
-  );
+  return <BrandGlyph size={size} />;
 }
 
 /* ── Auth gate + login ─────────────────────────────────── */

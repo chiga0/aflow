@@ -35,7 +35,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Button } from "./components/ui/button";
 import {
@@ -158,6 +158,30 @@ const SUGGESTIONS = [
   "分析最近一次代码变更的影响",
   "写一个 hello world 并运行验证",
 ];
+
+/* ── brand glyph (inline SVG: zero network, never breaks) ── */
+
+export function BrandGlyph({ size = 48 }: { size?: number }) {
+  const id = useId();
+  return (
+    <svg width={size} height={size} viewBox="0 0 96 96" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#7c3aed" />
+          <stop offset="1" stopColor="#38bdf8" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M62 20 A34 34 0 1 0 82 50"
+        fill="none"
+        stroke={`url(#${id})`}
+        strokeWidth="14"
+        strokeLinecap="round"
+      />
+      <circle cx="72" cy="26" r="9" fill={`url(#${id})`} />
+    </svg>
+  );
+}
 
 /* ── lightweight markdown (code fences only, by design) ── */
 
@@ -2018,7 +2042,7 @@ export function ChatApp({
       >
         {!activeId && (
           <div className="m-auto flex max-w-75 flex-col items-center px-6 text-center">
-            <img src="/logo.png" alt="AFlow" className="mb-3 h-16 w-16" />
+            <BrandGlyph size={64} />
             <div className="mb-2 bg-gradient-to-br from-primary to-accent bg-[length:200%_200%] bg-clip-text text-3xl font-extrabold text-transparent [animation:aflow-shimmer_6s_ease-in-out_infinite]">
               AFlow
             </div>
