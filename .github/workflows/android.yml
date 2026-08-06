@@ -55,7 +55,7 @@ jobs:
           echo "building v$VN (code $VC)"
 
       - name: decode keystore
-        run: echo "${ANDROID_KEYSTORE_B64}" | base64 -d > android/release.jks
+        run: echo "${ANDROID_KEYSTORE_B64}" | base64 -d > android/app/release.jks
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
 
