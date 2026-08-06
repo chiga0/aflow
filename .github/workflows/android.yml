@@ -63,13 +63,11 @@ jobs:
         run: |
           cd android && gradle assembleRelease --no-daemon -q \
             -PversionCode="${VC}" -PversionName="${VN}" \
-            -PstoreFile=release.jks -PstorePass="${ANDROID_STORE_PASS}" \
-            -PkeyAlias=aflow -PkeyPass="${ANDROID_KEY_PASS}"
+            -PstoreFile=release.jks -PstorePass="aflow-release-2026" \
+            -PkeyAlias=aflow -PkeyPass="aflow-release-2026"
         env:
           VC: ${{ steps.ver.outputs.vc }}
           VN: ${{ steps.ver.outputs.vn }}
-          ANDROID_STORE_PASS: ${{ secrets.ANDROID_STORE_PASS }}
-          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
 
       - name: publish versioned release
         uses: softprops/action-gh-release@v2
