@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -22,7 +24,9 @@ import android.webkit.WebViewClient;
 public class MainActivity extends Activity {
 
     private static final String URL = "https://aflow.dev/";
+    private static final int FILE_CHOOSER_REQ = 1001;
     private WebView web;
+    private ValueCallback<Uri[]> fileCallback;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -54,6 +58,27 @@ public class MainActivity extends Activity {
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, u));
                 } catch (Exception ignored) {
+                }
+                return true;
+            }
+        });
+
+        // Without a WebChromeClient overriding onShowFileChooser, WebView
+        // silently ignores <input type="file"> taps — the composer's 图片/文件
+        // picker buttons would do nothing.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,
+                    FileChooserParams fileChooserParams) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = filePathCallback;
+                try {
+                    Intent intent = fileChooserParams.createIntent();
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(intent, FILE_CHOOSER_REQ);
+                } catch (Exception e) {
+                    fileCallback = null;
+                    return false;
                 }
                 return true;
             }
@@ -137,6 +162,19 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }).start();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQ) {
+            if (fileCallback != null) {
+                fileCallback.onReceiveValue(
+                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                fileCallback = null;
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
