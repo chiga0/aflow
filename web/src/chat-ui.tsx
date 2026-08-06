@@ -769,6 +769,12 @@ function SettingsView(props: {
           <SettingsRow label="引擎" right={props.engine} />
           <SettingsRow label="默认模型" right={props.model} />
           <SettingsRow label="账号" right={props.email} />
+          {(() => {
+            const m = typeof navigator !== "undefined"
+              ? navigator.userAgent.match(/AFlowAndroid\/([\d.]+)/)
+              : null;
+            return m ? <SettingsRow label="安卓壳版本" right={`v${m[1]}`} /> : null;
+          })()}
         </div>
       </SettingsSection>
 

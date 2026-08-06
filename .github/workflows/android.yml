@@ -27,9 +27,22 @@ jobs:
           gradle-version: "8.4"
 
       - name: build debug apk
-        run: cd android && gradle assembleDebug --no-daemon -q
+        run: |
+          VC=$(git rev-list --count HEAD)
+          VN="1.0.${VC}"
+          echo "VERSION_NAME=${VN}" >> "$GITHUB_ENV"
+          cd android && gradle assembleDebug --no-daemon -q -PversionCode="$VC" -PversionName="$VN"
 
-      - name: publish to release
+      - name: publish versioned release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ env.VERSION_NAME }}
+          name: "AFlow Android ${{ env.VERSION_NAME }}"
+          body: "Versioned snapshot of the WebView shell APK."
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          make_latest: false
+
+      - name: publish latest channel
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android

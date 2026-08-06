@@ -40,6 +40,8 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        // expose the shell version to the site (settings -> about)
+        s.setUserAgentString(s.getUserAgentString() + " AFlowAndroid/" + BuildConfig.VERSION_NAME);
 
         web.setWebViewClient(new WebViewClient() {
             @Override
