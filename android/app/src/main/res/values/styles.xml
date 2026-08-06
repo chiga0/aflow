@@ -4,5 +4,9 @@
         <item name="android:windowBackground">@drawable/splash</item>
         <item name="android:statusBarColor">#09090b</item>
         <item name="android:navigationBarColor">#09090b</item>
+        <!-- no alpha-fade enter transition: the opaque window appears
+             instantly, so the launcher never shows through -->
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowIsTranslucent">false</item>
     </style>
 </resources>
