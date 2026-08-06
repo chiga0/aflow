@@ -67,9 +67,16 @@ jobs:
 
       - name: ship apk to site (aflow.dev/aflow.apk)
         run: |
-          curl -sL -o /tmp/aflow.apk "https://github.com/chiga0/aflow/releases/download/android/app-debug.apk" || true
+          curl -sL -o /tmp/aflow.apk "https://github.com/chiga0/aflow/releases/download/android/app-release.apk" \
+            || curl -sL -o /tmp/aflow.apk "https://github.com/chiga0/aflow/releases/download/android/app-debug.apk" || true
+          VN=$(curl -s "https://api.github.com/repos/chiga0/aflow/releases?per_page=30" \
+            | jq -r '[.[].tag_name] | map(select(startswith("android-v"))) | .[0] // empty' \
+            | sed 's/^android-v//')
+          echo "{\"versionName\":\"${VN}\",\"url\":\"https://aflow.dev/aflow.apk\"}" > /tmp/apk-version.json
+          cat /tmp/apk-version.json
           if [ -s /tmp/aflow.apk ]; then
             scp /tmp/aflow.apk "${AFLOW_DEPLOY_TARGET}:/opt/aflow/web/dist/aflow.apk" || true
+            scp /tmp/apk-version.json "${AFLOW_DEPLOY_TARGET}:/opt/aflow/web/dist/apk-version.json" || true
           else
             echo "apk not fetchable; skipping"
           fi

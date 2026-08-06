@@ -2,6 +2,12 @@ name: android
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: version bump
+        default: patch
+        type: choice
+        options: [patch, minor, major]
   push:
     branches: [main]
     paths:
@@ -15,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history: versionCode = commit count
+          fetch-depth: 0  # full history for tags + versionCode
 
       - uses: actions/setup-java@v4
         with:
@@ -28,20 +34,50 @@ jobs:
         with:
           gradle-version: "8.4"
 
-      - name: build debug apk
+      - name: compute semver
+        id: ver
         run: |
+          LAST=$(git tag -l "android-v*" | sort -V | tail -1)
+          BUMP="${{ inputs.bump || 'patch' }}"
+          if [ -z "$LAST" ]; then
+            VN="1.0.0"
+          else
+            IFS=. read -r MA MI PA <<< "${LAST#android-v}"
+            case "$BUMP" in
+              major) VN="$((MA + 1)).0.0" ;;
+              minor) VN="$MA.$((MI + 1)).0" ;;
+              *)     VN="$MA.$MI.$((PA + 1))" ;;
+            esac
+          fi
           VC=$(git rev-list --count HEAD)
-          VN="1.0.${VC}"
-          echo "VERSION_NAME=${VN}" >> "$GITHUB_ENV"
-          cd android && gradle assembleDebug --no-daemon -q -PversionCode="$VC" -PversionName="$VN"
+          echo "vn=$VN" >> "$GITHUB_OUTPUT"
+          echo "vc=$VC" >> "$GITHUB_OUTPUT"
+          echo "building v$VN (code $VC)"
+
+      - name: decode keystore
+        run: echo "${ANDROID_KEYSTORE_B64}" | base64 -d > android/release.jks
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+
+      - name: build signed release apk
+        run: |
+          cd android && gradle assembleRelease --no-daemon -q \
+            -PversionCode="${VC}" -PversionName="${VN}" \
+            -PstoreFile=release.jks -PstorePass="${ANDROID_STORE_PASS}" \
+            -PkeyAlias=aflow -PkeyPass="${ANDROID_KEY_PASS}"
+        env:
+          VC: ${{ steps.ver.outputs.vc }}
+          VN: ${{ steps.ver.outputs.vn }}
+          ANDROID_STORE_PASS: ${{ secrets.ANDROID_STORE_PASS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
 
       - name: publish versioned release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v${{ env.VERSION_NAME }}
-          name: "AFlow Android ${{ env.VERSION_NAME }}"
-          body: "Versioned snapshot of the WebView shell APK."
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: android-v${{ steps.ver.outputs.vn }}
+          name: "AFlow Android v${{ steps.ver.outputs.vn }}"
+          body: "Signed release build. Over-install upgrades from any earlier signed version."
+          files: android/app/build/outputs/apk/release/app-release.apk
           make_latest: false
 
       - name: publish latest channel
@@ -49,6 +85,6 @@ jobs:
         with:
           tag_name: android
           name: "AFlow Android (WebView shell)"
-          body: "Pure WebView shell for https://aflow.dev — no GMS required. Install the APK (allow unknown sources), done."
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          body: "Latest signed APK. Also mirrored at https://aflow.dev/aflow.apk"
+          files: android/app/build/outputs/apk/release/app-release.apk
           make_latest: false

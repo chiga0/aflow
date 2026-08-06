@@ -14,9 +14,23 @@ android {
         versionName project.hasProperty('versionName') ? project.property('versionName') : "1.0-dev"
     }
 
+    signingConfigs {
+        release {
+            if (project.hasProperty('storeFile')) {
+                storeFile file(project.property('storeFile'))
+                storePassword project.property('storePass')
+                keyAlias project.property('keyAlias')
+                keyPassword project.property('keyPass')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (project.hasProperty('storeFile')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

@@ -68,6 +68,75 @@ public class MainActivity extends Activity {
 
         setContentView(web);
         web.loadUrl(URL);
+        checkUpdate();
+    }
+
+    // ── in-app updates ─────────────────────────────────────
+
+    private void checkUpdate() {
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL("https://aflow.dev/apk-version.json").openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(5000);
+                String body = new String(c.getInputStream().readAllBytes());
+                org.json.JSONObject o = new org.json.JSONObject(body);
+                String latest = o.optString("versionName", "");
+                String url = o.optString("url", "");
+                if (latest.isEmpty() || url.isEmpty()) return;
+                if (!isNewer(latest, BuildConfig.VERSION_NAME)) return;
+                runOnUiThread(() -> new android.app.AlertDialog.Builder(this)
+                        .setTitle("发现新版本")
+                        .setMessage("v" + latest + "（当前 v" + BuildConfig.VERSION_NAME
+                                + "）。直接覆盖升级，无需卸载。")
+                        .setPositiveButton("更新", (d, w) -> downloadAndInstall(url))
+                        .setNegativeButton("稍后", null)
+                        .show());
+            } catch (Exception ignored) {
+            }
+        }).start();
+    }
+
+    private static boolean isNewer(String a, String b) {
+        try {
+            String[] pa = a.split("\\.");
+            String[] pb = b.split("\\.");
+            for (int i = 0; i < 3; i++) {
+                int x = i < pa.length ? Integer.parseInt(pa[i]) : 0;
+                int y = i < pb.length ? Integer.parseInt(pb[i]) : 0;
+                if (x != y) return x > y;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void downloadAndInstall(String url) {
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL(url).openConnection();
+                c.setConnectTimeout(10000);
+                java.io.File f = new java.io.File(getCacheDir(), "aflow-update.apk");
+                try (java.io.InputStream in = c.getInputStream();
+                     java.io.OutputStream out = new java.io.FileOutputStream(f)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+                runOnUiThread(() -> {
+                    android.net.Uri uri = android.net.Uri.parse(
+                            "content://dev.aflow.app.apk/file");
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setDataAndType(uri,
+                            "application/vnd.android.package-archive");
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(intent);
+                });
+            } catch (Exception ignored) {
+            }
+        }).start();
     }
 
     @Override
