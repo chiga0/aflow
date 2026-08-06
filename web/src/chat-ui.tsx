@@ -30,6 +30,7 @@ import {
   Square,
   RefreshCw,
   Search,
+  Smartphone,
   Sun,
   Trash2,
   X,
@@ -753,6 +754,12 @@ function SettingsView(props: {
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           <SettingsRow icon={<Database size={15} />} label="下载备份" right="每日自动 · 保留 7 份" onClick={props.onBackup} />
           <SettingsRow icon={<Download size={15} />} label="安装到主屏幕" onClick={props.onInstall} />
+          <SettingsRow
+            icon={<Smartphone size={15} />}
+            label="安卓 APK 直装"
+            right="无 GMS 依赖"
+            onClick={() => window.open("/aflow.apk", "_blank")}
+          />
           <SettingsRow icon={<RefreshCw size={15} />} label="检查更新" onClick={props.onUpdateCheck} />
         </div>
       </SettingsSection>

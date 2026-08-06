@@ -64,3 +64,14 @@ jobs:
         env:
           AFLOW_AUTH_EMAIL: ${{ secrets.AFLOW_AUTH_EMAIL || vars.AFLOW_AUTH_EMAIL }}
           AFLOW_AUTH_PASSWORD: ${{ secrets.AFLOW_AUTH_PASSWORD }}
+
+      - name: ship apk to site (aflow.dev/aflow.apk)
+        run: |
+          curl -sL -o /tmp/aflow.apk "https://github.com/chiga0/aflow/releases/download/android/app-debug.apk" || true
+          if [ -s /tmp/aflow.apk ]; then
+            scp /tmp/aflow.apk "${AFLOW_DEPLOY_TARGET}:/opt/aflow/web/dist/aflow.apk" || true
+          else
+            echo "apk not fetchable; skipping"
+          fi
+        env:
+          AFLOW_DEPLOY_TARGET: ${{ vars.AFLOW_DEPLOY_TARGET }}
