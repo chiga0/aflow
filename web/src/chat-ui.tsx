@@ -9,6 +9,7 @@
 import {
   ArrowDown,
   ArrowLeft,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   CircleUser,
@@ -372,6 +373,12 @@ function AssistantBubble({
             <span className="h-1.5 w-1.5 rounded-full bg-primary [animation:aflow-pulse_1.2s_ease-in-out_infinite_0.4s]" />
           </div>
         )}
+        {streaming && (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 size={12} className="animate-spin" />
+            Agent 工作中…
+          </div>
+        )}
         {status && status !== "completed" && (
           <div className="text-xs text-destructive">
             {status === "failed" ? "执行失败" : status === "timeout" ? "超时" : status}
@@ -384,6 +391,12 @@ function AssistantBubble({
 
 /* ── chatbox (composer) ────────────────────────────────── */
 
+interface QueuedMsg {
+  id: string;
+  text: string;
+  images?: PendingImage[];
+}
+
 interface ChatboxProps {
   running: boolean;
   images: PendingImage[];
@@ -392,6 +405,9 @@ interface ChatboxProps {
   model: string;
   gateMode: "strict" | "auto";
   tokens?: number;
+  queued: QueuedMsg[];
+  onQueueRemove: (id: string) => void;
+  onQueuePromote: (id: string) => void;
   onSend: (text: string) => void;
   onCancel: () => void;
   onPickImage: (file: File) => void;
@@ -405,6 +421,7 @@ interface ChatboxProps {
 function Chatbox(p: ChatboxProps) {
   const [text, setText] = useState("");
   const [listening, setListening] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(true);
   const ref = useRef<HTMLTextAreaElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -498,12 +515,59 @@ function Chatbox(p: ChatboxProps) {
       )}
 
       <div className="mx-3 my-2.5 rounded-2xl border border-border bg-card shadow-xl shadow-black/30 focus-within:border-ring">
+        {p.queued.length > 0 && (
+          <div className="border-b border-border">
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-xs text-muted-foreground"
+              onClick={() => setQueueOpen(!queueOpen)}
+            >
+              <ChevronDown
+                size={13}
+                style={{ transform: queueOpen ? "none" : "rotate(-90deg)" }}
+              />
+              {p.queued.length} 个队列任务
+            </button>
+            {queueOpen &&
+              p.queued.map((q) => (
+                <div
+                  key={q.id}
+                  className="flex items-center gap-2 border-t border-border/60 px-3.5 py-2 text-[13px]"
+                >
+                  <span className="min-w-0 flex-1 truncate">{q.text || "📷 图片消息"}</span>
+                  <button
+                    type="button"
+                    aria-label="立即发送"
+                    title="立即发送"
+                    className="cursor-pointer p-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => p.onQueuePromote(q.id)}
+                  >
+                    <ArrowUp size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="移除"
+                    className="cursor-pointer p-1 text-muted-foreground hover:text-destructive"
+                    onClick={() => p.onQueueRemove(q.id)}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
         <Textarea
           ref={ref}
           data-testid="composer-input"
           className="max-h-36 border-0 bg-transparent px-3.5 pt-3 pb-1 text-base focus-visible:ring-0"
           rows={1}
-          placeholder={listening ? "正在听… 说完自动填入" : "描述你想让 Agent 完成的任务…"}
+          placeholder={
+            listening
+              ? "正在听… 说完自动填入"
+              : p.running
+                ? "添加到队列（当前任务结束后自动发送）"
+                : "描述你想让 Agent 完成的任务…"
+          }
           value={text}
           enterKeyHint="send"
           onChange={(e) => {
@@ -1244,6 +1308,8 @@ export function ChatApp({
   const [error, setError] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [pendingFiles, setPendingFiles] = useState<{ name: string; text: string }[]>([]);
+  const [queued, setQueued] = useState<QueuedMsg[]>([]);
+  const queuedRef = useRef<QueuedMsg[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
   const [engine, setEngine] = useState("pi");
@@ -1499,6 +1565,13 @@ export function ChatApp({
             setLiveArtifacts([]);
     setLiveTokens(0);
             refreshSessions();
+            // drain client queue: send the next queued message, if any
+            if (queuedRef.current.length) {
+              const next = queuedRef.current[0];
+              queuedRef.current = queuedRef.current.slice(1);
+              setQueued(queuedRef.current);
+              window.setTimeout(() => sendRef.current(next.text, next.images), 50);
+            }
             if (typeof document !== "undefined" && document.hidden) {
               try {
                 if (typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -1588,6 +1661,7 @@ export function ChatApp({
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
+  const sendRef = useRef<(text: string, images?: PendingImage[], files?: { name: string; text: string }[]) => Promise<void>>(async () => {});
   const send = useCallback(
     async (text: string, images?: PendingImage[], files?: { name: string; text: string }[]) => {
       let id = activeId;
@@ -1655,6 +1729,7 @@ export function ChatApp({
     },
     [activeId, refreshSessions, model, gateMode, liveRunning, detail],
   );
+  sendRef.current = send;
 
   const cancel = useCallback(async () => {
     if (activeId) {
@@ -1778,6 +1853,43 @@ export function ChatApp({
       /* ignore */
     }
   }, []);
+
+  const submitOrQueue = useCallback(
+    (text: string) => {
+      const runningNow = liveRunning || Boolean(detail?.running);
+      if (runningNow) {
+        // visible client-side queue (Codex-style), consumed on turn.finished
+        const item: QueuedMsg = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          text,
+          images: pendingImages.length ? [...pendingImages] : undefined,
+        };
+        queuedRef.current = [...queuedRef.current, item];
+        setQueued(queuedRef.current);
+        setPendingImages([]);
+        setPendingFiles([]);
+      } else {
+        send(text, pendingImages, pendingFiles);
+      }
+    },
+    [liveRunning, detail, pendingImages, pendingFiles, send],
+  );
+
+  const queueRemove = useCallback((id: string) => {
+    queuedRef.current = queuedRef.current.filter((q) => q.id !== id);
+    setQueued(queuedRef.current);
+  }, []);
+
+  const queuePromote = useCallback(
+    (id: string) => {
+      const item = queuedRef.current.find((q) => q.id === id);
+      if (!item) return;
+      queuedRef.current = queuedRef.current.filter((q) => q.id !== id);
+      setQueued(queuedRef.current);
+      send(item.text, item.images); // server followUp queues if still running
+    },
+    [send],
+  );
 
   const decideApproval = useCallback(
     async (requestId: string, approved: boolean) => {
@@ -2183,7 +2295,10 @@ export function ChatApp({
         models={models}
         model={model || "qwen3.8-max"}
         gateMode={gateMode}
-        onSend={(t) => send(t, pendingImages, pendingFiles)}
+        onSend={submitOrQueue}
+        queued={queued}
+        onQueueRemove={queueRemove}
+        onQueuePromote={queuePromote}
         onCancel={cancel}
         onPickImage={pickImage}
         onPickFile={pickFile}
