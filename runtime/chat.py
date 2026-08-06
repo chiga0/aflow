@@ -375,8 +375,14 @@ class ChatHub:
                 )
         # The turn is persisted; late/reconnecting subscribers must not
         # replay it as live events (that rendered duplicate replies).
+        # Keep ONLY the terminal event so a client that reconnects after
+        # a network blip still learns the turn ended (cancel/stop on flaky
+        # mobile links used to stick 'running' forever).
         with state.lock:
+            last = list(state.buffer)[-1] if state.buffer else None
             state.buffer.clear()
+            if last is not None:
+                state.buffer.append(last)
         with state.lock:
             state.running = False
 
