@@ -86,7 +86,10 @@ class ChatHubTests(unittest.TestCase):
         self.hub.send_message(chat_id, "hi")
         self.assertTrue(_wait(lambda: not self.hub._get_state(chat_id).running))
         state = self.hub._get_state(chat_id)
-        self.assertEqual(len(state.buffer), 0)
+        # only the terminal event may remain (for late joiners); no live
+        # events that would re-render the finished turn.
+        types = [t for _s, t, _d in state.buffer]
+        self.assertEqual(types, ["turn.finished"])
 
     def test_message_queue_while_running(self):
         slow_adapter, slow_patcher = make_pi_adapter(FRAMES, delay_ms=500)
