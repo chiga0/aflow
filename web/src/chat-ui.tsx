@@ -23,7 +23,7 @@ import {
   Mic,
   Monitor,
   Moon,
-  Paperclip,
+  Plus,
   Send,
   ShieldCheck,
   Sparkles,
@@ -391,6 +391,7 @@ interface ChatboxProps {
   models: string[];
   model: string;
   gateMode: "strict" | "auto";
+  tokens?: number;
   onSend: (text: string) => void;
   onCancel: () => void;
   onPickImage: (file: File) => void;
@@ -521,7 +522,7 @@ function Chatbox(p: ChatboxProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="附加内容" className="rounded-full text-muted-foreground">
-                <Paperclip size={17} />
+                <Plus size={17} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start">
@@ -535,24 +536,36 @@ function Chatbox(p: ChatboxProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {hasSR && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="语音输入"
-              className={cn(
-                "rounded-full",
-                listening
-                  ? "bg-destructive/80 text-white [animation:aflow-pulse_1.2s_infinite]"
-                  : "text-muted-foreground",
-              )}
-              onClick={toggleVoice}
-            >
-              <Mic size={17} />
-            </Button>
-          )}
+          {/* approval mode (left, Codex-style permission chip) */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="审批模式"
+            disabled={p.running}
+            title={p.gateMode === "strict" ? "危险命令需审批" : "自动执行（免审批）"}
+            className={cn(
+              "h-8 gap-1 px-1.5 text-xs",
+              p.gateMode === "strict"
+                ? "text-muted-foreground hover:text-foreground"
+                : "text-warning hover:brightness-110",
+            )}
+            onClick={() => p.onGateMode(p.gateMode === "strict" ? "auto" : "strict")}
+          >
+            {p.gateMode === "strict" ? <ShieldCheck size={14} /> : <Zap size={14} />}
+            <span className="hidden min-[420px]:inline">
+              {p.gateMode === "strict" ? "审批" : "自动"}
+            </span>
+          </Button>
 
           <div className="flex-1" />
+
+          {/* usage (Codex-style ⚡ tokens) */}
+          {(p.tokens ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <Zap size={11} />
+              {((p.tokens ?? 0) / 1000).toFixed(1)}k
+            </span>
+          )}
 
           {/* model switcher */}
           <DropdownMenu>
@@ -584,26 +597,22 @@ function Chatbox(p: ChatboxProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* approval mode */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="审批模式"
-            disabled={p.running}
-            title={p.gateMode === "strict" ? "危险命令需审批" : "自动执行（免审批）"}
-            className={cn(
-              "h-8 gap-1 px-1.5 text-xs",
-              p.gateMode === "strict"
-                ? "text-muted-foreground hover:text-foreground"
-                : "text-warning hover:brightness-110",
-            )}
-            onClick={() => p.onGateMode(p.gateMode === "strict" ? "auto" : "strict")}
-          >
-            {p.gateMode === "strict" ? <ShieldCheck size={14} /> : <Zap size={14} />}
-            <span className="hidden min-[420px]:inline">
-              {p.gateMode === "strict" ? "审批" : "自动"}
-            </span>
-          </Button>
+          {hasSR && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="语音输入"
+              className={cn(
+                "rounded-full",
+                listening
+                  ? "bg-destructive/80 text-white [animation:aflow-pulse_1.2s_infinite]"
+                  : "text-muted-foreground",
+              )}
+              onClick={toggleVoice}
+            >
+              <Mic size={17} />
+            </Button>
+          )}
 
           {p.running && !canSend ? (
             <Button
@@ -1857,11 +1866,6 @@ export function ChatApp({
               <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] tracking-wide text-primary">
                 {engine}
               </span>
-              {liveTokens > 0 && (
-                <span className="text-[10px] font-normal text-muted-foreground">
-                  {(liveTokens / 1000).toFixed(1)}k tok
-                </span>
-              )}
             </div>
             <Button variant="ghost" size="icon" aria-label="新会话" onClick={() => newSession()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -2187,6 +2191,7 @@ export function ChatApp({
         onRemoveFile={(i) => setPendingFiles((fs) => fs.filter((_f, j) => j !== i))}
         onModel={changeModel}
         onGateMode={changeGateMode}
+        tokens={liveTokens}
       />
         </>
       )}
