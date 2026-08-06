@@ -2198,7 +2198,7 @@ export function ChatApp({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5 [overscroll-behavior-y:contain]"
+        className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3.5 [overscroll-behavior:none]"
         style={{
           transform: `translateY(${refreshing ? 40 : pullPx}px)`,
           transition: dragging ? "none" : "transform 0.25s cubic-bezier(0.2, 0.8, 0.4, 1)",
