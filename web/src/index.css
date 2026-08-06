@@ -92,7 +92,6 @@ body,
   /* kill Android WebView's blue overscroll glow on keyboard resize */
   overscroll-behavior: none;
 }
-}
 
 body {
   background: var(--background);
