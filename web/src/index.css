@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Android WebView draws a blue overscroll glow from ANY scrollable element
+   during keyboard-resize bounces; kill it globally. */
+* {
+  overscroll-behavior: none;
+}
+
 /* aflow theme: CSS variables first (shadcn-style), dark by default.
    Light theme = override the variables under :root:not(.dark) or a
    future theme toggle. */

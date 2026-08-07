@@ -68,7 +68,82 @@ public class MainActivity extends Activity {
 
         setContentView(web);
         web.loadUrl(URL);
+        setupVoiceBridge();
         checkUpdate();
+    }
+
+    // ── native voice input (works without GMS on CN ROMs) ─────
+
+    private android.speech.SpeechRecognizer recognizer;
+
+    private void setupVoiceBridge() {
+        web.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public boolean available() {
+                return android.speech.SpeechRecognizer.isRecognitionAvailable(MainActivity.this);
+            }
+
+            @android.webkit.JavascriptInterface
+            public void startVoice() {
+                startSpeech();
+            }
+
+            @android.webkit.JavascriptInterface
+            public void stopVoice() {
+                runOnUiThread(() -> {
+                    if (recognizer != null) recognizer.stopListening();
+                });
+            }
+        }, "AflowVoice");
+    }
+
+    private void startSpeech() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != 0) {
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 77);
+            return;
+        }
+        runOnUiThread(() -> {
+            try {
+                if (recognizer != null) recognizer.destroy();
+                recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this);
+                android.content.Intent i = new android.content.Intent(
+                        android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                recognizer.setRecognitionListener(new android.speech.RecognitionListener() {
+                    public void onReadyForSpeech(android.os.Bundle p) { voiceCb("onStart", ""); }
+                    public void onBeginningOfSpeech(android.os.Bundle p) { }
+                    public void onRmsChanged(float f) { }
+                    public void onBufferReceived(byte[] b) { }
+                    public void onEndOfSpeech(android.os.Bundle p) { }
+                    public void onError(int e) { voiceCb("onEnd", ""); }
+                    public void onResults(android.os.Bundle r) {
+                        java.util.ArrayList<String> l = r.getStringArrayList(
+                                android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                        voiceCb("onResult", (l == null || l.isEmpty()) ? "" : l.get(0));
+                        voiceCb("onEnd", "");
+                    }
+                    public void onPartialResults(android.os.Bundle r) {
+                        java.util.ArrayList<String> l = r.getStringArrayList(
+                                android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                        if (l != null && !l.isEmpty()) voiceCb("onPartial", l.get(0));
+                    }
+                    public void onEvent(int e, android.os.Bundle p) { }
+                });
+                recognizer.startListening(i);
+            } catch (Exception ignored) {
+                voiceCb("onEnd", "");
+            }
+        });
+    }
+
+    private void voiceCb(String fn, String arg) {
+        runOnUiThread(() -> web.evaluateJavascript(
+                "window.__aflowVoiceCb && window.__aflowVoiceCb("
+                        + org.json.JSONObject.quote(fn) + ","
+                        + org.json.JSONObject.quote(arg) + ")", null));
     }
 
     // ── in-app updates ─────────────────────────────────────

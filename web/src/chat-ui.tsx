@@ -457,8 +457,30 @@ function Chatbox(p: ChatboxProps) {
 
   const toggleVoice = () => {
     const w = window as unknown as Record<string, any>;
+    // 1) native Android bridge (APK, works without GMS)
+    if (w.AflowVoice?.available?.()) {
+      if (listening) {
+        w.AflowVoice.stopVoice?.();
+        setListening(false);
+        return;
+      }
+      w.__aflowVoiceCb = (fn: string, text: string) => {
+        if (fn === "onResult" && text) {
+          setText((t) => (t ? `${t} ${text}` : text));
+          requestAnimationFrame(autosize);
+        }
+        if (fn === "onEnd") setListening(false);
+      };
+      setListening(true);
+      w.AflowVoice.startVoice();
+      return;
+    }
+    // 2) Web Speech API (browser with speech services)
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) {
+      setError("当前环境无语音服务，可用键盘自带语音输入");
+      return;
+    }
     if (listening) {
       recRef.current?.stop();
       return;
@@ -481,13 +503,6 @@ function Chatbox(p: ChatboxProps) {
     setListening(true);
     rec.start();
   };
-
-  const hasSR =
-    typeof window !== "undefined" &&
-    Boolean(
-      (window as unknown as Record<string, any>).SpeechRecognition ||
-        (window as unknown as Record<string, any>).webkitSpeechRecognition,
-    );
 
   return (
     <div className="shrink-0 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
@@ -673,7 +688,7 @@ function Chatbox(p: ChatboxProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {hasSR && (
+          {(
             <Button
               variant="ghost"
               size="icon-sm"
