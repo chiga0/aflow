@@ -114,10 +114,10 @@ public class MainActivity extends Activity {
                 i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                 recognizer.setRecognitionListener(new android.speech.RecognitionListener() {
                     public void onReadyForSpeech(android.os.Bundle p) { voiceCb("onStart", ""); }
-                    public void onBeginningOfSpeech(android.os.Bundle p) { }
+                    public void onBeginningOfSpeech() { }
                     public void onRmsChanged(float f) { }
                     public void onBufferReceived(byte[] b) { }
-                    public void onEndOfSpeech(android.os.Bundle p) { }
+                    public void onEndOfSpeech() { }
                     public void onError(int e) { voiceCb("onEnd", ""); }
                     public void onResults(android.os.Bundle r) {
                         java.util.ArrayList<String> l = r.getStringArrayList(
