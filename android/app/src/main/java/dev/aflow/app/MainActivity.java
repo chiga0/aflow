@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
                     public void onRmsChanged(float f) { }
                     public void onBufferReceived(byte[] b) { }
                     public void onEndOfSpeech() { }
-                    public void onError(int e) { voiceCb("onEnd", ""); }
+                    public void onError(int e) { voiceCb("onError", String.valueOf(e)); }
                     public void onResults(android.os.Bundle r) {
                         java.util.ArrayList<String> l = r.getStringArrayList(
                                 android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
@@ -137,6 +137,16 @@ public class MainActivity extends Activity {
                 voiceCb("onEnd", "");
             }
         });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        // auto-start recognition once mic permission is granted
+        if (code == 77 && res.length > 0 && res[0] == 0) {
+            web.evaluateJavascript(
+                "window.__aflowVoiceAutostart && window.__aflowVoiceAutostart()", null);
+        }
     }
 
     private void voiceCb(String fn, String arg) {

@@ -470,7 +470,14 @@ function Chatbox(p: ChatboxProps) {
           setText((t) => (t ? `${t} ${text}` : text));
           requestAnimationFrame(autosize);
         }
+        if (fn === "onError") {
+          p.onHint(`语音识别失败（错误 ${text}），见设置页语音方案说明`);
+        }
         if (fn === "onEnd") setListening(false);
+      };
+      w.__aflowVoiceAutostart = () => {
+        // permission just granted: retry once
+        w.AflowVoice.startVoice();
       };
       setListening(true);
       w.AflowVoice.startVoice();
@@ -1459,6 +1466,12 @@ export function ChatApp({
 
   const openSession = useCallback(async (id: string | null) => {
     setActiveId(id);
+    try {
+      if (id) localStorage.setItem("aflow-last-session", id);
+      else localStorage.removeItem("aflow-last-session");
+    } catch {
+      /* private mode */
+    }
     if ((history.state as any)?.drawer) history.back();
     setError(null);
     setLiveText("");
@@ -1478,8 +1491,15 @@ export function ChatApp({
     }
     try {
       setDetail(await api<SessionDetail>("GET", `/api/chat/sessions/${id}`));
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
+    } catch {
+      // stale persisted id: drop it and stay on the welcome page
+      setActiveId(null);
+      setDetail(null);
+      try {
+        localStorage.removeItem("aflow-last-session");
+      } catch {
+        /* ignore */
+      }
     }
   }, []);
 
@@ -1653,6 +1673,17 @@ export function ChatApp({
     refreshSessions();
   }, [refreshSessions]);
 
+  // restore the last active session so relaunch lands where the user left off
+  useEffect(() => {
+    try {
+      const last = localStorage.getItem("aflow-last-session");
+      if (last) openSession(last);
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     api<{ models: string[]; engine?: string }>("GET", "/api/chat/meta")
       .then((m) => {
@@ -1728,6 +1759,11 @@ export function ChatApp({
           const session = await api<SessionMeta>("POST", "/api/chat/sessions");
           id = session.id;
           setActiveId(id);
+          try {
+            localStorage.setItem("aflow-last-session", id);
+          } catch {
+            /* ignore */
+          }
           setDetail({ ...session, running: false, messages: [] });
           await api("POST", `/api/chat/sessions/${id}/options`, {
             model: model || undefined,
