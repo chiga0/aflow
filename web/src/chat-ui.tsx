@@ -428,6 +428,7 @@ interface ChatboxProps {
   onRemoveFile: (index: number) => void;
   onModel: (model: string) => void;
   onGateMode: (mode: "strict" | "auto") => void;
+  onHint: (msg: string) => void;
 }
 
 function Chatbox(p: ChatboxProps) {
@@ -478,7 +479,7 @@ function Chatbox(p: ChatboxProps) {
     // 2) Web Speech API (browser with speech services)
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) {
-      setError("当前环境无语音服务，可用键盘自带语音输入");
+      p.onHint("当前环境无语音服务，可用键盘自带语音输入");
       return;
     }
     if (listening) {
@@ -2360,6 +2361,7 @@ export function ChatApp({
         onModel={changeModel}
         onGateMode={changeGateMode}
         tokens={liveTokens}
+        onHint={(m) => setError(m)}
       />
         </>
       )}
