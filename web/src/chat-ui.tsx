@@ -480,6 +480,7 @@ function Chatbox(p: ChatboxProps) {
         w.AflowVoice.startVoice();
       };
       setListening(true);
+      p.onHint("原生语音聆听中… 说完自动上字");
       w.AflowVoice.startVoice();
       return;
     }
@@ -497,6 +498,7 @@ function Chatbox(p: ChatboxProps) {
     rec.lang = "zh-CN";
     rec.continuous = true;
     rec.interimResults = false;
+    p.onHint("浏览器语音聆听中… 说完自动上字");
     rec.onresult = (e: any) => {
       let final = "";
       for (const r of e.results) if (r.isFinal) final += r[0].transcript;
@@ -506,7 +508,10 @@ function Chatbox(p: ChatboxProps) {
       }
     };
     rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onerror = (e: any) => {
+      setListening(false);
+      p.onHint(`浏览器语音不可用（${String(e?.error || "error")}）——国行无 Google 服务常见，等实时语音桥或用键盘语音`);
+    };
     recRef.current = rec;
     setListening(true);
     rec.start();
